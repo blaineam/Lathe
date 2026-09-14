@@ -38,10 +38,53 @@ import LatheCore
 /// ```swift
 /// if EncodeSupport.shared.canEncode(.avif) { … } else { /* fall back to HEIC */ }
 /// ```
+///
+/// ## ImageIO is not the only backend
+///
+/// One format is written by Lathe itself rather than by ImageIO: **WebP**, via
+/// the vendored libwebp (see ``WebPEncoder``). That does not make the probe lie
+/// about ImageIO. The two questions are kept separate —
+/// ``imageIOEncodableFormats`` is still exactly what ImageIO demonstrated, and
+/// ``EncodeSupport/overReportedTypeIdentifiers`` still names WebP as advertised
+/// and unusable, because it is — and ``canEncode(_:)`` answers the question
+/// callers actually have, which is "will this package write me one". Which
+/// backend answers is ``backend(for:)``, and
+/// ``destinationTypeIdentifier(for:)`` stays an ImageIO concept: it is `nil` for
+/// WebP, today and on the day ImageIO gains a WebP encoder.
 public struct EncodeSupport: Sendable {
 
     /// The process-wide instance. Cheap to touch repeatedly.
     public static let shared = EncodeSupport()
+
+    /// Which encoder writes a given format.
+    public enum Backend: String, Sendable, Hashable, CustomStringConvertible {
+        /// `CGImageDestination`. The overwhelming majority.
+        case imageIO
+        /// An encoder this package vendors, used because Apple's frameworks
+        /// genuinely cannot do the job. Today: WebP, via libwebp.
+        case builtIn
+
+        public var description: String {
+            switch self {
+            case .imageIO: "ImageIO"
+            case .builtIn: "Lathe (vendored)"
+            }
+        }
+    }
+
+    /// Formats this package encodes itself, whatever ImageIO can do.
+    ///
+    /// Not probed, because there is nothing to probe: these are compiled into
+    /// the package, so their availability is a build-time fact rather than a
+    /// property of the running system. That is the *only* reason it is
+    /// acceptable for an entry here not to be runtime-verified — the rule this
+    /// file is built around ("ask the system, never the calendar") exists
+    /// because the system's abilities vary, and this set's do not.
+    ///
+    /// ImageIO still wins where both can write a format, so this set staying
+    /// correct as ImageIO grows costs nothing: the day it really does encode
+    /// WebP, ``backend(for:)`` switches to `.imageIO` on its own.
+    public static let builtInFormats: Set<ImageFormat> = [.webp]
 
     /// Every UTI `CGImageDestinationCopyTypeIdentifiers()` reported, verbatim and
     /// in the order given.
@@ -55,6 +98,10 @@ public struct EncodeSupport: Sendable {
     /// destination. Empty would be nice; in practice it is not.
     public let overReportedTypeIdentifiers: [String]
 
+    /// Exactly what ImageIO demonstrated it can write — the probe's own answer,
+    /// with nothing added.
+    public let imageIOEncodableFormats: Set<ImageFormat>
+
     private let supported: Set<ImageFormat>
     private let matchedIdentifiers: [ImageFormat: String]
 
@@ -65,19 +112,20 @@ public struct EncodeSupport: Sendable {
         self.reportedTypeIdentifiers = probe.reported
         self.overReportedTypeIdentifiers = probe.overReported
 
-        var supported: Set<ImageFormat> = []
+        var viaImageIO: Set<ImageFormat> = []
         var matched: [ImageFormat: String] = [:]
         for format in ImageFormat.allCases {
             // Primary identifier first, aliases after, so the canonical spelling
             // wins when more than one works.
             for candidate in format.allTypeIdentifiers
             where probe.encodable.contains(candidate.lowercased()) {
-                supported.insert(format)
+                viaImageIO.insert(format)
                 matched[format] = candidate
                 break
             }
         }
-        self.supported = supported
+        self.imageIOEncodableFormats = viaImageIO
+        self.supported = viaImageIO.union(Self.builtInFormats)
         self.matchedIdentifiers = matched
     }
 
@@ -138,12 +186,22 @@ public struct EncodeSupport: Sendable {
 
     // MARK: - Queries
 
-    /// Whether this system can encode `format`.
+    /// Whether this system can encode `format` — by any backend.
     public func canEncode(_ format: ImageFormat) -> Bool {
         supported.contains(format)
     }
 
-    /// Every format this system can encode.
+    /// Which encoder would write `format`, or `nil` if nothing here can.
+    ///
+    /// ImageIO wins ties, so a format that gains an ImageIO encoder stops using
+    /// the vendored one without anybody editing a list.
+    public func backend(for format: ImageFormat) -> Backend? {
+        if imageIOEncodableFormats.contains(format) { return .imageIO }
+        if Self.builtInFormats.contains(format) { return .builtIn }
+        return nil
+    }
+
+    /// Every format this system can encode, by either backend.
     public var supportedFormats: Set<ImageFormat> { supported }
 
     /// Every format Lathe knows about that this system cannot encode.
@@ -152,8 +210,12 @@ public struct EncodeSupport: Sendable {
     }
 
     /// The UTI to hand to `CGImageDestinationCreateWithURL` / `…WithData` for
-    /// `format` — one that has been *demonstrated* to work — or `nil` if the
-    /// format cannot be encoded here.
+    /// `format` — one that has been *demonstrated* to work — or `nil` if
+    /// **ImageIO** cannot encode the format.
+    ///
+    /// > Note: `nil` does not mean ``canEncode(_:)`` is `false`. A format with a
+    /// > built-in backend has no `CGImageDestination` and never will; ask
+    /// > ``backend(for:)`` rather than reading a `nil` here as a refusal.
     public func destinationTypeIdentifier(for format: ImageFormat) -> String? {
         matchedIdentifiers[format]
     }
@@ -198,13 +260,14 @@ public struct EncodeSupport: Sendable {
                          + overReportedTypeIdentifiers.joined(separator: ", "))
         }
         lines.append("")
-        lines.append("  Lathe formats (verified by attempting to create a destination):")
+        lines.append("  Lathe formats (ImageIO verified by attempting to create a destination):")
         let width = ImageFormat.allCases.map(\.description.count).max() ?? 8
         for format in ImageFormat.allCases.sorted(by: { $0.description < $1.description }) {
             let name = format.description.padding(toLength: width, withPad: " ", startingAt: 0)
             let mark = canEncode(format) ? "encode YES" : "encode no "
+            let via = backend(for: format).map { "via \($0.description)" } ?? "—"
             let uti = destinationTypeIdentifier(for: format) ?? format.typeIdentifier
-            lines.append("    \(name)  \(mark)  (\(uti))")
+            lines.append("    \(name)  \(mark)  \(via.padding(toLength: 17, withPad: " ", startingAt: 0))  (\(uti))")
         }
         return lines.joined(separator: "\n")
     }

@@ -11,9 +11,13 @@ import Testing
 /// The split here is deliberate:
 ///
 /// - **Invariants are asserted.** JPEG and PNG have been writable by ImageIO
-///   since it existed. WebP is decode-only — it is *advertised* as a destination
-///   type and then refuses to produce one, which is the whole reason the probe
-///   attempts an encode instead of reading the advertised list.
+///   since it existed. WebP is *advertised* by ImageIO as a destination type and
+///   then refuses to produce one — that is the whole reason the probe attempts
+///   an encode instead of reading the advertised list, and the reason this
+///   package vendors libwebp. So `canEncode(.webp)` is now true while
+///   `imageIOEncodableFormats` still, correctly, excludes it. Keeping both
+///   assertions is the point: the claim about ImageIO did not become untrue when
+///   Lathe gained its own encoder.
 /// - **Everything else is reported, not asserted.** Whether this particular
 ///   system writes AVIF, JPEG XL, HEICS or JP2 is exactly what the probe exists
 ///   to discover, and freezing today's answer into a test would re-introduce the
@@ -36,11 +40,20 @@ struct EncodeSupportTests {
             print("    · \(identifier)")
         }
         print("")
-        let decodeOnly = DecodeSupport.shared.supportedFormats
+        let imageIODecodeOnly = DecodeSupport.shared.supportedFormats
+            .subtracting(EncodeSupport.shared.imageIOEncodableFormats)
+            .sorted { $0.description < $1.description }
+        print("  ImageIO decode-only (needs a vendored encoder to write): "
+              + (imageIODecodeOnly.isEmpty ? "none"
+                 : imageIODecodeOnly.map(\.description).joined(separator: ", ")))
+        let stillUnwritable = DecodeSupport.shared.supportedFormats
             .subtracting(EncodeSupport.shared.supportedFormats)
             .sorted { $0.description < $1.description }
-        print("  decode-only (needs a third-party encoder to write): "
-              + (decodeOnly.isEmpty ? "none" : decodeOnly.map(\.description).joined(separator: ", ")))
+        print("  …of which Lathe still cannot write: "
+              + (stillUnwritable.isEmpty ? "none"
+                 : stillUnwritable.map(\.description).joined(separator: ", ")))
+        print("  vendored encoders: "
+              + EncodeSupport.builtInFormats.map(\.description).sorted().joined(separator: ", "))
         print("")
 
         #expect(!EncodeSupport.shared.reportedTypeIdentifiers.isEmpty,
@@ -62,20 +75,60 @@ struct EncodeSupportTests {
         #expect(EncodeSupport.shared.supportedFormats.contains(.png))
     }
 
-    /// ImageIO reads WebP and does not write it.
+    /// **ImageIO** reads WebP and does not write it.
     ///
-    /// This is the fact a third-party WebP encoder dependency rests on, and it is
-    /// also the fact that breaks a naive probe: `org.webmproject.webp` *is* in
+    /// This is the fact the vendored libwebp dependency rests on, and it is also
+    /// the fact that breaks a naive probe: `org.webmproject.webp` *is* in
     /// `CGImageDestinationCopyTypeIdentifiers()`. Asserting it here means the day
     /// ImageIO really does gain WebP encode, the build says so — which would be
-    /// good news worth hearing.
-    @Test("WebP is decode-only: readable, not writable")
-    func webPIsDecodeOnly() {
-        #expect(!EncodeSupport.shared.canEncode(.webp),
-                "ImageIO now encodes WebP. That is a real change — revisit the WebP encoder dependency.")
-        #expect(!EncodeSupport.shared.supportedFormats.contains(.webp))
-        #expect(EncodeSupport.shared.destinationTypeIdentifier(for: .webp) == nil)
+    /// good news worth hearing, because `EncodeSupport.backend(for:)` would
+    /// switch to `.imageIO` on its own and `Sources/CWebP` could go.
+    ///
+    /// > Note: this assertion used to read `!canEncode(.webp)`, and that was
+    /// > right until this package acquired its own WebP encoder. It is now split
+    /// > in two, because the two claims are genuinely different: what ImageIO can
+    /// > do, and what Lathe will write for you.
+    @Test("ImageIO reads WebP and does not write it")
+    func imageIODoesNotEncodeWebP() {
+        #expect(!EncodeSupport.shared.imageIOEncodableFormats.contains(.webp),
+                "ImageIO now encodes WebP. That is a real change — revisit the vendored libwebp.")
+        #expect(EncodeSupport.shared.destinationTypeIdentifier(for: .webp) == nil,
+                "a WebP UTI would mean ImageIO grew a destination for it")
+        #expect(!EncodeSupport.canCreateDestination(for: ImageFormat.webp.typeIdentifier))
         #expect(DecodeSupport.shared.canDecode(.webp), "ImageIO should still decode WebP")
+    }
+
+    /// And Lathe writes it anyway, through the vendored encoder.
+    ///
+    /// The probe is not being asked to lie about ImageIO to make this true: the
+    /// backend is a separate axis, and `destinationTypeIdentifier` stays `nil`
+    /// because there is no `CGImageDestination` involved at any point.
+    @Test("WebP is encodable — by Lathe's own encoder, not ImageIO's")
+    func webPIsEncodableByTheBuiltInBackend() {
+        #expect(EncodeSupport.shared.canEncode(.webp))
+        #expect(EncodeSupport.shared.supportedFormats.contains(.webp))
+        #expect(EncodeSupport.shared.backend(for: .webp) == .builtIn)
+        #expect(EncodeSupport.shared.unsupportedFormats.contains(.webp) == false)
+        #expect(throws: Never.self) { try EncodeSupport.shared.requireEncodable(.webp) }
+    }
+
+    /// Every format resolves to exactly one backend, or to none.
+    @Test("backend and canEncode agree for every format", arguments: ImageFormat.allCases)
+    func backendMatchesCanEncode(format: ImageFormat) {
+        let support = EncodeSupport.shared
+        #expect((support.backend(for: format) != nil) == support.canEncode(format))
+        switch support.backend(for: format) {
+        case .imageIO:
+            #expect(support.destinationTypeIdentifier(for: format) != nil)
+            #expect(support.imageIOEncodableFormats.contains(format))
+        case .builtIn:
+            // A built-in backend is used *because* ImageIO has none. If ImageIO
+            // ever gains one, `backend(for:)` must prefer it.
+            #expect(!support.imageIOEncodableFormats.contains(format))
+            #expect(EncodeSupport.builtInFormats.contains(format))
+        case nil:
+            #expect(!support.canEncode(format))
+        }
     }
 
     /// The finding the probe design exists for, pinned as a test.
@@ -109,13 +162,24 @@ struct EncodeSupportTests {
         }
     }
 
-    @Test("requireEncodable throws for an unsupported format")
+    /// Which formats are unsupported is a discovery, not an invariant — WebP used
+    /// to be the one guaranteed member of that set and no longer is — so this
+    /// asserts the *shape* of the refusal against whatever the probe found, and
+    /// reports when it found nothing to refuse.
+    @Test("requireEncodable throws for an unsupported format, and not otherwise")
     func requireEncodableThrows() {
-        #expect(throws: LatheError.encodeUnavailable(format: ImageFormat.webp.description)) {
-            try EncodeSupport.shared.requireEncodable(.webp)
+        let unsupported = EncodeSupport.shared.unsupportedFormats
+            .sorted { $0.rawValue < $1.rawValue }
+        print("  formats with no encoder here: "
+              + (unsupported.isEmpty ? "none" : unsupported.map(\.description).joined(separator: ", ")))
+
+        for format in unsupported {
+            #expect(throws: LatheError.encodeUnavailable(format: format.description)) {
+                try EncodeSupport.shared.requireEncodable(format)
+            }
         }
-        #expect(throws: Never.self) {
-            try EncodeSupport.shared.requireEncodable(.jpeg)
+        for format in [ImageFormat.jpeg, .png, .webp] {
+            #expect(throws: Never.self) { try EncodeSupport.shared.requireEncodable(format) }
         }
     }
 
@@ -138,15 +202,18 @@ struct EncodeSupportTests {
 
     /// The identifier handed back must be one that demonstrably works — not just
     /// one that appeared in a list somewhere.
+    ///
+    /// The question is asked of `imageIOEncodableFormats`, not of `canEncode`: a
+    /// UTI is an ImageIO concept, and a format with a built-in backend must have
+    /// no UTI precisely *because* ImageIO cannot write it.
     @Test("a supported format's UTI really does create a destination",
           arguments: ImageFormat.allCases)
     func destinationIdentifierIsUsable(format: ImageFormat) {
         let uti = EncodeSupport.shared.destinationTypeIdentifier(for: format)
-        if EncodeSupport.shared.canEncode(format) {
-            let identifier = try? #require(uti)
-            #expect(identifier != nil)
-            if let identifier {
-                #expect(EncodeSupport.canCreateDestination(for: identifier))
+        if EncodeSupport.shared.imageIOEncodableFormats.contains(format) {
+            #expect(uti != nil)
+            if let uti {
+                #expect(EncodeSupport.canCreateDestination(for: uti))
             }
         } else {
             #expect(uti == nil)
@@ -165,11 +232,18 @@ struct EncodeSupportTests {
 
     @Test("firstSupported degrades down a preference list")
     func firstSupportedDegrades() {
-        // WebP can never be first, JPEG can always be last.
-        #expect(EncodeSupport.shared.firstSupported(of: [.webp, .jpeg]) == .jpeg)
+        // JPEG and PNG can always be last; WebP now wins outright, which is the
+        // point of a degrade list that asks the package rather than ImageIO.
+        #expect(EncodeSupport.shared.firstSupported(of: [.webp, .jpeg]) == .webp)
         #expect(EncodeSupport.shared.firstSupported(of: [.png]) == .png)
-        #expect(EncodeSupport.shared.firstSupported(of: [.webp]) == nil)
+        #expect(EncodeSupport.shared.firstSupported(of: [.webp]) == .webp)
         #expect(EncodeSupport.shared.firstSupported(of: []) == nil)
+
+        // And an entry with no encoder at all still falls through.
+        if let missing = EncodeSupport.shared.unsupportedFormats.first {
+            #expect(EncodeSupport.shared.firstSupported(of: [missing, .jpeg]) == .jpeg)
+            #expect(EncodeSupport.shared.firstSupported(of: [missing]) == nil)
+        }
     }
 
     // MARK: - Does the probe tell the truth?
@@ -182,13 +256,18 @@ struct EncodeSupportTests {
     /// Anything else that passes the probe and then fails to finalise is printed
     /// as a discrepancy, because that is a finding about the platform rather than
     /// a defect in this package.
+    ///
+    /// ImageIO-backed formats only: the built-in backends have no
+    /// `CGImageDestination` to exercise, and their "does it produce bytes"
+    /// question is answered end-to-end in `ImageEncoderTests`.
     @Test("claimed formats actually produce bytes")
     func claimedFormatsActuallyEncode() throws {
         let image = try #require(Self.makeTestImage(), "could not construct a test CGImage")
         var discrepancies: [String] = []
 
         print("")
-        for format in EncodeSupport.shared.supportedFormats.sorted(by: { $0.description < $1.description }) {
+        for format in EncodeSupport.shared.imageIOEncodableFormats
+            .sorted(by: { $0.description < $1.description }) {
             let uti = try #require(EncodeSupport.shared.destinationTypeIdentifier(for: format))
             let data = NSMutableData()
             guard let destination = CGImageDestinationCreateWithData(

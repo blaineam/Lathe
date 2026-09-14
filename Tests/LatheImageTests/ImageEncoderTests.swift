@@ -24,30 +24,6 @@ struct ImageEncoderTests {
 
     // MARK: - Refusing what cannot be written
 
-    /// ImageIO decodes WebP and does not encode it — it is even *advertised* as a
-    /// destination type — so this is the one format guaranteed to exercise the
-    /// refusal path on every machine.
-    ///
-    /// Two assertions, and the second is the one that matters: a refusal that
-    /// leaves a zero-length file behind is indistinguishable from success to
-    /// every caller that checks `fileExists`.
-    @Test("WebP is refused up front, and leaves no file behind")
-    func webPIsRefusedCleanly() async throws {
-        try await Fixtures.withDirectory { directory in
-            let source = try Fixtures.plainImage(in: directory, size: PixelSize(width: 32, height: 24))
-            let destination = directory.appendingPathComponent("out.webp")
-
-            await #expect(throws: LatheError.encodeUnavailable(format: "WebP")) {
-                try await encoder.encode(
-                    source: source, to: destination,
-                    format: .webp, quality: .quality(0.8), resize: nil, metadata: .preserveAll
-                )
-            }
-            #expect(!FileManager.default.fileExists(atPath: destination.path),
-                    "a refused encode must not leave a 0-byte file")
-        }
-    }
-
     /// The refusal has to happen before anything is created, which is only
     /// observable through the absence of a file. Asserted for every format the
     /// probe says this system cannot write, so a machine with no AVIF encoder
@@ -73,28 +49,37 @@ struct ImageEncoderTests {
         }
     }
 
-    /// `.lossless` says "re-encode nothing", which an encoder cannot honour. It
-    /// is refused rather than quietly reinterpreted as "quality 1.0" — those are
-    /// very different files.
-    @Test("a lossless quality target is refused, not reinterpreted")
+    /// For an ImageIO format `.lossless` says "re-encode nothing", which an
+    /// encoder cannot honour. It is refused rather than quietly reinterpreted as
+    /// "quality 1.0" — those are very different files.
+    ///
+    /// Asserted for every ImageIO-backed format, not just JPEG, because the
+    /// refusal now has a live exception (WebP) and "which side of the line is
+    /// this format on" is exactly the thing that could drift.
+    @Test("a lossless quality target is refused for every ImageIO format")
     func losslessIsRefused() async throws {
         try await Fixtures.withDirectory { directory in
             let source = try Fixtures.plainImage(in: directory, size: PixelSize(width: 32, height: 24))
-            let destination = directory.appendingPathComponent("out.jpg")
 
-            do {
-                _ = try await encoder.encode(
-                    source: source, to: destination,
-                    format: .jpeg, quality: .lossless, resize: nil, metadata: .preserveAll
-                )
-                Issue.record("expected a refusal")
-            } catch let error as LatheError {
-                guard case .invalidConfiguration = error else {
-                    Issue.record("expected .invalidConfiguration, got \(error)")
-                    return
+            for format in EncodeSupport.shared.imageIOEncodableFormats
+                .sorted(by: { $0.rawValue < $1.rawValue }) {
+                let destination = directory
+                    .appendingPathComponent("lossless.\(format.preferredFilenameExtension)")
+                do {
+                    _ = try await encoder.encode(
+                        source: source, to: destination,
+                        format: format, quality: .lossless, resize: nil, metadata: .preserveAll
+                    )
+                    Issue.record("\(format.description): expected a refusal")
+                } catch let error as LatheError {
+                    guard case .invalidConfiguration = error else {
+                        Issue.record("\(format.description): expected .invalidConfiguration, got \(error)")
+                        continue
+                    }
                 }
+                #expect(!FileManager.default.fileExists(atPath: destination.path))
             }
-            #expect(!FileManager.default.fileExists(atPath: destination.path))
+            #expect(Fixtures.strayFiles(in: directory).isEmpty)
         }
     }
 
@@ -841,21 +826,29 @@ struct ImageEncoderTests {
 
     /// The encoder overwrites, and an overwrite that fails must not destroy what
     /// was already there. The move-into-place is what buys this.
+    ///
+    /// The failure is provoked with an unreadable *source*, which fails at stage
+    /// 1 for every format and on every platform. This used to target WebP, back
+    /// when WebP was guaranteed to be unwritable; it is not any more, and a test
+    /// that depends on a capability probe's answer is a test that stops testing
+    /// what it says the day the answer changes. See `WebPEncoderTests` for the
+    /// same property proved against a failure *inside* the encoder.
     @Test("an existing destination survives a failed encode")
     func failedEncodeLeavesThePreviousFileIntact() async throws {
         try await Fixtures.withDirectory { directory in
-            let destination = directory.appendingPathComponent("existing.webp")
+            let destination = directory.appendingPathComponent("existing.jpg")
             let original = Data("the file that was already here".utf8)
             try original.write(to: destination)
 
-            let source = try Fixtures.plainImage(in: directory, size: PixelSize(width: 16, height: 16))
+            let source = directory.appendingPathComponent("gone.png")
             await #expect(throws: LatheError.self) {
                 try await encoder.encode(
                     source: source, to: destination,
-                    format: .webp, quality: .quality(0.8), resize: nil, metadata: .preserveAll
+                    format: .jpeg, quality: .quality(0.8), resize: nil, metadata: .preserveAll
                 )
             }
             #expect(try Data(contentsOf: destination) == original)
+            #expect(Fixtures.strayFiles(in: directory).isEmpty)
         }
     }
 }
@@ -978,6 +971,49 @@ enum Fixtures {
         return url
     }
 
+    /// Deterministic pseudo-random noise — the incompressible case.
+    ///
+    /// Its own generator rather than `SystemRandomNumberGenerator`, so a size
+    /// comparison measured here is the same size comparison on the next run and
+    /// on somebody else's machine. Written as PNG so the fixture itself adds no
+    /// compression artefacts.
+    static func noiseImage(in directory: URL, size: PixelSize) throws -> URL {
+        // A 64-bit xorshift, seeded by hand. Any full-period generator would do;
+        // what matters is that it is in this file rather than in a library whose
+        // stream could change under us.
+        var state: UInt64 = 0x2545_F491_4F6C_DD1D
+        func next() -> UInt8 {
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
+            return UInt8(truncatingIfNeeded: state >> 24)
+        }
+        let image = try #require(
+            bitmap(size) { _, _ in RGB(next(), next(), next()) },
+            "could not build a noise CGImage"
+        )
+        let url = directory.appendingPathComponent("noise-\(size.width)x\(size.height).png")
+        try write(image, to: url, format: .png, properties: [:])
+        return url
+    }
+
+    /// A flat colour at a uniform alpha, written as PNG so the alpha survives
+    /// the fixture itself.
+    static func translucentImage(
+        in directory: URL,
+        size: PixelSize,
+        colour: RGB,
+        alpha: UInt8
+    ) throws -> URL {
+        let image = try #require(
+            bitmap(size, alpha: alpha) { _, _ in colour },
+            "could not build a translucent CGImage"
+        )
+        let url = directory.appendingPathComponent("translucent.png")
+        try write(image, to: url, format: .png, properties: [:])
+        return url
+    }
+
     private static func write(
         _ image: CGImage,
         to url: URL,
@@ -1025,16 +1061,24 @@ enum Fixtures {
 
     /// `body` is called with (column, row) where row 0 is the **top** — the same
     /// convention as a stored image's first row.
-    private static func bitmap(_ size: PixelSize, _ body: (Int, Int) -> RGB) -> CGImage? {
+    ///
+    /// `alpha` is applied to every pixel, and the colours are premultiplied on
+    /// the way in because that is the only alpha layout `CGImage` accepts here.
+    private static func bitmap(
+        _ size: PixelSize,
+        alpha: UInt8 = 255,
+        _ body: (Int, Int) -> RGB
+    ) -> CGImage? {
         var pixels = [UInt8](repeating: 0, count: size.width * size.height * 4)
+        let scale = { (value: UInt8) in UInt8((Int(value) * Int(alpha) + 127) / 255) }
         for y in 0..<size.height {
             for x in 0..<size.width {
                 let colour = body(x, y)
                 let i = (y * size.width + x) * 4
-                pixels[i + 0] = colour.r
-                pixels[i + 1] = colour.g
-                pixels[i + 2] = colour.b
-                pixels[i + 3] = 255
+                pixels[i + 0] = scale(colour.r)
+                pixels[i + 1] = scale(colour.g)
+                pixels[i + 2] = scale(colour.b)
+                pixels[i + 3] = alpha
             }
         }
         guard let provider = CGDataProvider(data: Data(pixels) as CFData) else { return nil }
@@ -1065,6 +1109,57 @@ enum Fixtures {
         guard let raw = (properties(of: url)[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value
         else { return nil }
         return CGImagePropertyOrientation(rawValue: raw)
+    }
+
+    static func byteCount(of url: URL) -> UInt64 {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+            .flatMap { $0.map(UInt64.init) } ?? 0
+    }
+
+    /// Every pixel as tightly-packed RGBA, for a whole-image comparison.
+    ///
+    /// `premultiplied: false` asks for straight alpha, which a bitmap context
+    /// cannot produce directly — so it draws premultiplied and divides back out,
+    /// the same way the encoder does.
+    static func rgbaBytes(of image: CGImage, premultiplied: Bool = true) -> [UInt8]? {
+        let bytesPerRow = image.width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * image.height)
+        let drew: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let context = CGContext(
+                data: raw.baseAddress, width: image.width, height: image.height,
+                bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                    | CGBitmapInfo.byteOrder32Big.rawValue
+            ) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return true
+        }
+        guard drew else { return nil }
+        guard !premultiplied else { return pixels }
+
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let a = Int(pixels[i + 3])
+            guard a > 0, a < 255 else { continue }
+            for channel in 0..<3 {
+                pixels[i + channel] = UInt8(min(255, (Int(pixels[i + channel]) * 255 + a / 2) / a))
+            }
+        }
+        return pixels
+    }
+
+    // MARK: Reading raw containers
+
+    static func fourCC(_ data: Data, at offset: Int) -> String? {
+        guard data.count >= offset + 4 else { return nil }
+        return String(decoding: data[offset..<(offset + 4)], as: UTF8.self)
+    }
+
+    static func littleEndianUInt32(_ data: Data, at offset: Int) -> UInt32 {
+        guard data.count >= offset + 4 else { return 0 }
+        return data[offset..<(offset + 4)]
+            .enumerated()
+            .reduce(UInt32(0)) { $0 | (UInt32($1.element) << (8 * $1.offset)) }
     }
 
     static func exif(_ properties: [CFString: Any], _ key: CFString) -> Any? {

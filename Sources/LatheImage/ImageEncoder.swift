@@ -40,6 +40,28 @@ import LatheCore
 ///
 /// **Metadata is written, not inherited.** See ``ImageMetadata``.
 ///
+/// ## Two backends, one contract
+///
+/// Almost everything here is ImageIO. **WebP is not** — ImageIO reads it and
+/// cannot write it (``EncodeSupport`` proves that by trying), so WebP is encoded
+/// by the vendored libwebp in ``WebPEncoder``. The routing is
+/// ``EncodeSupport/backend(for:)`` and it is invisible to the caller: same
+/// ``QualityTarget``, same ``ResizeTarget``, same ``MetadataPolicy``, same
+/// ``ProgressHandle``, same ``ImageEncodeResult``, same downscale-only rule, same
+/// never-leave-a-partial-file rule.
+///
+/// Two differences are real and are not papered over:
+///
+/// - ``QualityTarget/lossless`` **is honoured for WebP** and refused for
+///   everything else. For an ImageIO format "re-encode nothing" is a
+///   contradiction in terms for an encoder — it is
+///   ``ImageMetadataRewriter``'s job. libwebp, uniquely here, has a genuine
+///   lossless coder, so `.lossless` selects it and the pixels survive exactly.
+/// - **A WebP written here carries no metadata at all** — no EXIF, no GPS, no
+///   XMP, no ICC — because no muxer is vendored. Orientation is therefore baked
+///   into the pixels rather than dropped, by the same rule that already covers
+///   every format with nowhere to put a tag. See ``WebPEncoder``.
+///
 /// ## Progress and cancellation
 ///
 /// The `async` entry point runs the encode through ``LatheWork``, so the
@@ -65,8 +87,9 @@ public struct ImageEncoder: Sendable {
     ///     untouched if the encode fails.
     ///   - format: the output format. Checked against ``EncodeSupport`` before
     ///     anything is created.
-    ///   - quality: only ``QualityTarget/quality(_:)`` is honoured, and only for
-    ///     formats that are lossy by default. See the note on `.lossless` below.
+    ///   - quality: ``QualityTarget/quality(_:)`` is honoured for formats that
+    ///     are lossy by default, and ``QualityTarget/lossless`` for WebP. See the
+    ///     note below.
     ///   - resize: `nil` and ``ResizeTarget/none`` both mean "leave the pixel
     ///     dimensions alone" — the optional is here because the parameter reads
     ///     better that way, not because they differ. (Swift resolves a literal
@@ -153,15 +176,17 @@ public struct ImageEncoder: Sendable {
         // Runtime-probed, never version-gated. See `EncodeSupport`.
         try progress.checkpoint(LatheProgress(stage: "probe", unitIndex: 0, unitCount: stageCount))
         try EncodeSupport.shared.requireEncodable(request.format)
-        guard let typeIdentifier = EncodeSupport.shared.destinationTypeIdentifier(for: request.format) else {
+        guard let backend = EncodeSupport.shared.backend(for: request.format) else {
             throw LatheError.encodeUnavailable(format: request.format.description)
         }
-        if case .lossless = request.quality {
+        if case .lossless = request.quality, backend == .imageIO {
             throw LatheError.invalidConfiguration(
-                reason: "QualityTarget.lossless means \"re-encode nothing\", which an encoder "
-                    + "cannot honour. Copying encoded data through while rewriting metadata is "
-                    + "ImageMetadataRewriter's job (CGImageDestinationCopyImageSource); this is "
-                    + "CGImageDestinationAddImage, and it re-encodes by definition."
+                reason: "QualityTarget.lossless means \"re-encode nothing\", which an ImageIO "
+                    + "encode cannot honour. Copying encoded data through while rewriting "
+                    + "metadata is ImageMetadataRewriter's job "
+                    + "(CGImageDestinationCopyImageSource); this is CGImageDestinationAddImage, "
+                    + "and it re-encodes by definition. (WebP is the exception: libwebp has a "
+                    + "real lossless coder, so .lossless selects it.)"
             )
         }
 
@@ -247,28 +272,66 @@ public struct ImageEncoder: Sendable {
 
         // Stage 4 — metadata, then write.
         try progress.checkpoint(LatheProgress(stage: "encode", unitIndex: 4, unitCount: stageCount))
-        var properties = try ImageMetadata.properties(
-            for: request.metadata,
-            from: sourceProperties,
-            forcePreserve: request.forcePreserve,
-            // `.bake` rotated the pixels, so the tag must become "already
-            // upright". Writing the original value here is the double-rotation
-            // bug, and it is why these two strategies are an enum rather than a
-            // pair of booleans somebody can set both of.
-            orientation: strategy == .bake ? .up : sourceOrientation
-        )
-        if request.format.isLossyByDefault, let normalised = request.quality.normalisedQuality {
-            properties[kCGImageDestinationLossyCompressionQuality] = normalised
+
+        let outputByteCount: UInt64
+        switch backend {
+        case .imageIO:
+            guard let typeIdentifier = EncodeSupport.shared
+                .destinationTypeIdentifier(for: request.format)
+            else {
+                throw LatheError.encodeUnavailable(format: request.format.description)
+            }
+            var properties = try ImageMetadata.properties(
+                for: request.metadata,
+                from: sourceProperties,
+                forcePreserve: request.forcePreserve,
+                // `.bake` rotated the pixels, so the tag must become "already
+                // upright". Writing the original value here is the
+                // double-rotation bug, and it is why these two strategies are an
+                // enum rather than a pair of booleans somebody can set both of.
+                orientation: strategy == .bake ? .up : sourceOrientation
+            )
+            if request.format.isLossyByDefault, let normalised = request.quality.normalisedQuality {
+                properties[kCGImageDestinationLossyCompressionQuality] = normalised
+            }
+            outputByteCount = try writingAtomically(
+                to: request.destination, format: request.format
+            ) { scratch in
+                try writeViaImageIO(
+                    image, to: scratch, typeIdentifier: typeIdentifier,
+                    format: request.format, properties: properties, progress: progress
+                )
+            }
+
+        case .builtIn:
+            // Only WebP reaches here, and the metadata dictionary above is not
+            // built at all: libwebp's container support stops at the pixels (see
+            // `WebPEncoder`), so there is nowhere to put it. The policy is not
+            // silently ignored, it is reported — a caller who asked to preserve
+            // GPS and got a file with none should be able to find out why from
+            // the log rather than from a diff.
+            if request.metadata != .stripAll {
+                LatheLog.image.debug(
+                    """
+                    \(request.format.description, privacy: .public) is written by the vendored \
+                    encoder, which stores no metadata chunks; the requested policy carries \
+                    nothing across. Orientation \
+                    \(sourceOrientation.rawValue, privacy: .public) is baked into the pixels.
+                    """
+                )
+            }
+            let encoded = try WebPEncoder.encode(image, quality: request.quality)
+            try progress.checkCancellation()
+            outputByteCount = try writingAtomically(
+                to: request.destination, format: request.format
+            ) { scratch in
+                try encoded.write(to: scratch, options: .atomic)
+            }
         }
 
-        let outputByteCount = try write(
-            image,
-            to: request.destination,
-            typeIdentifier: typeIdentifier,
-            format: request.format,
-            properties: properties,
-            progress: progress
-        )
+        // The terminal tick. A UI that never sees unitIndex == unitCount looks
+        // stuck at 80% forever; `ProgressHandle` never throttles this one away.
+        progress.report(LatheProgress(stage: "encode", unitIndex: stageCount, unitCount: stageCount))
 
         let pixelSize = PixelSize(width: image.width, height: image.height)
         if outputByteCount > inputByteCount, inputByteCount > 0, request.format.isLossyByDefault {
@@ -437,13 +500,10 @@ public struct ImageEncoder: Sendable {
     /// A sibling rather than the system temporary directory, because `moveItem`
     /// across volumes is a copy, and the destination is where the caller already
     /// decided there is room.
-    private static func write(
-        _ image: CGImage,
+    private static func writingAtomically(
         to destination: URL,
-        typeIdentifier: String,
         format: ImageFormat,
-        properties: [CFString: Any],
-        progress: ProgressHandle
+        _ body: (URL) throws -> Void
     ) throws -> UInt64 {
         let directory = destination.deletingLastPathComponent()
         let scratch = directory.appendingPathComponent(
@@ -454,20 +514,52 @@ public struct ImageEncoder: Sendable {
         // makes for a worse message.
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
+        var cleanUp = true
+        defer { if cleanUp { try? FileManager.default.removeItem(at: scratch) } }
+
+        try body(scratch)
+
+        let size = byteCount(of: scratch) ?? 0
+        guard size > 0 else {
+            throw LatheError.encodingFailed(
+                stage: "encode", code: nil,
+                reason: "\(format.description) finalised but produced no bytes"
+            )
+        }
+
+        do {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: scratch)
+        } catch {
+            throw LatheError.writeFailed(
+                path: destination.lastPathComponent,
+                reason: (error as NSError).localizedDescription
+            )
+        }
+        cleanUp = false
+        return size
+    }
+
+    /// The ImageIO half of the encode. Writes into whatever URL it is handed —
+    /// the temporary-file dance belongs to ``writingAtomically(to:format:_:)``.
+    private static func writeViaImageIO(
+        _ image: CGImage,
+        to scratch: URL,
+        typeIdentifier: String,
+        format: ImageFormat,
+        properties: [CFString: Any],
+        progress: ProgressHandle
+    ) throws {
         guard let sink = CGImageDestinationCreateWithURL(
             scratch as CFURL, typeIdentifier as CFString, 1, nil
         ) else {
             // The capability probe already said this format encodes, so reaching
             // here means the destination is at fault.
             throw LatheError.writeFailed(
-                path: destination.lastPathComponent,
+                path: scratch.lastPathComponent,
                 reason: "ImageIO would not open a \(format.description) destination in "
-                    + "\(directory.lastPathComponent)"
+                    + "\(scratch.deletingLastPathComponent().lastPathComponent)"
             )
         }
-
-        var cleanUp = true
-        defer { if cleanUp { try? FileManager.default.removeItem(at: scratch) } }
 
         CGImageDestinationAddImage(sink, image, properties as CFDictionary)
 
@@ -497,29 +589,6 @@ public struct ImageEncoder: Sendable {
                 reason: "ImageIO could not finalise \(format.description)\(hint)"
             )
         }
-
-        let size = byteCount(of: scratch) ?? 0
-        guard size > 0 else {
-            throw LatheError.encodingFailed(
-                stage: "encode", code: nil,
-                reason: "\(format.description) finalised but produced no bytes"
-            )
-        }
-
-        do {
-            _ = try FileManager.default.replaceItemAt(destination, withItemAt: scratch)
-        } catch {
-            throw LatheError.writeFailed(
-                path: destination.lastPathComponent,
-                reason: (error as NSError).localizedDescription
-            )
-        }
-        cleanUp = false
-
-        // The terminal tick. A UI that never sees unitIndex == unitCount looks
-        // stuck at 80% forever; `ProgressHandle` never throttles this one away.
-        progress.report(LatheProgress(stage: "encode", unitIndex: stageCount, unitCount: stageCount))
-        return size
     }
 
     // MARK: - Files
@@ -652,7 +721,14 @@ enum OrientationTagSupport {
         var preserved: Set<ImageFormat> = []
         guard let image = probeImage() else { return preserved }
 
-        for format in support.supportedFormats {
+        // ImageIO-encodable formats only, and that is the whole answer for the
+        // built-in backends too: a `CGImageDestination` round trip is the only
+        // thing this probe can perform, so a format Lathe writes itself is
+        // absent from the result and therefore reported as unable to hold a tag
+        // — which for WebP is the truth. See `WebPEncoder`: no muxer is
+        // vendored, so there is no `EXIF` chunk to write an orientation into,
+        // and `ImageEncoder` bakes the rotation instead.
+        for format in support.imageIOEncodableFormats {
             guard let uti = support.destinationTypeIdentifier(for: format) else { continue }
             let buffer = NSMutableData()
             guard let destination = CGImageDestinationCreateWithData(
@@ -675,7 +751,8 @@ enum OrientationTagSupport {
         LatheLog.capability.info(
             """
             orientation-tag probe: \(preserved.count, privacy: .public) of \
-            \(support.supportedFormats.count, privacy: .public) encodable formats keep the tag \
+            \(support.imageIOEncodableFormats.count, privacy: .public) ImageIO-encodable formats \
+            keep the tag \
             (\(preserved.map(\.description).sorted().joined(separator: ", "), privacy: .public))
             """
         )

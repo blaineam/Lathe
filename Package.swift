@@ -63,16 +63,16 @@ let package = Package(
 
         // MARK: - Domain modules
         //
-        // Split by domain so each can grow — and acquire its own binary
+        // Split by domain so each can grow — and acquire its own third-party
         // dependencies — without dragging the others along. The still-image
-        // module will eventually need a WebP encoder, the document module a PDF
+        // module has a WebP encoder (below); the document module will need a PDF
         // writer, the video module an optional container fallback. Keeping them
         // apart means a consumer that only needs stills never links a PDF
         // library.
 
         .target(name: "LatheCore"),
 
-        .target(name: "LatheImage", dependencies: ["LatheCore"]),
+        .target(name: "LatheImage", dependencies: ["LatheCore", "CWebP"]),
 
         // LatheVideo writes still images too — a thumbnail is a still — so it
         // sits on top of LatheImage in order to reuse one capability probe
@@ -85,6 +85,66 @@ let package = Package(
         .target(name: "LatheDoc", dependencies: ["LatheCore", "LatheImage"]),
 
         .target(name: "LatheAudio", dependencies: ["LatheCore"]),
+
+        // MARK: - Vendored C
+        //
+        // libwebp, as source, compiled by SwiftPM like any other target.
+        //
+        // ## Why not an xcframework
+        //
+        // The reflex for a C dependency on Apple platforms is to build it into an
+        // `.xcframework` and consume it as a `binaryTarget`. libwebp does not
+        // need that, and taking it would cost real maintainability:
+        //
+        // * **One `swift build` covers every platform.** iOS, macOS, both
+        //   simulators, Catalyst, and whatever Apple ships next — all from the
+        //   same sources, with no per-slice build script, no `lipo`, no
+        //   `-create-xcframework`, and no slice that somebody forgot to rebuild.
+        // * **Nothing binary is committed.** No artifact in git, no release
+        //   pipeline, no checksum to keep in step with a tag, and no CI job that
+        //   has to run green before anyone can consume a change.
+        // * **Upstream updates are a source refresh.** `refresh-upstream.sh`
+        //   against a new tag, then `swift test` — rather than rebuild,
+        //   re-notarise, re-upload, re-checksum.
+        //
+        // libwebp is plain portable C with no exotic build requirements, so none
+        // of what an xcframework buys (a closed-source blob, a hostile build
+        // system, a toolchain this package does not have) applies.
+        //
+        // ## Header layout
+        //
+        // Upstream includes itself as `"src/webp/encode.h"` — paths relative to
+        // its own repository root — so `upstream/` is put on the header search
+        // path and the vendored tree keeps upstream's directory shape verbatim.
+        // That is what lets `refresh-upstream.sh` be a copy rather than a
+        // rewrite. `include/` holds Lathe's one-line umbrella header, so the
+        // Swift side sees `WebPEncode` and none of libwebp's internals.
+        //
+        // ## SIMD
+        //
+        // No `HAVE_CONFIG_H`, deliberately: libwebp's own `cpu.h` then selects
+        // its kernels from the compiler's architecture macros, which is exactly
+        // the right behaviour under SwiftPM's one-build-per-arch model. NEON
+        // turns on from `__aarch64__` with no flag needed, and on Apple silicon
+        // it is unconditional rather than runtime-probed. x86_64 gets SSE2 the
+        // same way (`__SSE2__` is baseline); SSE4.1 and AVX2 need per-file
+        // `-msse4.1` / `-mavx2`, which SwiftPM cannot express, so those
+        // translation units compile to upstream's own empty stubs and the SSE2
+        // path runs. See VENDORING.md.
+        .target(
+            name: "CWebP",
+            path: "Sources/CWebP",
+            exclude: [
+                "VENDORING.md",
+                "refresh-upstream.sh",
+                "upstream/AUTHORS",
+                "upstream/COPYING",
+                "upstream/PATENTS",
+                "upstream/README-VENDORED.txt",
+            ],
+            publicHeadersPath: "include",
+            cSettings: [.headerSearchPath("upstream")]
+        ),
 
         // MARK: - Test support
 
