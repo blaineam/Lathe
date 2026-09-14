@@ -61,6 +61,47 @@ public enum PythonPackageError: Error, Sendable, Equatable {
     /// Asked to remove or update something that is not installed.
     case notInstalled(package: String)
 
+    // MARK: Resolution
+
+    /// A requirement string is not PEP 508.
+    case malformedRequirement(String, reason: String)
+
+    /// A requirement this installer will not act on — a direct URL reference,
+    /// which by definition arrives without an index-published hash.
+    case unsupportedRequirement(String, reason: String)
+
+    /// A distribution's `METADATA` could not be read, or declares a dependency
+    /// that could not be parsed.
+    ///
+    /// Not survivable by skipping the line: a dropped `Requires-Dist` is an
+    /// install that is silently missing a package, and the `ImportError` it
+    /// produces hours later points at the wrong file.
+    case metadataUnreadable(package: String, reason: String)
+
+    /// No version of a package satisfies everything the graph asks of it.
+    ///
+    /// Carries the accumulated constraint, the path that reached the package,
+    /// and what the index actually has. All three are needed: the constraint
+    /// says what is impossible, the chain says who asked for it, and the
+    /// available versions say whether it is a typo or a genuine conflict.
+    case noSatisfyingVersion(package: String, constraints: String, requiredBy: [String], available: [String])
+
+    /// A package **in the dependency graph** publishes only compiled wheels.
+    ///
+    /// Distinct from ``notPurePython(package:filename:members:)``, which is
+    /// about a wheel already in hand. This one is about a package the caller
+    /// never named and has no reason to have heard of, which is exactly why it
+    /// carries the chain: "a wheel was compiled" cannot be acted on, and
+    /// "gallery-dl needs X, which is compiled" can.
+    case dependencyNotPurePython(package: String, version: String, requiredBy: [String], candidates: [String])
+
+    /// The graph walk hit its step limit.
+    ///
+    /// Means metadata that cannot be satisfied by any monotone narrowing —
+    /// two packages pinning each other in a loop, or an index answering
+    /// inconsistently. A bounded failure rather than an unbounded run.
+    case resolutionDidNotConverge(package: String)
+
     /// The install directory could not be created or written.
     case storeUnwritable(path: String, reason: String)
 }
@@ -104,6 +145,41 @@ extension PythonPackageError: LocalizedError {
             "\(package) is not installed."
         case let .storeUnwritable(path, reason):
             "The package directory \(path) is not usable: \(reason)"
+        case let .malformedRequirement(text, reason):
+            "\(text) is not a usable requirement: \(reason)"
+        case let .unsupportedRequirement(text, reason):
+            "\(text) cannot be installed: \(reason)"
+        case let .metadataUnreadable(package, reason):
+            "\(package)'s metadata could not be read: \(reason)"
+        case let .noSatisfyingVersion(package, constraints, requiredBy, available):
+            """
+            No version of \(package) satisfies \(constraints)\(Self.via(requiredBy)).
+
+            The index has: \(available.isEmpty ? "no versions at all" : available.joined(separator: ", "))\
+            \(available.count >= 10 ? " (and older)" : "")
+            """
+        case let .dependencyNotPurePython(package, version, requiredBy, candidates):
+            """
+            \(package) \(version) publishes no pure-Python wheel\(Self.via(requiredBy)), so the install \
+            cannot proceed.
+
+            This is a property of that package, not of this installer: iOS cannot load a dynamic library \
+            that was not part of the signed application, so a compiled extension downloaded at run time \
+            can never be imported. The remaining options are a version of \(package) that does publish a \
+            pure wheel, or doing without whatever needs it.
+
+            \(package) \(version) publishes: \(candidates.prefix(6).joined(separator: ", "))\
+            \(candidates.count > 6 ? " (and \(candidates.count - 6) more)" : "")
+            """
+        case let .resolutionDidNotConverge(package):
+            "Resolution did not settle while working on \(package). The dependency metadata cannot be "
+                + "satisfied by narrowing alone — two packages are most likely constraining each other."
         }
+    }
+
+    /// ` (via gallery-dl → requests → urllib3)`, or nothing for a package the
+    /// caller named directly.
+    private static func via(_ chain: [String]) -> String {
+        chain.isEmpty ? "" : " (via \(chain.joined(separator: " → ")))"
     }
 }

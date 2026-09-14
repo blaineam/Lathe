@@ -152,9 +152,11 @@ The honest costs:
 | `swift build` | works with nothing fetched |
 | `swift test` — the 200 media tests | unaffected |
 | `swift test` — the wheel, installer-refusal and layout tests | run with no interpreter and no network |
-| `swift test` — the interpreter tests | run against the host's CPython |
+| `swift test` — the version, marker and dependency-resolution tests | pure functions of fixture `METADATA`; no interpreter, no network |
+| `swift test` — the interpreter, detached-call and cancellation tests | run against the host's CPython |
+| `swift test` — the TLS verification test | starts its own TLS server; needs `/usr/bin/openssl` to make a certificate, and skips with a known issue when it cannot |
 | `xcodebuild -destination 'generic/platform=iOS'` | works with nothing fetched |
-| the PyPI tests | **opt-in**, `LATHE_FETCH_NETWORK_TESTS=1` |
+| the PyPI tests, including installing `gallery-dl` with its whole graph | **opt-in**, `LATHE_FETCH_NETWORK_TESTS=1` |
 
 The interpreter tests need *a* CPython on the machine. Every Mac that can build
 this package has one — Xcode ships `Python3.framework` (3.9) and
@@ -195,6 +197,14 @@ To move to a newer release:
 5. Read upstream's `VERSIONS` file, reproduced in the table below, for the
    bundled OpenSSL. That is the one whose version genuinely matters to a
    downloader.
+
+**The bundled OpenSSL arrives with no CA bundle**, and no release of it ever
+will: the paths it was built to look in do not exist inside an application
+sandbox. Python-side HTTPS therefore fails certificate verification until
+something supplies anchors, which is what `PythonTrustStore` is for — and note
+that the bundle it uses is fetched by `URLSession`, against the *system* trust
+store, precisely so that acquiring it does not depend on the thing it fixes.
+Nothing here vendors a certificate either.
 
 The pinned release bundles these, built into the framework:
 

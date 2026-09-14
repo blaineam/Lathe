@@ -12,7 +12,12 @@ import Testing
 /// `LATHE_FETCH_NETWORK_TESTS=1` and skip cleanly without it; a default suite
 /// that depends on someone else's uptime is a suite that eventually gets
 /// disbelieved.
-@Suite("Pure-Python package installer")
+/// `.serialized` because these tests share one interpreter and each one
+/// installs into a temporary root it deletes afterwards. Run concurrently, one
+/// test's cleanup pulls the directory out from under another test's `sys.path`
+/// and `sys.modules`, and the failure looks like a packaging bug rather than
+/// like the test-isolation problem it is.
+@Suite("Pure-Python package installer", .serialized)
 struct PackageInstallerTests {
 
     private func temporaryRoot() throws -> URL {
@@ -264,5 +269,86 @@ struct PackageInstallerTests {
         print("  installed gallery-dl \(record.version) — \(record.members.count) files")
         try runtime.importModule("gallery_dl.version")
         #expect(try runtime.evaluate("gallery_dl.version.__version__").value.string == record.version)
+    }
+
+    // MARK: - The whole thing (network, opt-in)
+
+    @Test(
+        "gallery-dl installs with its dependencies and imports properly",
+        .enabled(if: SharedInterpreter.networkTestsEnabled && SharedInterpreter.isAvailable))
+    func installsGalleryDLWithDependencies() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+
+        // The plan first, because a person should be able to see what "install
+        // gallery-dl" actually means before it happens.
+        let plan = try await installer.plan(for: "gallery-dl")
+        print("")
+        print(plan.summary)
+        print("")
+
+        let planned = plan.steps.map(\.release.canonicalName)
+        #expect(planned.contains("gallery-dl"))
+        #expect(planned.contains("requests"), "gallery-dl needs requests, which is the reason this exists")
+        #expect(planned.contains("urllib3"), "requests needs urllib3, two levels down")
+        #expect(planned.contains("certifi"))
+        #expect(planned.contains("idna"))
+        // The extras of requests must not be in here. PySocks is the one that
+        // arrives uninvited when markers are ignored.
+        #expect(!planned.contains("pysocks"))
+        // Dependencies before the thing that imports them.
+        #expect(planned.last == "gallery-dl")
+
+        let installation = try await installer.install(requirement: "gallery-dl")
+        try await installer.activate()
+
+        #expect(installation.requested.map(\.name) == ["gallery-dl"])
+        #expect(installation.dependencies.count >= 4)
+        print("  installed \(installation.all.count) packages:")
+        for package in installation.all {
+            print("    · \(package.name) \(package.version) (\(package.members.count) files)")
+        }
+
+        // The interpreter is shared by the whole suite and never restarts, so
+        // an earlier test may have imported `gallery_dl` from a root that no
+        // longer exists. Dropping it from `sys.modules` makes the import below
+        // a real import of what was just installed rather than a cache hit.
+        try runtime.execute(
+            """
+            import sys
+            for _lathe_stale in [n for n in list(sys.modules) if n.split(".")[0] == "gallery_dl"]:
+                del sys.modules[_lathe_stale]
+            """)
+
+        // The proof, and the thing the previous suite could not do. Not
+        // `gallery_dl.version` — that is one file with no imports in it and
+        // passes with none of the dependency work done at all.
+        try runtime.importModule("gallery_dl")
+        try runtime.importModule("gallery_dl.extractor")
+        #expect(try runtime.evaluate("bool(gallery_dl.extractor.extractors())").value.bool == true)
+
+        // requests arrived as a dependency and works, which is what anything
+        // built on this is going to need first.
+        try runtime.importModule("requests")
+        #expect(try runtime.evaluate("requests.__version__").value.string?.isEmpty == false)
+    }
+
+    @Test(
+        "a second resolution sees the first one's packages rather than refetching them",
+        .enabled(if: SharedInterpreter.networkTestsEnabled && SharedInterpreter.isAvailable))
+    func reusesInstalledDependencies() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+        _ = try await installer.install(requirement: "requests")
+
+        let second = try await installer.plan(for: "requests")
+        #expect(second.steps.isEmpty, "everything was already installed:\n\(second.summary)")
+        #expect(second.alreadySatisfied.contains { $0.name == "urllib3" })
     }
 }

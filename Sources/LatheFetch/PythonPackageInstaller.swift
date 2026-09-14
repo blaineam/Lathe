@@ -87,8 +87,12 @@ public actor PythonPackageInstaller {
     /// Application Support directory, not its bundle.
     public let root: URL
 
-    private let runtime: PythonRuntime
+    let runtime: PythonRuntime
     private let fileManager = FileManager.default
+
+    /// The interpreter's marker environment, read once on first use.
+    /// See ``markerEnvironment()``.
+    var cachedMarkerEnvironment: PythonMarkerEnvironment?
 
     private var receiptsDirectory: URL {
         root.appendingPathComponent(".lathe-receipts", isDirectory: true)

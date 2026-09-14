@@ -577,16 +577,19 @@ import LatheFetch
 let runtime = try PythonRuntime.bootstrap(.discovered())
 print(runtime.platform.diagnosticReport)      // what this interpreter is, and cannot do
 
-try runtime.evaluate("sum(range(10))").value.int          // 45
-try runtime.execute("print('hi')").standardOutput          // "hi\n"
+try runtime.evaluate("sum(range(10))").value.int           // 45
+try await runtime.executeDetached("print('hi')")           // off the cooperative pool
 
 let packages = PythonPackageInstaller(runtime: runtime, root: applicationSupport)
-try await packages.install("gallery-dl")                   // resolved, hash-verified, unpacked
+try runtime.useTrustStore(try await packages.installTrustStore())   // Python's TLS anchors
+
+let plan = try await packages.plan(for: "gallery-dl")      // six packages; show it to someone
+try await packages.install(requirement: "gallery-dl")      // and its whole dependency graph
 try await packages.activate()                              // on sys.path
 try runtime.importModule("gallery_dl")
 ```
 
-Five things in it are not obvious, and each is a trap that was hit:
+Eight things in it are not obvious, and each is a trap that was hit:
 
 **There is one interpreter per process, and it is never torn down.**
 `Py_Initialize` runs once and `Py_Finalize` is not reliably re-entrant, so
@@ -623,6 +626,53 @@ from a bounded buffer.
 driver frame trimmed off so the trace starts at the caller's first line.
 `PythonException` has `type`, `message`, the formatted `traceback`, and whatever
 the code printed before it raised.
+
+**Dependencies are resolved transitively, and markers are honoured.** "Install
+gallery-dl" is six packages: it needs `requests`, which needs `urllib3`,
+`certifi`, `idna` and `charset-normalizer`. `PythonDependencyResolver` walks that
+graph from each wheel's own `METADATA`, picks a version satisfying every
+constraint collected for each package, detects cycles, and **skips what is
+already installed at a satisfying version** — reading that package's own
+requirements off disk rather than assuming its subtree is fine. Environment
+markers decide inclusion, which is not a detail: `requests` declares `PySocks`
+and `chardet` only under extras, and a resolver that ignores `; extra == "socks"`
+installs packages nobody asked for. A plan is produced **before anything is
+written**, so a graph that cannot be satisfied fails with nothing installed
+rather than leaving a half-set that imports until it does not. It is not a
+backtracking solver and does not pretend to be: a conflict fails by name, with
+the path that reached it — `nothing satisfies urllib3>=2,<2.1 (via gallery-dl →
+requests → urllib3)` — because the alternative to a clear failure is a silent
+wrong install.
+
+**A compiled dependency is named, not merely detected.** The refusal below
+applies to the whole graph, and it says *which* package in it was the compiled
+one and how the graph got there. "A wheel was compiled" cannot be acted on;
+"gallery-dl needs X, which is compiled" can.
+
+**Python's TLS has no anchors until something gives it some.** The OpenSSL inside
+an embedded CPython was built against paths that do not exist in an application
+sandbox, so every Python-side HTTPS request fails certificate verification — a
+safe failure, and a total one. `PythonTrustStore` solves the apparent
+chicken-and-egg (fetching a CA bundle needs TLS) by noting that there isn't one:
+**Swift fetches it and Python never does.** `URLSession` uses the system trust
+store, so the `certifi` wheel is downloaded and hash-verified by Swift, and the
+interpreter is then pointed at the bundle through `SSL_CERT_FILE`. Nothing is
+vendored — a CA bundle shipped inside a library would go stale on the library's
+release schedule rather than on Mozilla's. The suite asserts the part that is
+easy to fake: with the store configured, an **untrusted certificate is still
+rejected**, against a TLS server the tests start themselves.
+
+**There are two calling surfaces, and which to use is a real decision.**
+`execute`/`evaluate` are synchronous and block the calling thread — right when
+the caller is already on a thread of its own. `executeDetached`/`evaluateDetached`
+run the interpreter on a dedicated queue and are right from anything `async`,
+because a long Python call on a cooperative thread starves the pool exactly as a
+long encode does. Cancelling the enclosing `Task` asks CPython to raise
+`KeyboardInterrupt` in the thread running the call. That request is
+**cooperative and lands at a bytecode boundary**, which is documented rather than
+glossed: a pure-Python loop stops in milliseconds, a C extension blocked in a
+syscall does not stop at all, and Python that catches `BaseException` broadly
+swallows it exactly as it swallows a user's ^C.
 
 #### PEP 730: what does not work on iOS, and is not papered over
 

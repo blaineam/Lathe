@@ -240,6 +240,25 @@ public final class PythonRuntime: @unchecked Sendable {
         /// knows nothing about it.
         public var installsSignalHandlers: Bool = false
 
+        /// The certificate authorities Python's TLS verifies against.
+        ///
+        /// `nil` — the default — leaves the interpreter with whatever OpenSSL
+        /// was built to look for, which inside an application sandbox is
+        /// nothing: every Python-side HTTPS request then fails certificate
+        /// verification. That is a *safe* failure rather than a silent one, and
+        /// it is why this is `nil` by default instead of quietly disabling
+        /// verification.
+        ///
+        /// Setting it contributes `SSL_CERT_FILE` (and `REQUESTS_CA_BUNDLE`) to
+        /// ``additionalEnvironment``'s mechanism, before the caller's own
+        /// entries, so an explicit `additionalEnvironment["SSL_CERT_FILE"]`
+        /// still wins. On a first launch, when the bundle has not been fetched
+        /// yet, use ``PythonRuntime/useTrustStore(_:)`` instead — the
+        /// interpreter is already running by then and cannot be restarted.
+        ///
+        /// - SeeAlso: ``PythonTrustStore``
+        public var trustStore: PythonTrustStore?
+
         /// Extra environment variables to set before initialisation.
         ///
         /// For the things CPython only reads from the environment, such as
@@ -378,6 +397,18 @@ public final class PythonRuntime: @unchecked Sendable {
     /// ``PythonLayout``. These are process globals set exactly once, immediately
     /// before `Py_Initialize`, under the bootstrap latch.
     private static func applyEnvironment(for configuration: Configuration) {
+        for (name, value) in environment(for: configuration) {
+            setenv(name, value, 1)
+        }
+    }
+
+    /// The variables ``applyEnvironment(for:)`` will set, as a value.
+    ///
+    /// Separated from the `setenv` loop so that what a configuration *means* can
+    /// be asserted without a test mutating the process environment — which, for
+    /// a process that runs one interpreter and never restarts it, would be a
+    /// test with consequences for every test after it.
+    static func environment(for configuration: Configuration) -> [String: String] {
         let layout = configuration.layout
         var variables: [String: String] = [
             "PYTHONHOME": layout.home.path,
@@ -392,11 +423,11 @@ public final class PythonRuntime: @unchecked Sendable {
         ]
         if !configuration.writesBytecode { variables["PYTHONDONTWRITEBYTECODE"] = "1" }
         if !configuration.usesUserSitePackages { variables["PYTHONNOUSERSITE"] = "1" }
-        variables.merge(configuration.additionalEnvironment) { _, caller in caller }
-
-        for (name, value) in variables {
-            setenv(name, value, 1)
+        if let trustStore = configuration.trustStore {
+            variables.merge(trustStore.environment) { _, store in store }
         }
+        variables.merge(configuration.additionalEnvironment) { _, caller in caller }
+        return variables
     }
 
     private static func readPlatform(using symbols: PythonSymbols) throws -> PythonPlatform {
@@ -538,7 +569,7 @@ public final class PythonRuntime: @unchecked Sendable {
 
     // MARK: - The bridge
 
-    private struct Report: Decodable {
+    struct Report: Decodable {
         let ok: Bool
         let repr: String?
         let type: String?
@@ -560,8 +591,16 @@ public final class PythonRuntime: @unchecked Sendable {
     }
 
     /// The one place the GIL is taken, and the one place anything crosses.
-    private func call(_ source: String, mode: PythonDriver.Mode, arguments: [String: String]) throws -> Report {
-        let request: [String: Any] = ["source": source, "mode": mode.rawValue, "arguments": arguments]
+    ///
+    /// - Parameter callID: an identifier the driver registers against the
+    ///   running thread, so ``cancel(callID:)`` can reach it. `nil` for the
+    ///   synchronous surface, which has no `Task` to be cancelled and should not
+    ///   pay for the bookkeeping.
+    func call(
+        _ source: String, mode: PythonDriver.Mode, arguments: [String: String], callID: Int? = nil
+    ) throws -> Report {
+        var request: [String: Any] = ["source": source, "mode": mode.rawValue, "arguments": arguments]
+        if let callID { request["id"] = callID }
         guard let data = try? JSONSerialization.data(withJSONObject: request),
             let requestJSON = String(data: data, encoding: .utf8)
         else {
@@ -624,6 +663,29 @@ public final class PythonRuntime: @unchecked Sendable {
                 ))
         }
         return report
+    }
+
+    /// Asks the driver to interrupt an in-flight call.
+    ///
+    /// Best effort by construction, and silent by design: everything that can
+    /// go wrong here — the call already finished, the driver has no `ctypes`,
+    /// the thread is inside a C extension — means "it did not stop", and the
+    /// caller already handles that case because it is the ordinary one.
+    ///
+    /// Taking the GIL is what makes this *arrive*: acquiring it means waiting
+    /// for the running call to reach a bytecode boundary and drop it, which is
+    /// the same boundary the interrupt will be raised at. It is also why this
+    /// must never be called from the thread running the call it is cancelling,
+    /// and why ``PythonRuntime/workQueue`` and the cancellation queue are
+    /// separate.
+    func requestCancellation(of callID: Int) {
+        let gil = symbols.PyGILState_Ensure()
+        defer { symbols.PyGILState_Release(gil) }
+        guard let module = symbols.PyImport_AddModule(PythonDriver.moduleName),
+            let namespace = symbols.PyModule_GetDict(module)
+        else { return }
+        _ = try? Self.evaluateToString(
+            PythonDriver.cancelExpression(callID: callID), in: namespace, using: symbols)
     }
 
     /// Binds a Swift string to a Python global.

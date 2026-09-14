@@ -65,6 +65,14 @@ enum PythonDriver {
     /// Evaluated to describe the interpreter and its platform restrictions.
     static let platformExpression = "_lathe_platform()"
 
+    /// Evaluated to ask an in-flight call to stop.
+    ///
+    /// The one expression here that is built rather than fixed. The argument is
+    /// an integer this package generated and never anything a caller supplied,
+    /// which is what keeps "build a source string" from being the injection it
+    /// usually is.
+    static func cancelExpression(callID: Int) -> String { "_lathe_cancel(\(callID))" }
+
     enum Mode: String {
         /// `exec` — statements. No value.
         case execute = "exec"
@@ -96,6 +104,21 @@ enum PythonDriver {
         # lose when the buffer is a debugging aid.
         _LATHE_SHARED = []
         _LATHE_SHARED_LIMIT = 4096
+
+        # Cancellation state. `_LATHE_INFLIGHT` maps a call id to the thread
+        # running it; `_LATHE_CANCELLED` holds ids whose cancellation arrived
+        # before the call reached the interpreter, which is a real race when a
+        # Task is cancelled the instant after it is created.
+        #
+        # The set is capped because an id that is cancelled but never runs is
+        # never removed, and an unbounded set of integers in a process that runs
+        # for days is a leak. Dropping the oldest entries loses only cancels for
+        # calls that have not started in the last several hundred calls, which
+        # is not a state that occurs.
+        _LATHE_INFLIGHT = {}
+        _LATHE_CANCELLED = set()
+        _LATHE_CANCEL_LIMIT = 512
+        _LATHE_CANCEL_LOCK = threading.Lock()
 
 
         class _LatheBinaryStream:
@@ -253,13 +276,101 @@ enum PythonDriver {
             after this reads thread-local state.
             """
             global _lathe_request
-            _LATHE_LOCAL.request = json.loads(_lathe_request)
+            request = json.loads(_lathe_request)
+            _LATHE_LOCAL.request = request
             _lathe_request = ""
+            call_id = request.get("id")
+            if call_id is not None:
+                # Registered here rather than in `_lathe_run` because this is
+                # the earliest point at which the call has a thread, and a
+                # cancellation arriving between the two would otherwise find
+                # nothing to interrupt.
+                with _LATHE_CANCEL_LOCK:
+                    _LATHE_INFLIGHT[call_id] = threading.get_ident()
             return ""
 
 
+        def _lathe_cancel(call_id):
+            """Ask an in-flight call to stop, and say whether it was delivered.
+
+            `PyThreadState_SetAsyncExc` sets a pending exception on one specific
+            thread; the interpreter raises it at that thread's next bytecode
+            boundary. `PyErr_SetInterrupt` is the better-known spelling and is
+            the wrong one here: it raises in the *main* thread, and these calls
+            never run there.
+
+            It is cooperative, and the limits are real rather than theoretical.
+            A thread inside a C extension that is blocked in a syscall executes
+            no bytecode, so nothing is raised until it comes back; a bare
+            `try/except BaseException` in the package being run swallows the
+            KeyboardInterrupt the same way it swallows a user's ^C. Neither is
+            fixable from here, and both are documented rather than papered over.
+            """
+            with _LATHE_CANCEL_LOCK:
+                thread_id = _LATHE_INFLIGHT.get(call_id)
+                if len(_LATHE_CANCELLED) >= _LATHE_CANCEL_LIMIT:
+                    _LATHE_CANCELLED.clear()
+                _LATHE_CANCELLED.add(call_id)
+
+            if thread_id is None:
+                # Not started yet, or already finished. The flag above covers
+                # the first case; the second needs nothing.
+                return json.dumps({"delivered": False, "reason": "the call is not running"})
+
+            try:
+                import ctypes
+            except BaseException as exc:  # noqa: BLE001
+                return json.dumps(
+                    {"delivered": False, "reason": "ctypes is unavailable: %s" % exc}
+                )
+
+            setter = ctypes.pythonapi.PyThreadState_SetAsyncExc
+            setter.argtypes = [ctypes.c_ulong, ctypes.py_object]
+            setter.restype = ctypes.c_int
+            affected = setter(ctypes.c_ulong(thread_id), ctypes.py_object(KeyboardInterrupt))
+            if affected > 1:
+                # Documented as impossible; undoing it is what the CPython
+                # documentation says to do if it ever is not.
+                setter(ctypes.c_ulong(thread_id), ctypes.py_object())
+                return json.dumps({"delivered": False, "reason": "more than one thread matched"})
+            return json.dumps(
+                {
+                    "delivered": affected == 1,
+                    "reason": "" if affected == 1 else "the thread had already finished",
+                }
+            )
+
+
         def _lathe_run():
-            """Run this thread's accepted request. Returns JSON. Never raises."""
+            """Run this thread's accepted request. Returns JSON. Never raises.
+
+            The outer guard is not belt and braces. Cancellation delivers an
+            asynchronous exception at an arbitrary bytecode boundary, and a few
+            of those boundaries are inside this function's own bookkeeping
+            rather than inside the caller's code. Catching it here reports it as
+            what it is instead of letting it escape into C, where the Swift side
+            would read it as a broken driver.
+            """
+            try:
+                return _lathe_run_request()
+            except BaseException as exc:  # noqa: BLE001
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "repr": None,
+                        "type": None,
+                        "json": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "exc_type": type(exc).__name__,
+                        "exc_message": str(exc),
+                        "traceback": "",
+                        "restricted": False,
+                    }
+                )
+
+
+        def _lathe_run_request():
             request = getattr(_LATHE_LOCAL, "request", None)
             if request is None:
                 return json.dumps(
@@ -278,11 +389,20 @@ enum PythonDriver {
                 )
             source = request["source"]
             mode = request["mode"]
+            call_id = request.get("id")
 
             _LATHE_LOCAL.buffer = []
             report = {"ok": True, "repr": None, "type": None, "json": None}
             namespace = sys.modules["__main__"].__dict__
             try:
+                if call_id is not None:
+                    with _LATHE_CANCEL_LOCK:
+                        already = call_id in _LATHE_CANCELLED
+                    if already:
+                        # Cancelled between being handed over and starting. Not
+                        # running it at all is the whole point of recording the
+                        # id rather than only interrupting a live thread.
+                        raise KeyboardInterrupt("cancelled before it started")
                 code = compile(source, "<lathe>", mode)
                 if mode == "eval":
                     value = eval(code, namespace, namespace)  # noqa: S307
@@ -310,6 +430,10 @@ enum PythonDriver {
                 report["traceback"] = formatted
                 report["restricted"] = _lathe_is_platform_restriction(exc, formatted)
             finally:
+                if call_id is not None:
+                    with _LATHE_CANCEL_LOCK:
+                        _LATHE_INFLIGHT.pop(call_id, None)
+                        _LATHE_CANCELLED.discard(call_id)
                 chunks = _LATHE_LOCAL.buffer
                 _LATHE_LOCAL.buffer = None
                 _LATHE_LOCAL.request = None

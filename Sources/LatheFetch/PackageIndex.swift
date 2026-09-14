@@ -152,6 +152,16 @@ public struct PackageIndex: Sendable, Equatable {
     /// place, and a function that returns `Data` known only to be "what some
     /// server sent" invites somebody to use it.
     public func download(_ wheel: ResolvedWheel, using session: URLSession = .shared) async throws -> Data {
+        try await Self.download(wheel, using: session)
+    }
+
+    /// The same download, without an index.
+    ///
+    /// A ``ResolvedWheel`` already carries an absolute URL and a published
+    /// SHA-256, so fetching one needs nothing from the index that produced it.
+    /// Static because the dependency resolver hands back wheels from several
+    /// projects at once and should not have to carry an index alongside each.
+    public static func download(_ wheel: ResolvedWheel, using session: URLSession = .shared) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
