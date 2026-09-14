@@ -32,8 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -switch /Applications/Xcode_16.app
+      # Deliberately NOT pinning a specific Xcode.app. Pinning one that the
+      # runner image happens to ship without a matching iOS runtime produces
+      # "Unable to find a destination" with an EMPTY available list — which
+      # reads like a scheme problem and is not one.
+      - name: Report toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
 
       - name: Report toolchain
         run: |
@@ -63,8 +70,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -switch /Applications/Xcode_16.app
+      # Deliberately NOT pinning a specific Xcode.app. Pinning one that the
+      # runner image happens to ship without a matching iOS runtime produces
+      # "Unable to find a destination" with an EMPTY available list — which
+      # reads like a scheme problem and is not one.
+      - name: Report toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
 
       - name: Cache SwiftPM
         uses: actions/cache@v4
@@ -74,64 +88,90 @@ jobs:
           restore-keys: |
             spm-ios-
 
-      # Resolve a destination rather than hard-coding a device name: the set of
-      # preinstalled simulators changes with every runner image bump, and a stale
-      # device name is the single most common way an iOS workflow rots.
-      - name: Pick a simulator
-        id: sim
-        run: |
-          set -euo pipefail
-          xcrun simctl list devices available
-          UDID=$(xcrun simctl list devices available --json | jq -r '
-            .devices
-            | to_entries
-            | map(select(.key | test("iOS")))
-            | sort_by(.key) | reverse
-            | map(.value[] | select(.isAvailable))
-            | (map(select(.name | startswith("iPhone"))) + .)
-            | .[0].udid // empty
-          ')
-          if [ -z "$UDID" ]; then
-            echo "::error::no available iOS simulator on this runner"
-            exit 1
-          fi
-          echo "Selected simulator $UDID"
-          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-
-      # Do not hard-code a scheme name. A bare package directory does not
-      # reliably expose the "<Package>-Package" scheme that the documentation
-      # implies, and guessing a different name is the same mistake again. Ask
-      # xcodebuild what exists, and print the raw answer unconditionally so that
-      # a failure on some future runner image is diagnosable from this log alone
-      # rather than needing a rerun with extra logging.
       - name: Resolve the test scheme
         id: scheme
         run: |
           set -euo pipefail
-          xcodebuild -list -json | tee /tmp/xcodebuild-schemes.json
-          SCHEME=$(jq -r '
-            ((.workspace // .project).schemes // []) as $schemes
-            | ( ($schemes | map(select(endswith("-Package"))) | first)
-                // ($schemes | map(select(. == "Lathe")) | first)
-                // ($schemes | first)
-                // empty )
-          ' /tmp/xcodebuild-schemes.json)
+          # Always print the raw list: when this fails, the scheme names are
+          # the first thing anyone needs and the only place they appear.
+          xcodebuild -list -json | tee /tmp/schemes.json
+          SCHEME=$(python3 - <<'PY'
+          import json
+          d = json.load(open("/tmp/schemes.json"))
+          info = d.get("workspace") or d.get("project") or {}
+          schemes = info.get("schemes", [])
+          pick = next((s for s in schemes if s.endswith("-Package")), None) \
+              or next((s for s in schemes if s == info.get("name")), None) \
+              or (schemes[0] if schemes else "")
+          print(pick)
+          PY
+          )
           if [ -z "$SCHEME" ]; then
-            echo "::error::xcodebuild -list reported no schemes; see the JSON above"
+            echo "::error::No schemes found. See the JSON above."
             exit 1
           fi
-          echo "Selected scheme: $SCHEME"
           echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      # Ask xcodebuild itself which destinations it will accept, rather than
+      # asking simctl which simulators exist. Those are different questions:
+      # simctl happily lists a device whose runtime the selected Xcode cannot
+      # use, and handing that UDID to xcodebuild fails with an empty
+      # "Available destinations" list that looks like a scheme error.
+      - name: Resolve a usable simulator destination
+        id: sim
+        run: |
+          set -euo pipefail
+          xcodebuild -scheme "${{ steps.scheme.outputs.scheme }}" -showdestinations 2>&1 \
+            | tee /tmp/destinations.txt || true
+
+          # Two traps in this output, both verified against real xcodebuild:
+          #   1. Real device lines carry "arch:arm64, " between the platform and
+          #      the id, so a pattern expecting id: immediately after platform:
+          #      matches nothing.
+          #   2. The FIRST iOS Simulator line is a placeholder
+          #      (id:dvtdevice-...:placeholder, "Any iOS Simulator Device"),
+          #      which xcodebuild will not run tests on.
+          # Hence: drop placeholders, then take a real 36-character UUID.
+          # iPhone is preferred only so the run is predictable; any simulator works.
+          # Note the explicit branch rather than a conditionally-expanded pipe:
+          # ${1:+| grep ...} expands to a LITERAL "|" argument, not a pipeline
+          # operator, so the filter silently does nothing.
+          pick_udid() {
+            if [ -n "${1:-}" ]; then
+              grep 'platform:iOS Simulator' /tmp/destinations.txt \
+                | grep -v 'placeholder' | grep "name:.*$1" \
+                | grep -oE 'id:[0-9A-Fa-f-]{36}' | head -1 | sed 's/^id://'
+            else
+              grep 'platform:iOS Simulator' /tmp/destinations.txt \
+                | grep -v 'placeholder' \
+                | grep -oE 'id:[0-9A-Fa-f-]{36}' | head -1 | sed 's/^id://'
+            fi
+          }
+          UDID=$(pick_udid iPhone)
+          [ -n "$UDID" ] || UDID=$(pick_udid)
+
+          if [ -z "$UDID" ]; then
+            echo "::error::No usable iOS Simulator destination for this scheme."
+            echo "Installed runtimes, for comparison with the destinations above:"
+            xcrun simctl list runtimes || true
+            exit 1
+          fi
+          echo "Using simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build and test on the simulator
         run: |
           set -euo pipefail
+          # xcbeautify ships on the current runner images, but pretty-printing
+          # is not worth failing a build over if an image bump drops it.
+          FORMATTER="cat"
+          if command -v xcbeautify >/dev/null 2>&1; then FORMATTER="xcbeautify"; fi
           xcodebuild test \
             -scheme "${{ steps.scheme.outputs.scheme }}" \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
-            -resultBundlePath TestResults.xcresult \
-            -skipPackagePluginValidation \
-            CODE_SIGNING_ALLOWED=NO
+            -resultBundlePath "$SCRATCH_PATH/ios-results.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            | $FORMATTER || exit "${PIPESTATUS[0]}"
 
       - name: Upload test results
         if: always()
