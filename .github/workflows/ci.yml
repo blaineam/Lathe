@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep SwiftPM's scratch directory off any synced or network-backed path.
+  # Codesigning a test bundle fails with "resource fork, Finder information, or
+  # similar detritus not allowed" when extended attributes come along for the
+  # ride.
+  SCRATCH_PATH: ${{ github.workspace }}/.ci-build
+
+jobs:
+  macos:
+    name: macOS (Swift ${{ matrix.swift }})
+    # Pin the image. `macos-latest` moves under you and takes the Xcode default
+    # with it. Never `macos-14` (Intel, slower, older toolchain) and never a
+    # `-large` runner (billed, and no faster for a package this size).
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        swift: ["6.0"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode_16.app
+
+      - name: Report toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.SCRATCH_PATH }}
+            ~/.cache/org.swift.swiftpm
+          key: spm-macos-${{ matrix.swift }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-macos-${{ matrix.swift }}-
+
+      - name: Build
+        run: swift build --scratch-path "$SCRATCH_PATH" -v
+
+      - name: Test
+        run: swift test --scratch-path "$SCRATCH_PATH"
+
+  ios-simulator:
+    name: iOS Simulator
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -switch /Applications/Xcode_16.app
+
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/org.swift.swiftpm
+          key: spm-ios-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-ios-
+
+      # Resolve a destination rather than hard-coding a device name: the set of
+      # preinstalled simulators changes with every runner image bump, and a stale
+      # device name is the single most common way an iOS workflow rots.
+      - name: Pick a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available
+          UDID=$(xcrun simctl list devices available --json | jq -r '
+            .devices
+            | to_entries
+            | map(select(.key | test("iOS")))
+            | sort_by(.key) | reverse
+            | map(.value[] | select(.isAvailable))
+            | (map(select(.name | startswith("iPhone"))) + .)
+            | .[0].udid // empty
+          ')
+          if [ -z "$UDID" ]; then
+            echo "::error::no available iOS simulator on this runner"
+            exit 1
+          fi
+          echo "Selected simulator $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test on the simulator
+        run: |
+          set -euo pipefail
+          # SwiftPM packages expose one scheme per product plus a
+          # "<Package>-Package" scheme; only the latter includes the test targets.
+          xcodebuild test \
+            -scheme Lathe-Package \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  lint:
+    name: Format check
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Advisory only. A formatter disagreement should not block a codec fix.
+      - name: swift-format
+        continue-on-error: true
+        run: swift format lint --recursive --strict Sources Tests
