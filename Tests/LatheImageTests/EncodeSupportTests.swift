@@ -287,4 +287,31 @@ struct ImageFormatTests {
     func avifIdentifier() {
         #expect(ImageFormat.avif.typeIdentifier == "public.avif")
     }
+
+    // MARK: - Naming a format from a filename
+
+    @Test("every format is found by its own preferred extension",
+          arguments: ImageFormat.allCases)
+    func roundTripsThroughItsPreferredExtension(_ format: ImageFormat) {
+        #expect(ImageFormat.named(byFilenameExtension: format.preferredFilenameExtension) == format)
+    }
+
+    @Test("the spellings that mean the same format all resolve",
+          arguments: [("JPG", ImageFormat.jpeg), ("jpeg", .jpeg), (".JPEG", .jpeg),
+                      ("tif", .tiff), ("TIFF", .tiff),
+                      ("heif", .heic), ("heic", .heic),
+                      ("j2k", .jp2), ("jp2", .jp2),
+                      ("png", .png), ("webp", .webp)])
+    func alternativeSpellings(_ fileExtension: String, _ expected: ImageFormat) {
+        #expect(ImageFormat.named(byFilenameExtension: fileExtension) == expected)
+    }
+
+    /// An extension nobody recognises must be `nil` rather than a default.
+    /// Guessing JPEG here would turn a caller's typo into a silently wrong
+    /// output format.
+    @Test("an unrecognised extension names no format",
+          arguments: ["", ".", "mov", "txt", "sideways", "jpgx"])
+    func unrecognisedExtensions(_ fileExtension: String) {
+        #expect(ImageFormat.named(byFilenameExtension: fileExtension) == nil)
+    }
 }

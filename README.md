@@ -7,8 +7,10 @@ images, video, animation, PDFs, comic archives and audio, resized, recompressed
 and re-encoded to a requested quality — entirely on the device, with no
 subprocesses and no server round-trip.
 
-> **Status: scaffold.** The module structure, the public API surface and the
-> progress/cancellation seam are real and tested. The codecs behind them are not
+> **Status: early.** The module structure, the public API surface and the
+> progress/cancellation seam are real and tested, and so are the first four
+> capabilities: media probing, an ffprobe-compatible JSON shim, loudness and
+> audibility analysis, and frame extraction. The encoders behind the rest are not
 > written yet — every unimplemented entry point throws a named
 > `LatheError.notImplemented` rather than crashing or silently succeeding. See
 > [What works today](#what-works-today).
@@ -61,9 +63,104 @@ import Lathe
 print(Lathe.capabilityReport)   // what this system can actually encode
 ```
 
+### Linking contract
+
+**Every module is its own product.** Depend on the ones you use:
+
+```swift
+.product(name: "LatheImage", package: "Lathe")   // stills only
+.product(name: "LatheVideo", package: "Lathe")   // probing, thumbnails, transcode
+.product(name: "Lathe",      package: "Lathe")   // all five, via one import
+```
+
+The `Lathe` umbrella product is **media processing only, permanently**. Modules
+that ingest media from the network — downloaders, in-app browsers — will ship as
+separate products and are deliberately excluded from it, so an app that wants
+none of that code can guarantee it has none by choosing a product, rather than by
+auditing a transitive import graph after every version bump.
+
 ---
 
 ## What works today
+
+### Media probing
+
+`MediaProbe` reads a file's container headers through `AVURLAsset` and returns a
+structured `MediaInfo` — duration, per-track codec, coded *and* display
+dimensions, frame rate, bit rate, sample rate, channel count — with no
+subprocess and no decoding, so probing a four-hour film costs what probing a
+four-second clip costs.
+
+```swift
+let info = try await MediaProbe().probe(url: url)
+if info.hasVideoTrack, !info.isEmptyAsset { … }
+```
+
+Two things it refuses to do: guess a frame count (counting frames is not free,
+and an estimate presented as a measurement is worse than nothing), and treat
+"the asset opened" as "this is media". A still image or an empty container comes
+back as a `MediaInfo` with `isEmptyAsset` set, which is a fact to branch on
+rather than an error to catch.
+
+`MediaInfo.ffprobeJSON()` re-emits the same facts in the shape
+`ffprobe -show_format -show_streams -of json` produces. It is a **compatibility
+shim**, for replacing a subprocess prober as one reviewable change without also
+rewriting whatever already parses its output. The numeric-looking fields that
+ffprobe emits as JSON *strings* — `duration`, `bit_rate`, `size`, `sample_rate` —
+are strings here too, because every parser written against ffprobe expects them
+to be, and "helpfully" emitting numbers is a breaking change in somebody else's
+decoder.
+
+### Loudness and audibility
+
+`LoudnessProbe` decodes PCM through `AVAssetReader` and answers two questions
+that are easy to mistake for one:
+
+```swift
+let volume = try await LoudnessProbe().meanVolumeDB(url: url)      // a measurement
+let audible = try await LoudnessProbe().hasAudibleAudio(url: url)  // a decision
+```
+
+`meanVolumeDB` reports `10·log₁₀(mean(s²))` — the same statistic the familiar
+command-line volume filter prints, so existing thresholds keep working. **Do not
+build new logic on it.** Whole-file mean volume has a false-negative cliff on
+sparse audio: ten minutes containing two seconds of speech averages about
+−45 dBFS and is indistinguishable, by that number, from a file with nothing in
+it. That is not a corner case — it is an ordinary phone video with one spoken
+sentence in it.
+
+`hasAudibleAudio` therefore averages nothing. It walks short windows and returns
+at the first one that clears both a peak and an RMS threshold, which makes it
+correct on sparse audio *and* cheaper on ordinary audio: a file with sound near
+its start is decided after a fraction of a second. Only genuinely silent files
+pay for a full scan, and they must, because sound can begin at 9:58.
+
+The result type is an enum, not a `Float`, because *no audio track*, *digital
+silence* and *a measurement* are three different answers and a single number can
+only carry one.
+
+### Frame extraction
+
+`FrameExtractor` pulls one frame out for a person to look at, or as numbers for
+an algorithm:
+
+```swift
+try await FrameExtractor().thumbnail(from: video, to: jpeg, atSeconds: 5, maxWidth: 512)
+let hashInput = try await FrameExtractor().grayscaleFrame(from: video, atSeconds: 5, size: 32)
+```
+
+The thumbnail path applies the track's rotation, never upsamples, picks its
+format from the destination's extension and checks that format against the
+capability probe **before** creating anything — so an unwritable format fails as
+`encodeUnavailable` instead of leaving a 0-byte file that looks like a success.
+
+The grayscale path returns exactly `size * size` bytes with no row padding,
+verified before it returns. That check is there because a `vImage_Buffer`'s
+`rowBytes` is padded more often than not, and an extractor that copies
+`rowBytes × height` looks correct, passes a smoke test on a conveniently-sized
+frame, and returns garbage on everything else.
+
+### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
 
@@ -121,6 +218,17 @@ honest granularity.
 
 Everything else is an API surface with throwing stubs. That is deliberate — the
 shapes are reviewable now, and filling them in does not move anyone's call sites.
+
+### Tests
+
+**No binary media is committed to this repository.** Every clip the suite needs —
+solid-colour and split-colour video at a known size and frame rate, tracks of
+silence, of a continuous tone, and of 0.2 s of tone inside a minute of silence,
+plus audio-only and deliberately-not-media files — is synthesised at run time by
+`AVAssetWriter` and `AVAudioFile`. Fixture properties are therefore known by
+construction rather than measured from a file somebody once made, and there is
+nothing whose provenance has to be explained. A machine that cannot generate a
+given clip records a known issue naming the reason instead of quietly passing.
 
 ---
 
@@ -186,10 +294,19 @@ swift test
 prints the discovered capability table for each — so the encode-support matrix is
 regenerated per platform on every run instead of being maintained by hand.
 
-**The workflow has never executed.** It was written against current runner images
-and action versions and is correct as far as review can establish, but until this
-repository exists on a CI host, treat it as unverified. Expect to iterate on the
-simulator destination string in particular.
+Two things in it are resolved at run time rather than hard-coded, for the same
+reason: both rot. The simulator destination is chosen from
+`xcrun simctl list devices available`, and the Xcode scheme from
+`xcodebuild -list -json` — preferring a `-Package` scheme, falling back to the
+package's own name. The raw scheme listing is printed unconditionally, so a
+failure on a future runner image can be diagnosed from the log without a rerun.
+
+`.github/workflows/release.yml` cuts a signed, notarized DMG on a `v*` tag. It is
+**deliberately inert today**: there is no application target in this repository
+yet, and the workflow's first step says so and stops, rather than letting
+`xcodebuild` fail confusingly several minutes later. The signing and notarization
+path is there now so it can be reviewed and fixed independently of the app,
+instead of being written under pressure on the day there is something to ship.
 
 ---
 

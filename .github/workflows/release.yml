@@ -1,0 +1,121 @@
+name: Release
+
+# Cuts a signed, notarized DMG and attaches it to a GitHub Release.
+#
+# The app target does not exist yet — the library comes first. This workflow is
+# here, complete and inert, so that the signing and notarization path is
+# reviewable and fixable independently of the app, rather than being written
+# under pressure on the day there is something to ship. The preflight step below
+# fails with a clear message instead of a confusing xcodebuild error if it runs
+# before then.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: Lathe
+
+jobs:
+  release:
+    name: Build, sign, notarize
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Preflight — is there an app to ship?
+        run: |
+          if ! grep -rq "\.executableTarget\|${APP_NAME}App" Package.swift Sources 2>/dev/null; then
+            echo "::error::No application target exists yet — this repository currently ships a library only."
+            echo "Nothing to package. Remove the tag, or land the app target first."
+            exit 1
+          fi
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo "$CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          rm -f "$CERT_PATH"
+
+      - name: Resolve signing identity
+        id: identity
+        run: |
+          IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain-db" \
+            | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No 'Developer ID Application' identity in the imported certificate."
+            exit 1
+          fi
+          # Masked: the identity string contains the Team ID, and this is a
+          # public repository whose build logs anyone can read.
+          echo "::add-mask::$IDENTITY"
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
+      - name: Build release
+        run: |
+          xcodebuild -scheme "$APP_NAME" \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGN_IDENTITY="${{ steps.identity.outputs.identity }}" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            ENABLE_HARDENED_RUNTIME=YES \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime" \
+            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+            build
+
+      - name: Verify the signature before packaging
+        run: |
+          APP_PATH=$(find build/DerivedData -name "$APP_NAME.app" -type d | head -1)
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          # Catch a signing problem here rather than after notarization has
+          # already spent several minutes rejecting it.
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          codesign -dvv "$APP_PATH" 2>&1 | grep -q "flags=.*runtime" \
+            || { echo "::error::Hardened runtime is not enabled; notarization will reject this."; exit 1; }
+
+      - name: Package DMG
+        run: Scripts/build-dmg.sh "$APP_PATH" "dist/$APP_NAME.dmg" "${{ steps.identity.outputs.identity }}"
+
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: Scripts/notarize.sh "dist/$APP_NAME.dmg"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ env.APP_NAME }} ${{ github.ref_name }}
+          body: |
+            ## ${{ env.APP_NAME }} ${{ github.ref_name }}
+
+            ### Install
+            1. Download `${{ env.APP_NAME }}.dmg` below
+            2. Open it and drag the app to Applications
+
+            **Signed and notarized by Apple** — no Gatekeeper warning, and no
+            need to right-click-open or clear a quarantine attribute.
+          files: dist/${{ env.APP_NAME }}.dmg
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') }}

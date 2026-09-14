@@ -98,13 +98,36 @@ jobs:
           echo "Selected simulator $UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
+      # Do not hard-code a scheme name. A bare package directory does not
+      # reliably expose the "<Package>-Package" scheme that the documentation
+      # implies, and guessing a different name is the same mistake again. Ask
+      # xcodebuild what exists, and print the raw answer unconditionally so that
+      # a failure on some future runner image is diagnosable from this log alone
+      # rather than needing a rerun with extra logging.
+      - name: Resolve the test scheme
+        id: scheme
+        run: |
+          set -euo pipefail
+          xcodebuild -list -json | tee /tmp/xcodebuild-schemes.json
+          SCHEME=$(jq -r '
+            ((.workspace // .project).schemes // []) as $schemes
+            | ( ($schemes | map(select(endswith("-Package"))) | first)
+                // ($schemes | map(select(. == "Lathe")) | first)
+                // ($schemes | first)
+                // empty )
+          ' /tmp/xcodebuild-schemes.json)
+          if [ -z "$SCHEME" ]; then
+            echo "::error::xcodebuild -list reported no schemes; see the JSON above"
+            exit 1
+          fi
+          echo "Selected scheme: $SCHEME"
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
       - name: Build and test on the simulator
         run: |
           set -euo pipefail
-          # SwiftPM packages expose one scheme per product plus a
-          # "<Package>-Package" scheme; only the latter includes the test targets.
           xcodebuild test \
-            -scheme Lathe-Package \
+            -scheme "${{ steps.scheme.outputs.scheme }}" \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
             -skipPackagePluginValidation \
@@ -128,4 +151,4 @@ jobs:
       # Advisory only. A formatter disagreement should not block a codec fix.
       - name: swift-format
         continue-on-error: true
-        run: swift format lint --recursive --strict Sources Tests
+        run: swift format lint --recursive --strict Sources Tests TestSupport

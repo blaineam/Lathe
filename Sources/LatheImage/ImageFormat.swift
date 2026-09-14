@@ -136,3 +136,34 @@ public enum ImageFormat: String, Sendable, Hashable, CaseIterable, CustomStringC
         }
     }
 }
+
+extension ImageFormat {
+    /// The format a filename extension names, or `nil` if the extension is not
+    /// one Lathe writes.
+    ///
+    /// Case-insensitive, and tolerant of the spellings that mean the same thing
+    /// in the wild (`jpg`/`jpeg`, `tif`/`tiff`, `j2k`/`jp2`). A leading dot is
+    /// accepted so `URL.pathExtension` and a user-typed `".png"` both work.
+    ///
+    /// This deliberately answers *what the caller asked for*, not *what the
+    /// system can write*. Ask ``EncodeSupport`` for the second question — a
+    /// recognised extension whose encoder is missing must fail as
+    /// ``LatheError/encodeUnavailable(format:)``, which is a different problem
+    /// with a different remedy from an extension nobody recognises.
+    public static func named(byFilenameExtension fileExtension: String) -> ImageFormat? {
+        switch fileExtension.lowercased().drop(while: { $0 == "." }) {
+        case "heic", "heif": .heic
+        case "heics", "heifs": .heics
+        case "avif", "avifs": .avif
+        case "jpg", "jpeg", "jpe": .jpeg
+        case "png": .png
+        case "tif", "tiff": .tiff
+        case "gif": .gif
+        case "webp": .webp
+        case "jxl": .jpegXL
+        case "jp2", "j2k", "jpf", "jpx", "jpm": .jp2
+        case "pdf": .pdf
+        default: nil
+        }
+    }
+}
