@@ -1,4 +1,3 @@
-import CoreMedia
 import Foundation
 import LatheCore
 
@@ -95,55 +94,6 @@ public struct VideoTranscodeResult: Sendable, Equatable {
     }
 }
 
-/// The container and track facts a caller needs before deciding what to do.
-public struct VideoProbe: Sendable, Equatable {
-    public var duration: TimeInterval
-    public var pixelSize: PixelSize
-    /// The track's codec four-character code, e.g. `"hvc1"`, `"avc1"`, `"av01"`.
-    public var codecFourCC: String
-    public var nominalFrameRate: Float
-    /// `nil` when counting frames would require a full decode pass and the
-    /// caller did not ask for it.
-    public var frameCount: Int?
-    public var hasAudioTrack: Bool
-
-    public init(
-        duration: TimeInterval,
-        pixelSize: PixelSize,
-        codecFourCC: String,
-        nominalFrameRate: Float,
-        frameCount: Int?,
-        hasAudioTrack: Bool
-    ) {
-        self.duration = duration
-        self.pixelSize = pixelSize
-        self.codecFourCC = codecFourCC
-        self.nominalFrameRate = nominalFrameRate
-        self.frameCount = frameCount
-        self.hasAudioTrack = hasAudioTrack
-    }
-}
-
-/// Duration, codec, dimensions and frame count, without shelling out to a
-/// command-line prober.
-///
-/// Not yet implemented; `AVAsset` / `AVAssetTrack` is the intended backing —
-/// pure Apple APIs, no third-party code.
-public protocol VideoProber: Sendable {
-    func probe(_ url: URL) async throws -> VideoProbe
-}
-
-/// Frame extraction for thumbnails and for perceptual hashing.
-///
-/// Not yet implemented; `AVAssetImageGenerator` (plus vImage for the grayscale
-/// reduction) is the intended backing.
-public protocol VideoThumbnailer: Sendable {
-    func thumbnail(_ url: URL, at time: CMTime, maxPixelSize: Int) async throws -> Data
-
-    /// 32x32 grayscale frames for pHash, sampled evenly across the asset.
-    func perceptualHashFrames(_ url: URL, count: Int) async throws -> [Data]
-}
-
 /// Transcode with a quality target and an aspect-fit downscale.
 ///
 /// Not yet implemented; VideoToolbox + `AVAssetWriter` is the intended backing.
@@ -166,25 +116,17 @@ public protocol VideoTranscoder: Sendable {
     ) async throws -> VideoTranscodeResult
 }
 
-// MARK: - Scaffold implementations
+// MARK: - Scaffold implementation
 
-/// Throws ``LatheError/notImplemented(feature:)`` for everything. Present so the
-/// API surface is reviewable and injectable before the real engine lands.
-public struct UnimplementedVideoPipeline: VideoProber, VideoThumbnailer, VideoTranscoder {
+/// Throws ``LatheError/notImplemented(feature:)``. Present so the transcode
+/// surface is reviewable and injectable before the real engine lands.
+///
+/// It conforms to ``VideoTranscoder`` and nothing else, because transcoding is
+/// all that is still unbuilt here: probing is ``MediaProbe``, and frame
+/// extraction is ``FrameExtractor``.
+public struct UnimplementedVideoPipeline: VideoTranscoder {
 
     public init() {}
-
-    public func probe(_ url: URL) async throws -> VideoProbe {
-        throw LatheError.todo("VideoProber.probe(_:)")
-    }
-
-    public func thumbnail(_ url: URL, at time: CMTime, maxPixelSize: Int) async throws -> Data {
-        throw LatheError.todo("VideoThumbnailer.thumbnail(_:at:maxPixelSize:)")
-    }
-
-    public func perceptualHashFrames(_ url: URL, count: Int) async throws -> [Data] {
-        throw LatheError.todo("VideoThumbnailer.perceptualHashFrames(_:count:)")
-    }
 
     public func transcode(
         _ request: VideoTranscodeRequest,

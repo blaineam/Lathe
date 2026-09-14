@@ -178,46 +178,12 @@ struct MediaProbeTests {
                   + "duration \(info.duration)s, empty=\(info.isEmptyAsset)")
             #expect(info.isEmptyAsset)
             #expect(info.duration < 0.001)
-            // And the `VideoProber` conformance must refuse it outright, since
-            // its contract promises a video track.
-            await #expect(throws: LatheError.self) { _ = try await probe.probe(png) }
         } catch let error as LatheError {
             guard case .invalidInput = error else {
                 Issue.record("expected .invalidInput, got \(error)")
                 return
             }
             print("AVURLAsset refused a PNG outright: \(error.errorDescription ?? "")")
-        }
-    }
-
-    // MARK: - The protocol conformance
-
-    @Test("the VideoProber conformance projects the same facts")
-    func videoProberConformance() async throws {
-        guard let movie = await standardMovie(
-            named: "probe-av.mov", audio: .tone(hertz: 440, amplitude: 0.4)
-        ) else { return }
-
-        let legacy: VideoProbe = try await probe.probe(movie)
-        #expect(legacy.pixelSize == Self.size)
-        #expect(legacy.codecFourCC == "avc1")
-        #expect(legacy.hasAudioTrack)
-        // Never guessed from duration × frame rate: counting frames is not free,
-        // and an estimate presented as a count is worse than nothing.
-        #expect(legacy.frameCount == nil)
-    }
-
-    @Test("the VideoProber conformance refuses a file with no video track")
-    func videoProberNeedsVideo() async throws {
-        guard let wav = await fixture("probe-audio-only.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "probe-audio-only.wav", seconds: 2,
-                audio: .tone(hertz: 440, amplitude: 0.4)
-            )
-        }) else { return }
-
-        await #expect(throws: LatheError.self) {
-            let _: VideoProbe = try await probe.probe(wav)
         }
     }
 

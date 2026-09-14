@@ -1,14 +1,15 @@
-import CoreMedia
 import Foundation
 import LatheCore
 import Testing
 
 @testable import LatheVideo
 
-/// The video engine is a surface, not an implementation, so these tests check
-/// what a surface can be checked for: that the request types behave, and that
-/// every stub refuses in the one documented way rather than crashing, hanging or
-/// silently succeeding.
+/// Transcoding is the one part of the video engine that is still a surface
+/// rather than an implementation — probing is `MediaProbe` and frame extraction
+/// is `FrameExtractor`, both tested against real fixtures elsewhere. So these
+/// tests check what a surface can be checked for: that the request type behaves,
+/// and that the stub refuses in the one documented way rather than crashing,
+/// hanging or silently succeeding.
 @Suite("Video API surface")
 struct VideoSurfaceTests {
 
@@ -29,35 +30,18 @@ struct VideoSurfaceTests {
         }
     }
 
-    @Test("probe reports as not implemented")
-    func probeIsNotImplemented() async {
-        await #expect(throws: LatheError.self) {
-            _ = try await UnimplementedVideoPipeline().probe(source)
-        }
-    }
-
-    @Test("thumbnailing reports as not implemented")
-    func thumbnailIsNotImplemented() async {
-        await #expect(throws: LatheError.self) {
-            _ = try await UnimplementedVideoPipeline()
-                .thumbnail(source, at: .zero, maxPixelSize: 512)
-        }
-        await #expect(throws: LatheError.self) {
-            _ = try await UnimplementedVideoPipeline().perceptualHashFrames(source, count: 8)
-        }
-    }
-
     @Test("the refusal names the feature it is refusing")
     func errorNamesTheFeature() async throws {
+        let request = VideoTranscodeRequest(source: source, destination: destination)
         do {
-            _ = try await UnimplementedVideoPipeline().probe(source)
+            _ = try await UnimplementedVideoPipeline().transcode(request, progress: .ignoring())
             Issue.record("expected a refusal")
         } catch let error as LatheError {
             guard case let .notImplemented(feature) = error else {
                 Issue.record("expected .notImplemented, got \(error)")
                 return
             }
-            #expect(feature.contains("probe"))
+            #expect(feature.contains("transcode"))
             #expect(error.errorDescription?.isEmpty == false)
         }
     }

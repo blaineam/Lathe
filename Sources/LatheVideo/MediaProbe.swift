@@ -237,30 +237,3 @@ public struct MediaProbe: Sendable {
         }
     }
 }
-
-// MARK: - The scaffold's protocol
-
-extension MediaProbe: VideoProber {
-    /// ``VideoProber`` conformance, for call sites written against the protocol.
-    ///
-    /// Narrower than ``probe(url:)`` in two ways worth knowing before choosing
-    /// it: it requires a video track and throws without one, and its
-    /// `frameCount` is always `nil` because counting frames is not free. Prefer
-    /// ``probe(url:)`` unless you are injecting a prober.
-    public func probe(_ url: URL) async throws -> VideoProbe {
-        let info = try await probe(url: url)
-        guard let video = info.primaryVideoTrack else {
-            throw LatheError.invalidInput(
-                reason: "\(info.fileName) has no video track"
-            )
-        }
-        return VideoProbe(
-            duration: info.duration,
-            pixelSize: video.displaySize ?? video.codedSize ?? PixelSize(width: 0, height: 0),
-            codecFourCC: video.codecFourCC,
-            nominalFrameRate: Float(video.nominalFrameRate ?? 0),
-            frameCount: nil,
-            hasAudioTrack: info.hasAudioTrack
-        )
-    }
-}

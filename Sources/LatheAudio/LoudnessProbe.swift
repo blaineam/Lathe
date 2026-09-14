@@ -53,6 +53,24 @@ public enum MeanVolume: Sendable, Equatable {
     }
 }
 
+/// Thresholds for the cheap "does this have sound" question.
+public struct AudibilityThresholds: Sendable, Equatable {
+    /// Peak above this counts as audible.
+    public var peakDBFS: Float
+    /// Secondary guard so a single-sample click does not register as audio:
+    /// the 99th-percentile 400 ms short-term RMS must also clear this.
+    public var shortTermRMSDBFS: Float
+
+    public init(peakDBFS: Float = -60, shortTermRMSDBFS: Float = -70) {
+        self.peakDBFS = peakDBFS
+        self.shortTermRMSDBFS = shortTermRMSDBFS
+    }
+
+    /// A reasonable starting point. **Tune on a real corpus** before trusting
+    /// these numbers.
+    public static let `default` = AudibilityThresholds()
+}
+
 /// Measures how loud a file's audio actually is.
 ///
 /// Two questions, two methods, and the reason they are not one method is the
@@ -79,6 +97,21 @@ public enum MeanVolume: Sendable, Equatable {
 /// ``meanVolumeDB(url:progress:)`` is kept because it is what the familiar
 /// command-line filter reports, and existing thresholds are calibrated against
 /// it. Use it to reproduce a number. Do not use it to make a decision.
+///
+/// ## Not measured here yet
+///
+/// Two further statistics belong on this type and are not implemented:
+///
+/// - **True peak (dBTP).** Sample peak under-reports inter-sample peaks by up
+///   to ~3 dB, and lossy re-encoding *moves* peaks, so material sitting at
+///   0 dBFS routinely lands above 0 dBTP after a transcode and clips on
+///   playback. Measuring it needs 4x oversampling, not another probe.
+/// - **Integrated loudness (LUFS) and loudness range (LU).** EBU R128 / BS.1770
+///   gating over the same decoded buffers.
+///
+/// Both fall out of the single `AVAssetReader` pass this type already makes —
+/// decoding is the expensive part and it happens once — so they arrive as
+/// methods here rather than as a parallel result type.
 public struct LoudnessProbe: Sendable {
 
     public init() {}

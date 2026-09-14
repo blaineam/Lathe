@@ -22,6 +22,22 @@ struct LoudnessProbeTests {
         hertz: 440, amplitude: 0.2, onsetSeconds: 0.5, lengthSeconds: 0.2
     )
 
+    // MARK: - Thresholds
+
+    /// Both thresholds sit above a realistic room-noise floor and below anything
+    /// a listener would call audible. Pinning them means a careless edit shows up
+    /// as a failure rather than as a silent change in classification.
+    @Test("default thresholds are in the sane range")
+    func thresholdsAreSane() {
+        let thresholds = AudibilityThresholds.default
+        #expect(thresholds.peakDBFS == -60)
+        #expect(thresholds.shortTermRMSDBFS == -70)
+        // The secondary RMS guard must be the more permissive of the two, or it
+        // would never guard anything.
+        #expect(thresholds.shortTermRMSDBFS < thresholds.peakDBFS)
+        #expect(thresholds.peakDBFS < 0)
+    }
+
     // MARK: - No track at all
 
     @Test("a file with no audio track is not a number and not an error")

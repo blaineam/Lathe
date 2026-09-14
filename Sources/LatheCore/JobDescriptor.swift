@@ -3,8 +3,13 @@ import Foundation
 /// Lathe's engine version. Bump on any change to codec settings, library
 /// version, or decision logic, so upgrades invalidate cached job results rather
 /// than serving stale output.
+///
+/// It is a **cache-invalidation input, not the package's release tag**: the two
+/// are allowed to diverge, and this one must change whenever output could
+/// change, including between releases. The `-dev` suffix says the working tree
+/// is ahead of the last tag; it becomes a bare `0.2.0` when one is cut.
 public enum LatheVersion {
-    public static let engine = "0.1.0-scaffold"
+    public static let engine = "0.2.0-dev"
 }
 
 /// A content fingerprint used as a **cache key, not a security hash**.
