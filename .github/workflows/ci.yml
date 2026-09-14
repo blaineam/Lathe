@@ -147,8 +147,13 @@ jobs:
                 | grep -oE 'id:[0-9A-Fa-f-]{36}' | head -1 | sed 's/^id://'
             fi
           }
-          UDID=$(pick_udid iPhone)
-          [ -n "$UDID" ] || UDID=$(pick_udid)
+          # `|| true` is load-bearing under `set -e`: grep exits 1 when it
+          # matches nothing, which fails the ASSIGNMENT and kills the script
+          # before the no-simulator fallback below can run. That is why the
+          # previous attempt at this still exited 1 on a runner with no
+          # simulators — the handling was there and unreachable.
+          UDID=$(pick_udid iPhone || true)
+          [ -n "$UDID" ] || UDID=$(pick_udid || true)
 
           if [ -z "$UDID" ]; then
             # Not a failure. GitHub's macOS images do not always ship an iOS
