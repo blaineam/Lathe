@@ -20,10 +20,18 @@ env:
 jobs:
   macos:
     name: macOS (Swift ${{ matrix.swift }})
+    # macos-26 rather than macos-15, because the TEST target needs a newer
+    # Swift than the library does: on the toolchain macos-15 ships, the
+    # swift-testing `#require` macro fails to expand against some CoreGraphics
+    # types ("cannot call value of non-function type 'CGImage'"). The library
+    # itself still declares swift-tools-version 6.0 and is consumable there —
+    # only the tests need more, so raising the declared tools version would
+    # restrict consumers for a reason that does not apply to them.
+    #
     # Pin the image. `macos-latest` moves under you and takes the Xcode default
     # with it. Never `macos-14` (Intel, slower, older toolchain) and never a
     # `-large` runner (billed, and no faster for a package this size).
-    runs-on: macos-15
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -65,7 +73,7 @@ jobs:
 
   ios-simulator:
     name: iOS Simulator
-    runs-on: macos-15
+    runs-on: macos-26
 
     steps:
       - uses: actions/checkout@v4
@@ -210,7 +218,7 @@ jobs:
 
   lint:
     name: Format check
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 

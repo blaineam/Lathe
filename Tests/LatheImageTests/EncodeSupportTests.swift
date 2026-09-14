@@ -262,7 +262,10 @@ struct EncodeSupportTests {
     /// question is answered end-to-end in `ImageEncoderTests`.
     @Test("claimed formats actually produce bytes")
     func claimedFormatsActuallyEncode() throws {
-        let image = try #require(Self.makeTestImage(), "could not construct a test CGImage")
+        // Bound to a local before #require rather than inlined: it reads more
+        // clearly, and keeps the macro's input a simple identifier.
+        let made = Self.makeTestImage()
+        let image = try #require(made, "could not construct a test CGImage")
         var discrepancies: [String] = []
 
         print("")

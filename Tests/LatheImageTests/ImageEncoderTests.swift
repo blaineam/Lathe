@@ -918,7 +918,10 @@ enum Fixtures {
 
     /// A plain gradient, no metadata, no orientation.
     static func plainImage(in directory: URL, size: PixelSize) throws -> URL {
-        let image = try #require(gradient(size), "could not build a test CGImage")
+        // Bound to a local before #require rather than inlined: it reads more
+        // clearly, and keeps the macro's input a simple identifier.
+        let made = gradient(size)
+        let image = try #require(made, "could not build a test CGImage")
         let url = directory.appendingPathComponent("source-\(size.width)x\(size.height).png")
         try write(image, to: url, format: .png, properties: [:])
         return url
@@ -930,7 +933,10 @@ enum Fixtures {
         format: ImageFormat,
         orientation: CGImagePropertyOrientation
     ) throws -> URL {
-        let image = try #require(quadrants(), "could not build a quadrant CGImage")
+        // Bound to a local before #require rather than inlined: it reads more
+        // clearly, and keeps the macro's input a simple identifier.
+        let made = quadrants()
+        let image = try #require(made, "could not build a quadrant CGImage")
         let url = directory.appendingPathComponent("quadrants-\(orientation.rawValue)."
                                                    + format.preferredFilenameExtension)
         try write(image, to: url, format: format, properties: [
@@ -942,7 +948,10 @@ enum Fixtures {
     /// A quadrant image carrying GPS, timestamps, camera identity and a maker
     /// note, i.e. everything the metadata policies have to sort out.
     static func taggedImage(in directory: URL) throws -> URL {
-        let image = try #require(quadrants(), "could not build a quadrant CGImage")
+        // Bound to a local before #require rather than inlined: it reads more
+        // clearly, and keeps the macro's input a simple identifier.
+        let made = quadrants()
+        let image = try #require(made, "could not build a quadrant CGImage")
         let url = directory.appendingPathComponent("tagged.jpg")
         try write(image, to: url, format: .jpeg, properties: [
             kCGImagePropertyOrientation: CGImagePropertyOrientation.up.rawValue,
