@@ -31,13 +31,20 @@ struct DocumentSurfaceTests {
         #expect(throws: LatheError.self) { try pipeline.applyMetadataPolicy(.stripAll, to: source) }
     }
 
-    @Test("OCR injection reports as not implemented")
-    func ocrIsNotImplemented() {
-        #expect(throws: LatheError.self) {
-            _ = try UnimplementedDocumentPipeline().addSearchableTextLayer(
-                source: source, destination: destination, languages: ["en-US"], progress: .ignoring()
-            )
-        }
+    /// OCR is no longer a stub — see `PDFTextLayerTests`. What is worth pinning
+    /// here is that the defaults it ships with are the safe ones, because both
+    /// of these are choices a caller will only discover was wrong after the file
+    /// has been in a library for a year.
+    @Test("text-layer defaults are the safe ones")
+    func textLayerDefaults() {
+        let options = PDFTextLayerOptions()
+        // Re-OCR'ing a born-digital PDF double-layers it, invisibly.
+        #expect(options.skipPagesWithText)
+        // But not on a single stray stamped character.
+        #expect(options.existingTextThreshold > 1)
+        #expect(options.accuracy == .accurate)
+        #expect(options.placement == .perWord)
+        #expect(options.rasterDPI >= 150)
     }
 
     @Test("comic archive handling reports as not implemented")

@@ -171,7 +171,7 @@ let package = Package(
         .testTarget(name: "LatheCoreTests", dependencies: ["LatheCore"]),
         .testTarget(name: "LatheImageTests", dependencies: ["LatheImage"]),
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
-        .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc"]),
+        .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
     ]
 )

@@ -25,4 +25,15 @@ public enum Lathe {
     public static var capabilityReport: String {
         EncodeSupport.shared.diagnosticReport
     }
+
+    /// What this system's Vision will recognise, and at which revision.
+    ///
+    /// Separate from ``capabilityReport`` because it costs a request to build
+    /// and most consumers never OCR anything — but it belongs in the same bug
+    /// report when one of them does, since "the text layer came out empty" and
+    /// "this device has no recognition assets for that language" look identical
+    /// from the outside.
+    public static var textRecognitionReport: String {
+        VisionTextSupport.shared.diagnosticReport
+    }
 }

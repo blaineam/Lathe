@@ -8,12 +8,14 @@ and re-encoded to a requested quality — entirely on the device, with no
 subprocesses and no server round-trip.
 
 > **Status: early.** The module structure, the public API surface and the
-> progress/cancellation seam are real and tested, and so are the first six
+> progress/cancellation seam are real and tested, and so are the first nine
 > capabilities: media probing, an ffprobe-compatible JSON shim, loudness and
-> audibility analysis, frame extraction, still-image encoding, and video
-> transcoding. PDF and animation are not written yet — every unimplemented entry
-> point throws a named `LatheError.notImplemented` rather than crashing or
-> silently succeeding. See [What works today](#what-works-today).
+> audibility analysis, frame extraction, still-image encoding, frame and
+> animation inspection, video transcoding, document page counting, and
+> searchable-PDF OCR. PDF recompression and animation recompression are not
+> written yet — every unimplemented entry point throws a named
+> `LatheError.notImplemented` rather than crashing or silently succeeding. See
+> [What works today](#what-works-today).
 
 ---
 
@@ -53,7 +55,7 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheCore`** | Shared vocabulary: error taxonomy, progress and cancellation, job identity, resize arithmetic, metadata policy, quality targets, logging. No codecs, no I/O. |
 | **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp), aspect-fit downscale, metadata rewrite, frame/animation inspection, animation recompression. |
 | **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. |
-| **`LatheDoc`** | PDF image recompression, document attributes, OCR text layers, comic archives (CBZ/CBR). Builds on `LatheImage`. |
+| **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), its own ZIP central-directory reader; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
 | **`LatheAudio`** | Loudness and audibility analysis — peak, true peak, integrated LUFS, loudness range, silence ranges. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
 
@@ -402,6 +404,131 @@ Two platform findings the suite pins:
   `requestMediaDataWhenReady` pump per input is the shape that works, and the
   failure it replaces is worth naming because it is completely silent.
 
+### Document page counting
+
+`DocumentInspector` answers "how many pages is this" for a PDF and for a
+ZIP-based comic archive, without decoding a page.
+
+```swift
+let pages = try DocumentInspector().pageCount(of: comic)   // 24, not 8_640
+let info  = try DocumentInspector().inspect(comic)
+info.kind                 // .pdf or .comicArchiveZIP, from the file's bytes
+info.excludedEntryCount   // archive members that are not pages
+```
+
+**An animated page is one page**, and that rule is what the whole type is
+arranged around. A comic archive of 30 animated GIFs counted by *frames* reports
+900 pages, and 900 does not read as a counting bug to whoever sees it — it reads
+as a corrupt file or a broken import, so it gets investigated in the decoder, the
+download and the database, and not in the one line of arithmetic that produced
+it. So archive **entries** are counted and never opened: nothing here calls
+`ImageInspector` or any decoder. The happy side effect is cost — the answer comes
+from the central directory at the end of the archive, so a 2 GB archive costs
+what a 2 MB one costs — and the provable one is that a page whose bytes are
+corrupt still counts, because the count is of pages the archive *claims*. For a
+PDF the answer is `PDFDocument.pageCount`, and a page containing an animated
+XObject is still one page precisely because nothing inspects page content.
+
+What is excluded from an archive, in order of how quietly it goes wrong:
+
+- **`__MACOSX/`** — the parallel AppleDouble tree macOS's own Archive Utility
+  writes beside the real files. Its members carry the *same extensions* as the
+  files they shadow, so an archive made on a Mac counts **double** without this
+  exclusion, and a comic reporting 48 pages instead of 24 still looks like a
+  comic. Members whose base name starts with `._` go the same way.
+- `ComicInfo.xml`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, and folder entries.
+- Anything whose extension does not name an image format. That is an allowlist
+  on purpose: a denylist answers "is this one of the junk files I have met", and
+  the next reader-specific sidecar is a page under it.
+
+**Zero and "not a document" are different answers.** An empty archive has 0
+pages, which is correct and ordinary; a `.txt`, or a `.cbr` (which is RAR, not
+ZIP), therefore throws rather than also returning 0 — "the comic is empty" and
+"this is not a comic" lead to opposite recoveries. The type is decided from the
+file's first bytes, never its extension, because a `.cbz` that is really a RAR is
+common enough that every comic reader handles it.
+
+The ZIP reader is Lathe's own, in 200 lines: Foundation has no public ZIP
+*reader* on either platform — `NSFileCoordinator`'s `.forUploading` intent writes
+one and does not read one — so the choice was this or a third-party package, and
+the licence policy makes every dependency a decision. It walks the central
+directory, handles ZIP64 (an archive of more than 65535 entries otherwise reports
+its count modulo 65536, which is a wrong number rather than a failure, so it gets
+believed), and decompresses an entry only when something actually asks for its
+bytes — through the system Compression framework, whose `COMPRESSION_ZLIB` is
+raw DEFLATE and is exactly what ZIP method 8 stores.
+
+### Searchable PDFs
+
+`PDFTextLayerWriter` runs Vision's on-device OCR over a PDF, an image, or a comic
+archive and writes a PDF with an **invisible** text layer: the page looks
+identical and selects, searches and copies.
+
+```swift
+let result = try await PDFTextLayerWriter().addTextLayer(source: scan, to: searchable)
+print(result.pagesRecognised, result.pagesSkipped, result.textRunCount)
+```
+
+**The geometry is the part that goes wrong silently.** Vision reports normalised
+coordinates with the origin at bottom-left; PDF user space is also bottom-left,
+which makes the mapping look like a multiplication — and it is not, because a PDF
+page carries a `/Rotate` that a viewer applies and a content stream does not, and
+a MediaBox whose origin is legally non-zero. Get either wrong and the text lands
+somewhere other than under its glyphs, which is *invisible by construction*: the
+page still looks perfect, and the only symptom is somebody searching a document
+months later and finding nothing.
+
+So the problem is removed rather than compensated for. **Each output page is
+emitted normalised** — MediaBox `(0, 0, w, h)` at the size a viewer sees — and
+the source page is drawn into it through
+`CGPDFPage.getDrawingTransform(_:rect:rotate:preserveAspectRatio:)`, the one API
+that already knows about both the rotation and the box origin. The rotation is
+baked into the content instead of carried as a key, and the text layer's
+coordinates are then `normalised × pageSize`, against a frame both halves agree
+on. The suite asserts this by rendering the finished page, finding the bounding
+box of its *dark pixels*, and checking the word's selection rectangle lands
+inside it — for `/Rotate` 0, 90, 180 and 270, on a page whose MediaBox origin is
+`(36, 72)`.
+
+Runs are drawn with `CGContext.setTextDrawingMode(.invisible)` — PDF render mode
+3, `3 Tr` in the content stream, which the suite reads back out of the decoded
+stream rather than taking on trust. Mode 3 is the one that renders nothing and
+still leaves the glyphs available to extraction; a transparent fill would look
+right and not survive a flatten, and white-on-white is visible the moment the
+page behind it is not white. Each run is set in Helvetica at roughly its observed
+box height and stretched horizontally to that box's width, so a reader's
+selection rectangle lands on the glyphs.
+
+Four more things it refuses to get wrong:
+
+- **A born-digital PDF is skipped by default.** Re-OCR'ing one adds a *second*
+  text layer that does not line up with the first: every search then finds each
+  word twice and copy-paste comes out interleaved, and the page still looks
+  perfect. The threshold is not zero characters, because a scan routinely carries
+  a stamped page number that would otherwise count as "this page has text".
+- **A cancelled run leaves no output.** The document is built in a sibling
+  temporary file and moved into place only when complete, so a previous file at
+  the destination survives — same rule as `ImageEncoder` and `VideoTranscoder`.
+- **Words keep their spaces.** Each run is its own text object and PDF extraction
+  invents no separator between two of them, so a per-word layer without a
+  deliberate trailing space comes back out of `PDFDocument.string` as one
+  unbroken word. The space is drawn but not measured, so the horizontal stretch
+  still matches the word's own box.
+- **Languages are probed, not assumed.** Handing `VNRecognizeTextRequest` one
+  language this system does not know makes `perform` throw and takes the whole
+  document with it, and the supported set varies by recognition level, by
+  revision and on iOS by which assets the device has. `VisionTextSupport` asks
+  and narrows the request to what will actually be accepted; a wish list that
+  resolves to nothing becomes "let Vision choose" rather than a failure. There is
+  no `#available` in that file, by the same rule `EncodeSupport` follows.
+
+One cost, stated rather than discovered: **annotations do not survive.**
+`CGContextDrawPDFPage` draws a page's content stream, and links, form fields and
+comments are not content. For scans, photographs of pages and comic archives
+there are none; for a born-digital PDF there often are, which is one more reason
+the skip is on by default — but a document with annotations is not what this
+writer is for.
+
 ### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
@@ -458,9 +585,10 @@ Cancel latency is **one work unit**, stated rather than hidden: most native medi
 libraries do not poll for cancellation internally, so a unit boundary is the
 honest granularity.
 
-Everything else — PDF and comic archives, animation, the lossless metadata
-rewrite — is an API surface with throwing stubs. That is deliberate: the shapes
-are reviewable now, and filling them in does not move anyone's call sites.
+Everything else — PDF *image recompression*, comic archive recompression,
+animation recompression, the lossless metadata rewrite — is an API surface with
+throwing stubs. That is deliberate: the shapes are reviewable now, and filling
+them in does not move anyone's call sites.
 
 ### Tests
 
@@ -472,6 +600,16 @@ plus audio-only and deliberately-not-media files — is synthesised at run time 
 construction rather than measured from a file somebody once made, and there is
 nothing whose provenance has to be explained. A machine that cannot generate a
 given clip records a known issue naming the reason instead of quietly passing.
+
+The document fixtures go one step further and write their **ZIP archives by
+hand**, stored-method, with a real CRC per entry. Asking the system to zip a
+folder cannot reliably produce the members that matter — a `__MACOSX/._page.jpg`
+resource fork, a bare directory entry, a deliberately corrupt page — and those
+are exactly what the page-counting rules are about, so the archives contain
+precisely what each test claims they contain. The same goes for the PDFs: a
+`/Rotate` of 90 on a page whose MediaBox origin is `(36, 72)` is not something
+`CGPDFContext` can even express, so those pages are written with Core Graphics
+and rotated with PDFKit.
 
 ---
 

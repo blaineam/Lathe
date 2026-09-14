@@ -135,20 +135,13 @@ public protocol PDFMetadataEditor: Sendable {
     func applyMetadataPolicy(_ policy: MetadataPolicy, to url: URL) throws
 }
 
-/// OCR injection — searchable text over an unchanged page image.
-///
-/// Not yet implemented; Vision's `VNRecognizeTextRequest` plus `CGPDFContext`
-/// invisible text (text render mode 3) is the intended backing. Doing it with
-/// system frameworks avoids both a large external toolchain and its licence
-/// footprint.
-public protocol PDFTextLayerInjector: Sendable {
-    func addSearchableTextLayer(
-        source: URL,
-        destination: URL,
-        languages: [String],
-        progress: ProgressHandle
-    ) throws -> PDFRecompressResult
-}
+// OCR injection is no longer a stub: ``PDFTextLayerWriter`` implements it with
+// `VNRecognizeTextRequest` and a `CGPDFContext` invisible text layer (render
+// mode 3). It is a concrete type rather than a protocol with one conformer, for
+// the same reason `ImageEncoder` and `VideoTranscoder` are — and its result type
+// is ``PDFTextLayerResult``, because the counters an image-recompression pass
+// reports ("images considered", "images skipped") say nothing about a
+// recognition pass.
 
 /// Comic archives.
 ///
@@ -176,7 +169,7 @@ public protocol ComicArchiveRecompressor: Sendable {
 // MARK: - Scaffold implementations
 
 /// Throws ``LatheError/notImplemented(feature:)`` for everything.
-public struct UnimplementedDocumentPipeline: PDFRecompressor, PDFMetadataEditor, PDFTextLayerInjector, ComicArchiveRecompressor {
+public struct UnimplementedDocumentPipeline: PDFRecompressor, PDFMetadataEditor, ComicArchiveRecompressor {
 
     public init() {}
 
@@ -199,15 +192,6 @@ public struct UnimplementedDocumentPipeline: PDFRecompressor, PDFMetadataEditor,
 
     public func applyMetadataPolicy(_ policy: MetadataPolicy, to url: URL) throws {
         throw LatheError.todo("PDFMetadataEditor.applyMetadataPolicy(_:to:)")
-    }
-
-    public func addSearchableTextLayer(
-        source: URL,
-        destination: URL,
-        languages: [String],
-        progress: ProgressHandle
-    ) throws -> PDFRecompressResult {
-        throw LatheError.todo("PDFTextLayerInjector.addSearchableTextLayer(...)")
     }
 
     public func recompress(
