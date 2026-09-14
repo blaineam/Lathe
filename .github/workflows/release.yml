@@ -28,15 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # A tag on a library-only repository is legitimate and expected —
+      # SwiftPM consumers resolve versions from tags. So this SKIPS rather than
+      # fails: a red run on every library release would train everyone to
+      # ignore this workflow, which is worse than it doing nothing.
       - name: Preflight — is there an app to ship?
+        id: preflight
         run: |
-          if ! grep -rq "\.executableTarget\|${APP_NAME}App" Package.swift Sources 2>/dev/null; then
-            echo "::error::No application target exists yet — this repository currently ships a library only."
-            echo "Nothing to package. Remove the tag, or land the app target first."
-            exit 1
+          if grep -rq "\.executableTarget\|${APP_NAME}App" Package.swift Sources 2>/dev/null; then
+            echo "app=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No application target yet — this tag ships a library only, so there is nothing to package."
+            echo "app=no" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Import signing certificate
+        if: steps.preflight.outputs.app == 'yes'
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -56,6 +63,7 @@ jobs:
           rm -f "$CERT_PATH"
 
       - name: Resolve signing identity
+        if: steps.preflight.outputs.app == 'yes'
         id: identity
         run: |
           IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain-db" \
@@ -70,6 +78,7 @@ jobs:
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
 
       - name: Build release
+        if: steps.preflight.outputs.app == 'yes'
         run: |
           xcodebuild -scheme "$APP_NAME" \
             -configuration Release \
@@ -84,6 +93,7 @@ jobs:
             build
 
       - name: Verify the signature before packaging
+        if: steps.preflight.outputs.app == 'yes'
         run: |
           APP_PATH=$(find build/DerivedData -name "$APP_NAME.app" -type d | head -1)
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
@@ -94,9 +104,11 @@ jobs:
             || { echo "::error::Hardened runtime is not enabled; notarization will reject this."; exit 1; }
 
       - name: Package DMG
+        if: steps.preflight.outputs.app == 'yes'
         run: Scripts/build-dmg.sh "$APP_PATH" "dist/$APP_NAME.dmg" "${{ steps.identity.outputs.identity }}"
 
       - name: Notarize
+        if: steps.preflight.outputs.app == 'yes'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -104,6 +116,7 @@ jobs:
         run: Scripts/notarize.sh "dist/$APP_NAME.dmg"
 
       - name: Create GitHub Release
+        if: steps.preflight.outputs.app == 'yes'
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ env.APP_NAME }} ${{ github.ref_name }}
