@@ -68,8 +68,6 @@ struct VideoSurfaceTests {
         #expect(VTKey.quality == kVTCompressionPropertyKey_Quality as String)
         #expect(VTKey.averageBitRate == kVTCompressionPropertyKey_AverageBitRate as String)
         #expect(VTKey.allowFrameReordering == kVTCompressionPropertyKey_AllowFrameReordering as String)
-        #expect(VTKey.usingHardwareAcceleratedVideoEncoder
-            == kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder as String)
         #expect(VTKey.realTime == kVTCompressionPropertyKey_RealTime as String)
         #expect(VTKey.maximizePowerEfficiency
             == kVTCompressionPropertyKey_MaximizePowerEfficiency as String)
@@ -79,6 +77,17 @@ struct VideoSurfaceTests {
         #expect(VTKey.yCbCrMatrix == kVTCompressionPropertyKey_YCbCrMatrix as String)
         #expect(VTKey.preserveDynamicHDRMetadata
             == kVTCompressionPropertyKey_PreserveDynamicHDRMetadata as String)
+
+        // Available since macOS 10.9 but only iOS 17.4, which is ABOVE this
+        // package's floor — so referencing the constant unguarded fails the iOS
+        // build of the TEST target even though the source compiles fine. That
+        // asymmetry is exactly why the source spells these as raw strings; the
+        // test is the one place a constant has to be named, and it pays the
+        // availability cost the source avoids.
+        if #available(macOS 10.9, iOS 17.4, *) {
+            #expect(VTKey.usingHardwareAcceleratedVideoEncoder
+                == kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder as String)
+        }
 
         if #available(macOS 27.0, iOS 27.0, *) {
             #expect(VTKey.constantQualityFactor

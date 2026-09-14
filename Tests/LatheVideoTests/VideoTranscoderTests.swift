@@ -503,8 +503,13 @@ struct VideoTranscoderTests {
             allocator: kCFAllocatorDefault,
             width: Int32(size.width), height: Int32(size.height),
             codecType: codec.codecType,
+            // Raw strings for the same reason the encoder under test uses them:
+            // both of these keys are iOS 17.4+, above this package's floor, so
+            // naming the constants fails the iOS build of the test target. The
+            // values ARE the names — pinned against the SDK constants in
+            // VideoSurfaceTests, under the availability guard that costs.
             encoderSpecification: [
-                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
+                "EnableHardwareAcceleratedVideoEncoder" as CFString: true,
             ] as CFDictionary,
             imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session
@@ -516,7 +521,7 @@ struct VideoTranscoderTests {
         let read = withUnsafeMutablePointer(to: &value) { pointer in
             VTSessionCopyProperty(
                 session,
-                key: kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder,
+                key: "UsingHardwareAcceleratedVideoEncoder" as CFString,
                 allocator: kCFAllocatorDefault,
                 valueOut: pointer
             )
