@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lathe — on-device media processing for Apple platforms</title>
+<meta name="description" content="A Swift media engine that runs entirely on the device: probing, loudness, frames and encoding through the system frameworks, with no subprocesses.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+  :root{
+    --ground:#f2f3f5; --surface:#ffffff; --sunk:#e7e9ec;
+    --ink:#14181d; --ink-soft:#4a525c; --ink-faint:#78818c;
+    --rule:#d5d9de; --rule-soft:#e4e7eb;
+    --accent:#a2521f; --accent-soft:#f6ece4;
+    --ok:#2f6b4f; --ok-soft:#e3f0e9;
+    --warn:#8a6012; --warn-soft:#f7edd8;
+    --no:#9c342e; --no-soft:#f8e4e2;
+    --measure:68ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --ground:#101317; --surface:#171b21; --sunk:#1e242b;
+      --ink:#e8ebef; --ink-soft:#a6aeb8; --ink-faint:#79828d;
+      --rule:#2a313a; --rule-soft:#222831;
+      --accent:#e0864c; --accent-soft:#2b1d13;
+      --ok:#6fbf95; --ok-soft:#16261f;
+      --warn:#d6a441; --warn-soft:#2b2313;
+      --no:#e0736b; --no-soft:#2c1a19;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#101317; --surface:#171b21; --sunk:#1e242b;
+    --ink:#e8ebef; --ink-soft:#a6aeb8; --ink-faint:#79828d;
+    --rule:#2a313a; --rule-soft:#222831;
+    --accent:#e0864c; --accent-soft:#2b1d13;
+    --ok:#6fbf95; --ok-soft:#16261f;
+    --warn:#d6a441; --warn-soft:#2b2313;
+    --no:#e0736b; --no-soft:#2c1a19;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:17px;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding-inline:20px;padding-block:0 100px;
+    display:flex;flex-direction:column;gap:56px}
+  h1,h2,h3{font-family:Archivo,system-ui,sans-serif;margin:0;line-height:1.15;text-wrap:balance}
+  p{margin:0}
+  a{color:var(--accent)}
+  code,pre{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+  code{font-size:.85em;background:var(--sunk);padding:.12em .38em;border-radius:3px}
+  pre{background:var(--surface);border:1px solid var(--rule);border-radius:8px;
+    padding:16px 18px;overflow-x:auto;font-size:13.5px;line-height:1.6;margin:0}
+  pre code{background:none;padding:0;font-size:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:3px}
+
+  .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink-faint);font-weight:500}
+
+  header{padding-block:64px 0;display:flex;flex-direction:column;gap:20px}
+  h1{font-size:clamp(40px,7vw,64px);font-weight:700;letter-spacing:-.02em}
+  .tagline{font-size:clamp(19px,2.4vw,22px);color:var(--ink-soft);max-width:var(--measure)}
+  .tagline b{color:var(--ink);font-weight:600}
+
+  .status{display:flex;gap:14px;align-items:flex-start;background:var(--warn-soft);
+    border:1px solid color-mix(in srgb,var(--warn) 32%,transparent);
+    border-radius:8px;padding:16px 18px;max-width:var(--measure)}
+  .status .tag{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--warn);font-weight:500;padding-top:3px;white-space:nowrap}
+  .status p{font-size:15px;color:var(--ink-soft)}
+
+  section{display:flex;flex-direction:column;gap:20px}
+  h2{font-size:clamp(24px,3.4vw,30px);font-weight:600;letter-spacing:-.01em}
+  .prose{max-width:var(--measure);display:flex;flex-direction:column;gap:14px;color:var(--ink-soft)}
+  .prose b,.prose strong{color:var(--ink);font-weight:600}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:1px;
+    background:var(--rule-soft);border:1px solid var(--rule-soft);border-radius:8px;overflow:hidden}
+  .card{background:var(--surface);padding:20px 22px;display:flex;flex-direction:column;gap:8px}
+  .card h3{font-size:16px;font-weight:600}
+  .card p{font-size:14.5px;color:var(--ink-soft)}
+  .card .mono{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--ink-faint)}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+  table{border-collapse:collapse;width:100%;min-width:560px;font-size:15px}
+  th,td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+  thead th{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-faint);font-weight:500;background:var(--sunk);
+    border-bottom:1px solid var(--rule)}
+  tbody tr:last-child td{border-bottom:none}
+  td.mod{font-family:"JetBrains Mono",monospace;font-size:13px;white-space:nowrap}
+  .pill{display:inline-block;font-family:"JetBrains Mono",monospace;font-size:10.5px;
+    letter-spacing:.06em;text-transform:uppercase;font-weight:500;padding:3px 9px;border-radius:3px;white-space:nowrap}
+  .pill.ok{color:var(--ok);background:var(--ok-soft)}
+  .pill.no{color:var(--no);background:var(--no-soft)}
+  .pill.soon{color:var(--ink-faint);background:var(--sunk)}
+
+  .pull{border-left:3px solid var(--accent);padding:6px 0 6px 20px;
+    font-family:Archivo,sans-serif;font-size:19px;line-height:1.45;color:var(--ink);max-width:var(--measure)}
+
+  .empty{border:1px dashed var(--rule);border-radius:8px;padding:28px 24px;
+    display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+  .empty h3{font-size:16px;font-weight:600;color:var(--ink)}
+  .empty p{font-size:14.5px;color:var(--ink-soft);max-width:var(--measure)}
+
+  footer{border-top:1px solid var(--rule);padding-top:24px;font-family:"JetBrains Mono",monospace;
+    font-size:12px;color:var(--ink-faint);line-height:1.8;display:flex;flex-direction:column;gap:4px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Swift package · iOS 17+ · macOS 14+ · Apache-2.0</div>
+  <h1>Lathe</h1>
+  <p class="tagline">A lathe takes raw stock and turns it down to a target spec. <b>That is the job here</b> — media, resized and re-encoded entirely on the device, with no subprocesses and no server round-trip.</p>
+  <div class="status">
+    <span class="tag">Status</span>
+    <p><b>Early.</b> Probing, loudness, frame extraction and the capability probe are implemented and tested. The encoders are not written yet — every unimplemented entry point throws a named error rather than crashing or silently succeeding. This page says what is true today, not what is planned.</p>
+  </div>
+</header>
+
+<section>
+  <h2>Why it exists</h2>
+  <div class="prose">
+    <p>Most media tooling on Apple platforms is a command-line binary wrapped in a process spawn. That is fine on a desktop and <b>impossible on iOS</b>, where <code>fork</code>/<code>exec</code> is not available at all.</p>
+    <p>The usual answer is to port the C tools. That answer is mostly wrong: the system frameworks already do most of the work, in hardware, with no licence exposure. ImageIO encodes HEIC, AVIF, JPEG, PNG, GIF, TIFF, JPEG 2000 and PDF. AVFoundation probes and extracts frames. VideoToolbox encodes H.264 and HEVC with constant-quality control. Vision does OCR.</p>
+    <p class="pull">Lathe is the thin, well-tested layer over those frameworks — plus a small number of permissively licensed native libraries for the gaps they genuinely leave.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What works today</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>Media probing</h3>
+      <p>Container headers through <code>AVURLAsset</code> — duration, per-track codec, coded and display dimensions, frame rate, bit rate, sample rate, channels. No decoding, so probing a four-hour film costs what probing a four-second clip costs.</p>
+      <span class="mono">MediaProbe · MediaInfo</span>
+    </div>
+    <div class="card">
+      <h3>ffprobe-shaped output</h3>
+      <p>The same facts re-emitted in the shape <code>ffprobe -of json</code> produces, so a subprocess prober can be replaced as one reviewable change. The numeric-looking fields stay <em>strings</em>, because every parser written against ffprobe expects them to be.</p>
+      <span class="mono">MediaInfo.ffprobeJSON()</span>
+    </div>
+    <div class="card">
+      <h3>Loudness, and audibility</h3>
+      <p>Two questions that are easy to mistake for one. A measurement, and a decision. See below — the difference is the interesting part.</p>
+      <span class="mono">LoudnessProbe</span>
+    </div>
+    <div class="card">
+      <h3>Frame extraction</h3>
+      <p>Thumbnails at a requested time and max edge, written through <code>CGImageDestination</code>; and raw 8-bit grayscale frames for perceptual hashing, which never touch disk.</p>
+      <span class="mono">FrameExtractor</span>
+    </div>
+    <div class="card">
+      <h3>Encode capability probe</h3>
+      <p>Asks the OS what it can actually encode by <em>attempting</em> a destination, not by reading a type list. Correct on OS versions nobody has tested, which matters because some identifiers carry no availability annotation at all.</p>
+      <span class="mono">EncodeSupport</span>
+    </div>
+    <div class="card">
+      <h3>Progress and cancellation</h3>
+      <p>One mechanism for both: the progress callback's return value <em>is</em> the cancellation signal, so there is no second channel to forget to check.</p>
+      <span class="mono">ProgressHandle</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The audibility cliff</h2>
+  <div class="prose">
+    <p>Mean volume over a whole file is the standard way to ask "does this have sound", and it is quietly wrong. Ten minutes containing two seconds of speech averages about <b>−45 dBFS</b> — indistinguishable, by that number, from a file with nothing in it at all.</p>
+    <p>That is not a corner case. It is an ordinary phone video with one spoken sentence in it.</p>
+  </div>
+  <pre><code>let volume  = try await LoudnessProbe().meanVolumeDB(url: url)      // a measurement
+let audible = try await LoudnessProbe().hasAudibleAudio(url: url)  // a decision</code></pre>
+  <div class="prose">
+    <p><code>meanVolumeDB</code> reports the same statistic the familiar command-line filter prints, so existing thresholds keep working — but new logic should use <code>hasAudibleAudio</code>, which reads windowed peak and short-term RMS and <b>stops as soon as it has an answer</b>. A loud file is decided in the first window; only a genuinely silent one is read to the end, because that is the only way to know.</p>
+  </div>
+</section>
+
+<section>
+  <h2>The linking contract</h2>
+  <div class="prose">
+    <p>Lathe is one repository with several products, selected individually. That split is not cosmetic — it is how an App Store target stays clear of code it should not contain.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Product</th><th>Contents</th><th>App Store</th></tr></thead>
+      <tbody>
+        <tr><td class="mod">Lathe</td><td>The media-processing modules, together</td><td><span class="pill ok">always safe</span></td></tr>
+        <tr><td class="mod">LatheCore</td><td>Shared types, progress, errors</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mod">LatheImage</td><td>Still images, capability probe</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mod">LatheVideo</td><td>Probing, frames, transcode</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mod">LatheDoc</td><td>PDF and archives</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mod">LatheAudio</td><td>Loudness and audibility</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mod">network ingest</td><td>Fetching from the network — not yet written</td><td><span class="pill no">excluded from the umbrella</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="prose">
+    <p>The umbrella product is defined as the media-processing modules <b>and will never absorb a network-ingest module</b>. Depending on <code>Lathe</code> therefore cannot pull one in by accident; linking one has to be an explicit line in your own manifest.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Install</h2>
+  <pre><code>.package(url: "https://github.com/blaineam/Lathe.git", from: "0.1.0")
+
+// then, per target — take only what you need:
+.product(name: "LatheVideo", package: "Lathe")</code></pre>
+</section>
+
+<section>
+  <h2>Compression comparisons</h2>
+  <div class="empty">
+    <h3>Not published yet — deliberately.</h3>
+    <p>This section will hold before/after comparisons with a draggable slider, real byte counts, real percentages saved, and a quality score — each one naming the tool it is measured against, because "40% smaller" means nothing without "…than what".</p>
+    <p>Those figures will be <b>generated by the test suite</b> and regenerated on every release, not written by hand. Until the encoders exist there is nothing to generate, and publishing numbers that nothing produced is exactly what that design is meant to prevent.</p>
+  </div>
+</section>
+
+<footer>
+  <div>Apache-2.0 · <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a></div>
+  <div>Requires iOS 17 / macOS 14. No third-party runtime dependencies.</div>
+</footer>
+
+</div>
+</body>
+</html>
