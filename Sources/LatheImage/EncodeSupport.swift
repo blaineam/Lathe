@@ -267,7 +267,7 @@ public struct EncodeSupport: Sendable {
             let mark = canEncode(format) ? "encode YES" : "encode no "
             let via = backend(for: format).map { "via \($0.description)" } ?? "—"
             let uti = destinationTypeIdentifier(for: format) ?? format.typeIdentifier
-            lines.append("    \(name)  \(mark)  \(via.padding(toLength: 17, withPad: " ", startingAt: 0))  (\(uti))")
+            lines.append("    \(name)  \(mark)  \(via.padding(toLength: 20, withPad: " ", startingAt: 0))  (\(uti))")
         }
         return lines.joined(separator: "\n")
     }

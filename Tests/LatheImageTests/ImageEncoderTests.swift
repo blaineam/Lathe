@@ -971,6 +971,239 @@ enum Fixtures {
         return url
     }
 
+    // MARK: Multi-frame sources
+
+    /// The canvas every generated animation uses.
+    static let animationSize = PixelSize(width: 32, height: 24)
+
+    /// A GIF with one frame per delay. Pass a single delay for a *still* GIF —
+    /// the single-frame case is a fixture, not an accident.
+    ///
+    /// The delays are written through `kCGImagePropertyGIFUnclampedDelayTime` so
+    /// a 0 really lands as a 0 in the file; the clamped key would have ImageIO
+    /// store 0.1 and the zero-delay test would be testing nothing.
+    static func animatedGIF(
+        in directory: URL,
+        delays: [TimeInterval],
+        loopCount: Int
+    ) throws -> URL {
+        let url = directory.appendingPathComponent("anim-\(delays.count)-\(UUID().uuidString).gif")
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(
+                url as CFURL, ImageFormat.gif.typeIdentifier as CFString, delays.count, nil
+            ),
+            "could not create a GIF destination"
+        )
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: loopCount],
+        ] as CFDictionary)
+
+        for (index, delay) in delays.enumerated() {
+            let frame = try #require(frame(index, of: delays.count), "could not build a GIF frame")
+            CGImageDestinationAddImage(destination, frame, [
+                kCGImagePropertyGIFDictionary: [
+                    kCGImagePropertyGIFUnclampedDelayTime: delay,
+                ] as [CFString: Any],
+            ] as CFDictionary)
+        }
+        #expect(CGImageDestinationFinalize(destination), "could not finalise a GIF fixture")
+        return url
+    }
+
+    /// An APNG. Same shape, PNG's own delay key.
+    static func animatedPNG(in directory: URL, delays: [TimeInterval]) throws -> URL {
+        let url = directory.appendingPathComponent("anim-\(UUID().uuidString).png")
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(
+                url as CFURL, ImageFormat.png.typeIdentifier as CFString, delays.count, nil
+            ),
+            "could not create an APNG destination"
+        )
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: 0],
+        ] as CFDictionary)
+
+        for (index, delay) in delays.enumerated() {
+            let frame = try #require(frame(index, of: delays.count))
+            CGImageDestinationAddImage(destination, frame, [
+                kCGImagePropertyPNGDictionary: [
+                    kCGImagePropertyAPNGUnclampedDelayTime: delay,
+                ] as [CFString: Any],
+            ] as CFDictionary)
+        }
+        #expect(CGImageDestinationFinalize(destination), "could not finalise an APNG fixture")
+        return url
+    }
+
+    /// A HEIF image sequence. The fourth delay key, and the one whose encoder is
+    /// not present everywhere — callers must check ``EncodeSupport`` first.
+    static func animatedHEICS(in directory: URL, delays: [TimeInterval]) throws -> URL {
+        let uti = try #require(EncodeSupport.shared.destinationTypeIdentifier(for: .heics))
+        let url = directory.appendingPathComponent("anim-\(UUID().uuidString).heics")
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(url as CFURL, uti as CFString, delays.count, nil),
+            "could not create a HEICS destination"
+        )
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyHEICSDictionary: [kCGImagePropertyHEICSLoopCount: 0],
+        ] as CFDictionary)
+
+        for (index, delay) in delays.enumerated() {
+            let frame = try #require(frame(index, of: delays.count))
+            CGImageDestinationAddImage(destination, frame, [
+                kCGImagePropertyHEICSDictionary: [
+                    kCGImagePropertyHEICSUnclampedDelayTime: delay,
+                ] as [CFString: Any],
+            ] as CFDictionary)
+        }
+        #expect(CGImageDestinationFinalize(destination), "could not finalise a HEICS fixture")
+        return url
+    }
+
+    /// A multi-page TIFF: several frames, no timing anywhere. The case that
+    /// breaks a `count > 1` animation check.
+    static func multiPageTIFF(in directory: URL, pages: Int) throws -> URL {
+        let url = directory.appendingPathComponent("pages-\(UUID().uuidString).tiff")
+        let destination = try #require(
+            CGImageDestinationCreateWithURL(
+                url as CFURL, ImageFormat.tiff.typeIdentifier as CFString, pages, nil
+            ),
+            "could not create a TIFF destination"
+        )
+        for index in 0..<pages {
+            let page = try #require(frame(index, of: pages))
+            CGImageDestinationAddImage(destination, page, nil)
+        }
+        #expect(CGImageDestinationFinalize(destination), "could not finalise a TIFF fixture")
+        return url
+    }
+
+    /// An **animated WebP**, assembled by hand.
+    ///
+    /// `ImageEncoder` cannot write one — animation needs WebP's extended `VP8X`
+    /// container, which only libwebp's muxer produces, and the muxer is
+    /// deliberately not vendored. So the frames are real (the vendored encoder
+    /// writes each one as a lossless still) and only the container is built here:
+    /// `VP8X` with the animation flag, `ANIM` carrying the loop count, and one
+    /// `ANMF` per frame wrapping that frame's own `VP8L` chunk.
+    ///
+    /// Layout per the WebP container specification. Every RIFF chunk is padded to
+    /// an even length, which is the detail that silently breaks a parser when you
+    /// forget it.
+    static func animatedWebP(
+        in directory: URL,
+        delays: [TimeInterval],
+        loopCount: Int
+    ) async throws -> URL {
+        let encoder = ImageEncoder()
+        var frames: [Data] = []
+        for index in delays.indices {
+            let stillSource = try still(
+                in: directory,
+                format: .png,
+                size: animationSize,
+                name: "webp-frame-\(index)",
+                image: frame(index, of: delays.count)
+            )
+            let stillWebP = directory.appendingPathComponent("webp-frame-\(index).webp")
+            _ = try await encoder.encode(
+                source: stillSource, to: stillWebP,
+                format: .webp, quality: .lossless, resize: nil, metadata: .preserveAll
+            )
+            let bytes = try Data(contentsOf: stillWebP)
+            frames.append(try #require(simpleWebPBitstream(bytes),
+                                       "could not find a bitstream chunk in a still WebP"))
+        }
+
+        var body = Data()
+        body.append(contentsOf: Array("WEBP".utf8))
+
+        // VP8X: 10 bytes. Flags byte bit 1 is ANIMATION; canvas dimensions are
+        // stored minus one, in 24-bit little-endian.
+        var vp8x = Data([0x02, 0, 0, 0])
+        vp8x.append(uint24LE(animationSize.width - 1))
+        vp8x.append(uint24LE(animationSize.height - 1))
+        body.append(riffChunk("VP8X", vp8x))
+
+        // ANIM: background colour (BGRA) then a 16-bit loop count.
+        var anim = Data([0xFF, 0xFF, 0xFF, 0xFF])
+        anim.append(UInt8(loopCount & 0xFF))
+        anim.append(UInt8((loopCount >> 8) & 0xFF))
+        body.append(riffChunk("ANIM", anim))
+
+        for (delay, bitstream) in zip(delays, frames) {
+            var anmf = Data()
+            anmf.append(uint24LE(0))                              // frame x / 2
+            anmf.append(uint24LE(0))                              // frame y / 2
+            anmf.append(uint24LE(animationSize.width - 1))
+            anmf.append(uint24LE(animationSize.height - 1))
+            anmf.append(uint24LE(Int((delay * 1000).rounded())))  // duration, ms
+            anmf.append(0)                                        // blend + dispose
+            anmf.append(bitstream)                                // a whole VP8L chunk
+            body.append(riffChunk("ANMF", anmf))
+        }
+
+        var file = Data(Array("RIFF".utf8))
+        file.append(uint32LE(body.count))
+        file.append(body)
+
+        let url = directory.appendingPathComponent("anim-\(UUID().uuidString).webp")
+        try file.write(to: url)
+        return url
+    }
+
+    /// The `VP8 `/`VP8L` chunk of a *simple* (non-extended) WebP file, header and
+    /// all, ready to drop inside an `ANMF`.
+    private static func simpleWebPBitstream(_ file: Data) -> Data? {
+        guard file.count > 12, fourCC(file, at: 0) == "RIFF", fourCC(file, at: 8) == "WEBP",
+              let tag = fourCC(file, at: 12), tag == "VP8L" || tag == "VP8 "
+        else { return nil }
+        let payload = Int(littleEndianUInt32(file, at: 16))
+        let end = 20 + payload + (payload % 2)
+        guard file.count >= end else { return nil }
+        return file.subdata(in: 12..<min(end, file.count))
+    }
+
+    private static func riffChunk(_ tag: String, _ payload: Data) -> Data {
+        var chunk = Data(Array(tag.utf8))
+        chunk.append(uint32LE(payload.count))
+        chunk.append(payload)
+        if payload.count % 2 == 1 { chunk.append(0) }  // RIFF pads to even
+        return chunk
+    }
+
+    private static func uint32LE(_ value: Int) -> Data {
+        Data([UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+              UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)])
+    }
+
+    private static func uint24LE(_ value: Int) -> Data {
+        Data([UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF), UInt8((value >> 16) & 0xFF)])
+    }
+
+    /// Frame `index` of `count`: a flat colour that sweeps across the hue range,
+    /// so consecutive frames are genuinely different pictures.
+    private static func frame(_ index: Int, of count: Int) -> CGImage? {
+        let step = UInt8(255 * index / max(1, count))
+        return bitmap(animationSize) { x, _ in
+            RGB(step, UInt8(255 - Int(step)), UInt8((x * 255) / max(1, animationSize.width - 1)))
+        }
+    }
+
+    /// A one-frame file in a given format.
+    static func still(
+        in directory: URL,
+        format: ImageFormat,
+        size: PixelSize,
+        name: String = "still",
+        image: CGImage? = nil
+    ) throws -> URL {
+        let cgImage = try #require(image ?? gradient(size), "could not build a still CGImage")
+        let url = directory.appendingPathComponent("\(name).\(format.preferredFilenameExtension)")
+        try write(cgImage, to: url, format: format, properties: [:])
+        return url
+    }
+
     /// Deterministic pseudo-random noise — the incompressible case.
     ///
     /// Its own generator rather than `SystemRandomNumberGenerator`, so a size

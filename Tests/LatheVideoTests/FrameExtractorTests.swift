@@ -89,28 +89,39 @@ struct FrameExtractorTests {
     /// The failure this guards against is a **0-byte file**: ImageIO returns a
     /// nil destination for a format it cannot write, and code that ignores that
     /// leaves an empty file that looks like a successful thumbnail.
+    ///
+    /// WebP was the guaranteed unwritable format and is not any more —
+    /// `LatheImage` vendors an encoder for it, and this test's own escape hatch
+    /// fired the day that landed. So the format is now *discovered* rather than
+    /// named: whatever this system cannot write is what the refusal path is
+    /// tested with, and a system that can write everything says so rather than
+    /// quietly passing.
     @Test("an unencodable output format fails cleanly and writes nothing")
     func unencodableFormatFails() async throws {
-        guard !EncodeSupport.shared.canEncode(.webp) else {
-            withKnownIssue("this system can encode WebP, so it is no longer the unwritable case") {
-                Issue.record("pick another decode-only format for this test")
-            }
+        let unwritable = EncodeSupport.shared.unsupportedFormats
+            .sorted { $0.rawValue < $1.rawValue }
+            .first
+        guard let unwritable else {
+            print("  ! this system writes every format Lathe knows; "
+                  + "the thumbnail refusal path is not exercised here")
             return
         }
         guard let movie = await splitMovie() else { return }
 
-        let output = await FixtureLibrary.shared.scratchURL(named: "thumb-unwritable.webp")
+        let output = await FixtureLibrary.shared.scratchURL(
+            named: "thumb-unwritable.\(unwritable.preferredFilenameExtension)"
+        )
         try? FileManager.default.removeItem(at: output)
 
         do {
             _ = try await extractor.thumbnail(from: movie, to: output, atSeconds: 1, maxWidth: 64)
-            Issue.record("expected a refusal")
+            Issue.record("expected a refusal for \(unwritable.description)")
         } catch let error as LatheError {
             guard case let .encodeUnavailable(format) = error else {
                 Issue.record("expected .encodeUnavailable, got \(error)")
                 return
             }
-            #expect(format == ImageFormat.webp.description)
+            #expect(format == unwritable.description)
         }
         #expect(!FileManager.default.fileExists(atPath: output.path),
                 "a refused encode must not leave a file behind")

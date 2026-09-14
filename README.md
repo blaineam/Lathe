@@ -51,7 +51,7 @@ storage; it takes a file and a target and gives you a file back.
 | Module | Contents |
 |---|---|
 | **`LatheCore`** | Shared vocabulary: error taxonomy, progress and cancellation, job identity, resize arithmetic, metadata policy, quality targets, logging. No codecs, no I/O. |
-| **`LatheImage`** | Still images. The runtime capability probe lives here. Encode, aspect-fit downscale, metadata rewrite, animation recompression. |
+| **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp), aspect-fit downscale, metadata rewrite, frame/animation inspection, animation recompression. |
 | **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. |
 | **`LatheDoc`** | PDF image recompression, document attributes, OCR text layers, comic archives (CBZ/CBR). Builds on `LatheImage`. |
 | **`LatheAudio`** | Loudness and audibility analysis — peak, true peak, integrated LUFS, loudness range, silence ranges. |
@@ -218,7 +218,9 @@ what it is handed, so `.stripAll` is provable by construction. (The other call,
 `CGImageDestinationCopyImageSource`, copies encoded data through *without*
 re-encoding. That is the right tool for "strip GPS and touch nothing else", and
 it belongs to `ImageMetadataRewriter` — which is still a stub. Asking this
-encoder for `QualityTarget.lossless` is refused rather than reinterpreted.)
+encoder for `QualityTarget.lossless` is refused rather than reinterpreted —
+**except for WebP**, where libwebp has a genuine lossless coder and `.lossless`
+selects it.)
 
 One thing no policy may remove is the orientation: dropping it does not
 anonymise a picture, it rotates it.
@@ -234,6 +236,81 @@ deserves suspicion:
   returns false and writes nothing, while 0.999 encodes fine and every other
   lossy format accepts 1.0. Lathe does not clamp it silently; it fails, with an
   error that names the cause, and leaves no file.
+
+#### WebP, written by Lathe rather than ImageIO
+
+ImageIO reads WebP and cannot write it. `EncodeSupport` proves that rather than
+asserting it — `org.webmproject.webp` *is* advertised by
+`CGImageDestinationCopyTypeIdentifiers()` and then refuses to produce a
+destination, which is the whole reason the probe attempts an encode instead of
+reading the advertised list. So `LatheImage` writes WebP itself, through libwebp
+vendored as C source (see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and
+`Sources/CWebP/VENDORING.md`).
+
+It is the same call — same `QualityTarget`, `ResizeTarget`, `MetadataPolicy`,
+progress, result type, and the same never-enlarge and never-a-partial-file rules:
+
+```swift
+try await ImageEncoder().encode(source: png, to: webp, format: .webp, quality: .lossless)
+```
+
+The probe was not taught to lie to make this work. `imageIOEncodableFormats` is
+still exactly what ImageIO demonstrated and `destinationTypeIdentifier(for:)` is
+still nil for WebP; `canEncode` answers "will this package write me one" and
+`backend(for:)` says which encoder would. ImageIO wins ties, so the day it gains
+a WebP encoder the routing switches on its own.
+
+Two consequences worth knowing before you choose WebP as an output format:
+
+- **`.lossless` is real**, and round-trips every pixel. It is also frequently
+  *smaller* than lossy on synthetic images — a generated gradient measures 92
+  bytes lossless against 702 lossy — so "lossless costs bytes" is a fact about
+  photographs, not about WebP.
+- **A WebP written here carries no metadata at all.** EXIF, XMP and ICC live in
+  WebP's extended `VP8X` container, which only libwebp's muxer writes, and the
+  muxer is deliberately not vendored. Orientation is therefore baked into the
+  pixels rather than dropped — the same rule that already covers every format
+  with nowhere to put a tag — so a rotated photo comes out upright. Animated
+  WebP cannot be written for the same reason; it can be *read*, by ImageIO.
+
+### Frame and animation inspection
+
+`ImageInspector` answers "how many frames, does it play, and for how long" from
+a file's headers, without decoding anything.
+
+```swift
+let info = try ImageInspector().inspect(url)
+info.isAnimated      // true only if the frames carry timing
+info.frameCount      // every frame, animated or not
+info.duration        // seconds, ONE pass, nil for a still
+info.frameDelays     // per frame, in order
+info.loopCount       // 0 means forever; nil means the container does not say
+```
+
+**`isAnimated` is not `frameCount > 1`**, and that is the whole point. A
+multi-page TIFF reports a count above one and does not play; so does a HEIC
+burst. A one-frame GIF sits in an animated container and is a still. So the test
+is *more than one frame **and** the frames carry per-frame delay metadata* —
+each animated format keeps its delay under its own key, and a container with
+none has no notion of when to show the next frame. A present-but-zero delay
+still counts as timing: zero is a real GIF idiom meaning "as fast as possible".
+
+Three things that produce a wrong *number* rather than an error, each handled:
+
+- **A zero delay is not zero time.** Summing zeros reports 0.0 seconds for a file
+  that visibly plays. Delays at or under 11 ms become 100 ms — the classic
+  browser rule. The clamp is applied here rather than taken from ImageIO because
+  ImageIO's own clamp is not uniform: its GIF and WebP floors are 100 ms and its
+  APNG floor is 50 ms, so the same animation would change duration on transcode.
+- **Loop count is not duration.** `duration` is one pass, which is what "how long
+  is this clip" means and what `MediaProbe` means by a duration for video and
+  audio. `totalPlaybackDuration` multiplies, and is nil for a forever loop.
+- **Delays are per frame.** They are returned as an array, because dividing a
+  total by a count assumes a uniform frame rate that animations do not have.
+
+Nothing is decoded: `kCGImageSourceShouldCache: false` on every read, so asking
+about a 200 MB file costs the price of its headers. And "not an image" is an
+error, never `false` — a corrupt file and a still are different answers.
 
 ### Video transcoding
 
