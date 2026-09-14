@@ -8,12 +8,12 @@ and re-encoded to a requested quality — entirely on the device, with no
 subprocesses and no server round-trip.
 
 > **Status: early.** The module structure, the public API surface and the
-> progress/cancellation seam are real and tested, and so are the first four
+> progress/cancellation seam are real and tested, and so are the first five
 > capabilities: media probing, an ffprobe-compatible JSON shim, loudness and
-> audibility analysis, and frame extraction. The encoders behind the rest are not
-> written yet — every unimplemented entry point throws a named
-> `LatheError.notImplemented` rather than crashing or silently succeeding. See
-> [What works today](#what-works-today).
+> audibility analysis, frame extraction, and still-image encoding. Video
+> transcode, PDF and animation are not written yet — every unimplemented entry
+> point throws a named `LatheError.notImplemented` rather than crashing or
+> silently succeeding. See [What works today](#what-works-today).
 
 ---
 
@@ -160,6 +160,78 @@ verified before it returns. That check is there because a `vImage_Buffer`'s
 `rowBytes × height` looks correct, passes a smoke test on a conveniently-sized
 frame, and returns garbage on everything else.
 
+### Still-image encoding
+
+`ImageEncoder` re-encodes one still: format, quality, aspect-fit downscale and
+metadata policy, in a single pass.
+
+```swift
+let result = try await ImageEncoder().encode(
+    source: heic, to: jpeg,
+    format: .jpeg, quality: .quality(0.7),
+    resize: .longestSide(2048), metadata: .stripLocation
+)
+```
+
+Four things it refuses to get wrong, each of which is a way this goes wrong in
+practice rather than in theory:
+
+**It never enlarges.** The obvious implementation sets
+`kCGImageDestinationImageMaxPixelSize`, which upsamples without complaint when
+the number exceeds the image — so a "cap the longest edge at 2048" batch turns a
+300-pixel avatar into a blurry 2048-pixel one and reports success. That key is
+not used anywhere in this package. The size is resolved through
+`ResizeTarget.resolve(from:)`, which clamps to the source, and the scaling path
+is entered only when the result is strictly smaller.
+
+**It never leaves a 0-byte file.** The format is checked against `EncodeSupport`
+before anything is created, and the encode runs into a temporary file that is
+moved into place only after `Finalize` succeeds. An unsupported format, a
+cancellation or a codec failure therefore leaves the destination exactly as it
+was — including leaving a *previous* file intact, which an in-place encode does
+not.
+
+**It never silently rotates a photo.** Re-encoding is the classic way to do that,
+in two directions: drop the tag and the picture lands on its side, apply it *and*
+keep it and the picture is rotated twice. `OrientationStrategy` makes the choice
+explicit and implements both — and whether a destination format can carry the tag
+at all is **probed at runtime**, not assumed. That is not a stylistic echo of the
+capability probe; the first version of this code had a hand-written table saying
+PNG could not carry an orientation, and current ImageIO writes one into the
+`eXIf` chunk and reads it straight back. A format that turns out not to keep the
+tag gets the rotation baked into its pixels instead of losing it.
+
+Size arithmetic runs against the **displayed** size, not the stored one. A
+portrait photo stored landscape with a rotation tag is the everyday case, and
+fitting a box against the stored axes gives a differently *shaped* result from
+the one the caller drew on screen.
+
+**Metadata is written, not inherited.** `CGImageDestinationAddImageFromSource`
+carries the source's metadata across implicitly, which makes a strip policy a
+list of things somebody remembered to delete — and anything the source carried
+that nobody thought of travels by default. For a feature whose whole purpose is
+removing data, that is the wrong default. `CGImageDestinationAddImage` writes only
+what it is handed, so `.stripAll` is provable by construction. (The other call,
+`CGImageDestinationCopyImageSource`, copies encoded data through *without*
+re-encoding. That is the right tool for "strip GPS and touch nothing else", and
+it belongs to `ImageMetadataRewriter` — which is still a stub. Asking this
+encoder for `QualityTarget.lossless` is refused rather than reinterpreted.)
+
+One thing no policy may remove is the orientation: dropping it does not
+anonymise a picture, it rotates it.
+
+Two platform findings the suite pins, both of which are the reason quality 1.0
+deserves suspicion:
+
+- **Quality 1.0 is not lossless.** On HEIC it still quantises, and re-encoding an
+  already-compressed source at 1.0 routinely produces a *larger* file. The
+  encoder honours the request, logs when the output grew, and reports both byte
+  counts so a caller can keep the smaller file.
+- **ImageIO's AVIF encoder rejects a quality of exactly 1.0** — `Finalize`
+  returns false and writes nothing, while 0.999 encodes fine and every other
+  lossy format accepts 1.0. Lathe does not clamp it silently; it fails, with an
+  error that names the cause, and leaves no file.
+
 ### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
@@ -216,8 +288,10 @@ Cancel latency is **one work unit**, stated rather than hidden: most native medi
 libraries do not poll for cancellation internally, so a unit boundary is the
 honest granularity.
 
-Everything else is an API surface with throwing stubs. That is deliberate — the
-shapes are reviewable now, and filling them in does not move anyone's call sites.
+Everything else — video transcode, PDF and comic archives, animation, the
+lossless metadata rewrite — is an API surface with throwing stubs. That is
+deliberate: the shapes are reviewable now, and filling them in does not move
+anyone's call sites.
 
 ### Tests
 

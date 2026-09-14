@@ -7,11 +7,18 @@ import LatheCore
 /// the rotation lives in the tag. There are exactly two correct strategies,
 /// **never both** (double-rotates) and never neither (rotates).
 public enum OrientationStrategy: Sendable, Equatable {
-    /// Rotate the pixels, then write `orientation = 1`. Recommended: it
-    /// simplifies everything downstream — OCR, thumbnails, video frames — at the
-    /// cost of forfeiting lossless JPEG rotate.
+    /// Rotate the pixels, then write `orientation = 1`. Simplifies everything
+    /// downstream — OCR, thumbnails, video frames — at the cost of forfeiting
+    /// lossless JPEG rotate, of a mandatory redraw, and of the 8-bit RGB
+    /// conversion that redraw implies for a CMYK or 16-bit source.
+    ///
+    /// ``ImageEncoder`` falls back to this regardless of what was asked for when
+    /// the destination format has nowhere to store a tag, because losing the
+    /// rotation is worse than performing it.
     case bake
-    /// Leave pixels untouched and copy the tag verbatim.
+    /// Leave pixels untouched and copy the tag verbatim. The default: it is the
+    /// non-destructive one, and it composes with a resize, which
+    /// ``bake`` does at the price of a conversion the caller did not ask for.
     case preserveTag
 }
 
@@ -38,7 +45,7 @@ public struct ImageEncodeRequest: Sendable {
         resize: ResizeTarget = .none,
         metadata: MetadataPolicy = .preserveAll,
         forcePreserve: MetadataForcePreserve = .default,
-        orientation: OrientationStrategy = .bake
+        orientation: OrientationStrategy = .preserveTag
     ) {
         self.source = source
         self.destination = destination
@@ -81,24 +88,15 @@ public struct ImageEncodeResult: Sendable, Equatable {
     }
 }
 
-/// The still-image engine.
-///
-/// Not yet implemented. The intended backing is ImageIO for
-/// AVIF/HEIC/JPEG/PNG/GIF, plus libwebp (BSD-3) for the one format ImageIO can
-/// decode but not encode, plus a giflib (MIT) quantizer in front of the ImageIO
-/// GIF writer.
-public protocol ImageEncoder: Sendable {
-    /// - Throws: ``LatheError/encodeUnavailable(format:)`` if
-    ///   ``EncodeSupport`` says the format cannot be written here;
-    ///   ``LatheError/cancelled(atUnit:)`` if the progress handle trips.
-    func encode(_ request: ImageEncodeRequest, progress: ProgressHandle) throws -> ImageEncodeResult
-}
-
 /// Aspect-fit downscaling to an arbitrary resolution.
 ///
-/// Not yet implemented; vImage / Core Image Lanczos is the intended backing. The
-/// size arithmetic is already real in ``ResizeTarget/resolve(from:)``, which
-/// never upsamples — what is missing is the resampling itself.
+/// **Resizing itself is no longer missing** — ``ImageEncoder`` takes a
+/// ``ResizeTarget`` and honours it, and this protocol's signature is that call
+/// with fewer options. It is kept only as the seam for a *standalone* resampler
+/// (vImage / Core Image Lanczos) that does not also re-encode, which is a
+/// different operation from the one the encoder performs. If that never
+/// materialises, this should go the way the scaffold's other duplicate
+/// vocabularies did rather than sit here looking like a missing feature.
 public protocol ImageResizer: Sendable {
     func resize(
         source: URL,
@@ -116,7 +114,10 @@ public protocol ImageResizer: Sendable {
 /// image data unchanged and rewrites only the metadata. Most tools get this
 /// wrong by decoding and re-encoding — losing quality in order to remove a GPS
 /// tag. This is a separate protocol from ``ImageEncoder`` so it is hard to reach
-/// for the lossy path by accident.
+/// for the lossy path by accident, and the separation is enforced rather than
+/// merely documented: ``ImageEncoder`` refuses ``QualityTarget/lossless``
+/// outright and names this protocol in the refusal, instead of quietly
+/// reinterpreting "do not re-encode" as "re-encode at maximum quality".
 public protocol ImageMetadataRewriter: Sendable {
     func rewriteMetadata(
         source: URL,
@@ -146,24 +147,19 @@ public protocol AnimationRecompressor: Sendable {
 
 // MARK: - Scaffold implementations
 
-/// The stand-in until the still-image engine lands. Every call throws
-/// ``LatheError/notImplemented(feature:)``.
+/// The stand-in for the parts of the still-image engine that are still unbuilt.
+/// Every call throws ``LatheError/notImplemented(feature:)``.
+///
+/// Encoding is no longer among them — that is ``ImageEncoder``, which is real —
+/// so this conforms to the three protocols that remain: resampling as a
+/// standalone operation, the lossless metadata rewrite, and animation.
 ///
 /// It exists so that callers can be written and reviewed against the real API
 /// surface now, and so a missing implementation is a named refusal rather than a
 /// crash or a silent no-op.
-public struct UnimplementedImagePipeline: ImageEncoder, ImageResizer, ImageMetadataRewriter, AnimationRecompressor {
+public struct UnimplementedImagePipeline: ImageResizer, ImageMetadataRewriter, AnimationRecompressor {
 
     public init() {}
-
-    public func encode(_ request: ImageEncodeRequest, progress: ProgressHandle) throws -> ImageEncodeResult {
-        // The capability check is real even though the encode is not: a caller
-        // asking for WebP gets "this system cannot encode WebP" today, which is
-        // the same answer it will get later on a build without a WebP encoder
-        // linked.
-        try EncodeSupport.shared.requireEncodable(request.format)
-        throw LatheError.todo("ImageEncoder.encode(_:progress:) for \(request.format)")
-    }
 
     public func resize(
         source: URL,
