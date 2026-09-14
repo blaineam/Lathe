@@ -62,9 +62,9 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp), aspect-fit downscale, metadata rewrite, frame/animation inspection, animation recompression. |
 | **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. |
 | **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), its own ZIP central-directory reader; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
-| **`LatheAudio`** | Loudness and audibility analysis — peak, true peak, integrated LUFS, loudness range, silence ranges. |
+| **`LatheAudio`** | Audio. Inspection (duration, codec, bitrate, lossless-or-not), loudness and audibility analysis, and transcoding to AAC or Apple Lossless with a rule against pointless re-encoding. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
-| **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — and an installer for pure-Python packages the *user* acquires at run time. Network ingest, so it is opt-in by product. |
+| **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 
 Import the umbrella for convenience, or a single module to keep your binary
 small: `import LatheImage` links no PDF or video code. `import Lathe` links no
@@ -172,6 +172,150 @@ pay for a full scan, and they must, because sound can begin at 9:58.
 The result type is an enum, not a `Float`, because *no audio track*, *digital
 silence* and *a measurement* are three different answers and a single number can
 only carry one.
+
+### Audio inspection
+
+`AudioInspector` answers "how long is this?" for audio, alongside `MediaProbe`
+for video and `ImageInspector.totalPlaybackDuration` for animation — and reports
+the facts a compression decision is actually made from:
+
+```swift
+let info = try await AudioInspector().inspect(url)
+info.duration                       // seconds, exact rather than extrapolated
+info.stream?.codecName              // "aac", "alac", "pcm", "mp3", "flac", "opus"
+info.stream?.isLossless             // the decision everything else turns on
+info.stream?.bitsPerSecond          // what a saving has to be measured against
+info.chapterCount                   // non-zero means an audiobook, and see below
+info.hasArtwork
+```
+
+It reads container headers only, so a nine-hour audiobook costs what a ringtone
+costs. `isLossless` is matched against the CoreAudio format constants rather than
+against a list of strings, and anything unrecognised is treated as *lossy* —
+which is the safe direction to be wrong in, because it makes the transcoder more
+cautious rather than less.
+
+Duration is loaded with `AVURLAssetPreferPreciseDurationAndTimingKey`, which is
+not a parameter: an MP3's headline duration is extrapolated from the first
+frame's bitrate and is wrong by seconds on any VBR file, and a type whose job is
+to be right about duration cannot offer being wrong as an option.
+
+### Audio transcoding
+
+`AudioTranscoder` re-encodes one audio file to AAC or Apple Lossless in an MPEG-4
+container — the sibling of `ImageEncoder` and `VideoTranscoder`, with the same
+`QualityTarget`, `MetadataPolicy`, `ProgressHandle` and never-leave-a-partial-file
+rule.
+
+```swift
+let result = try await AudioTranscoder().transcode(
+    source: flac, to: m4a, codec: .aac, quality: .quality(0.5)
+)
+switch result.outcome {
+case .transcoded:       print(result.source.codecName, "→", result.destination!.codecName)
+case let .skipped(why): print("left alone:", why)
+}
+```
+
+#### It refuses to re-encode lossy audio for nothing
+
+The headline, and the default. Transcoding a 128 kbit/s MP3 to 128 kbit/s AAC
+stacks a second psychoacoustic model on the first one's artefacts and routinely
+produces a *larger* file that sounds worse. An optimiser that does that across a
+library has made every file worse, irreversibly.
+
+So a **lossy** source is re-encoded only when the target bitrate is at most
+three-quarters of the source's, and otherwise **nothing is written at all**: the
+destination is untouched, `result.output` is `nil`, and `result.outcome` carries
+both bitrates and the fraction it needed. A source whose bitrate cannot be
+determined is skipped too — there is no proving a saving against an unknown
+number. `LossySourceRule.allow` and `.never` are the two overrides, and
+`AudioTranscoder.plan(for:)` gives the whole decision without touching the disk,
+for a UI that wants to show it or a queue that wants to sort by it.
+
+A **lossless** source is the opposite case and is never governed by that rule:
+that is where re-encoding wins, and where it is defensible. Lossy → Apple
+Lossless is refused by default in the same way, because ALAC cannot restore what
+a lossy encoder discarded — it only buys a file three to five times larger that
+sounds identical.
+
+One last guard runs after the encode, because bitrate arithmetic is a prediction
+and an encoder is entitled to disagree: an output that came out **larger than the
+source** is discarded and the destination left alone.
+
+#### It never upsamples
+
+Output sample rate is `min(requested, source)` and output channel count is
+`min(requested, source)`. A 22 kHz mono voice memo cannot come back as 48 kHz
+stereo, which is what a fixed "everything at 48/stereo" preset does to a library
+of voice memos — twice the bytes for exactly the same information. The rule holds
+even against the codec: if a source's rate is below anything AAC can encode, the
+transcode is refused rather than resampled upward.
+
+#### Multi-channel is preserved, and any downmix is reported
+
+`ChannelPolicy.preserve` is the default, so 5.1 stays 5.1 and keeps its channel
+layout; `.downmixToStereo` and `.atMost(n)` are opt-in. Whatever happened comes
+back as `result.channels`, and the case where preservation was impossible is its
+own — a multi-channel source whose layout the encoder will not accept is
+`downmixedForWantOfALayout`, not silently lumped in with a downmix somebody
+asked for. (Reducing 7.1 to 5.1 is a mixing decision with no single right answer,
+so `.atMost(6)` against an 8-channel source becomes the stereo downmix every
+decoder agrees on, reported as one.)
+
+**`AVAssetWriterInput` raises an Objective-C exception — not a Swift error — when
+a channel layout is not one its encoder accepts**, and Swift cannot catch that:
+it takes the host application down. AAC does not accept every
+`kAudioChannelLayoutTag_*` that describes six channels, and the tag a WAV or CAF
+carries for the same six speakers frequently is not one of them. So
+`AudioEncodeSupport` asks CoreAudio which layouts, sample rates and bitrates the
+encoder will take — `kAudioFormatProperty_AvailableEncode*`, the same tables the
+encoder consults — and translates or clamps *before* anything reaches an output
+settings dictionary. Runtime-probed, per format; there is no `#available` in it
+and there must never be one.
+
+#### Metadata is translated, not copied — artwork included
+
+An MP3 carries ID3 frames, an M4A carries iTunes atoms, and `AVAssetWriter`
+writes only what the destination understands: hand it an `id3/TIT2` while writing
+an `.m4a` and it is dropped without a word. That is how a library ends up
+transcoded, smaller and anonymous. So items already in the destination's keyspace
+are passed through and everything else is reached through AVFoundation's
+*common* keyspace — the one place an ID3 title and an iTunes title are the same
+fact — and re-emitted under the destination's own identifier, with the cover art's
+data type sniffed from its magic number so a PNG sleeve is not tagged as a JPEG.
+`result.carriedArtwork` is reported separately from the item count, because it is
+the one loss a user sees instantly across a whole library.
+
+Audio artwork classifies as `MetadataClass.thumbnails`, so `.strip([.thumbnails])`
+is the one policy that removes a cover; `.preserveAll` and every targeted strip
+keep it.
+
+#### Chapters are not preserved, and say so
+
+An audiobook's chapters are a separate text track plus a track association, not
+metadata items, and carrying them needs a second muxed input. **This transcoder
+does not do it.** Rather than losing them quietly, chapters are counted before
+the encode and reported as `result.droppedChapterCount`, with a log line;
+`AudioInspector` reports the same count beforehand, so a library pass can skip
+chaptered files instead of flattening them.
+
+#### Opus is refused, not substituted
+
+AVFoundation decodes Opus and has no encoder for it on any Apple platform. Naming
+an `.opus` destination is refused **by name**, with a message saying why and what
+to ask for instead. Quietly writing AAC into a file the caller asked to be Opus
+would be worse than refusing — the request was made for a reason. MP3 and FLAC
+destinations are refused the same way and for the same reason.
+
+> **What AVFoundation does that a bitrate looks like it should predict:**
+> `AVEncoderBitRateKey` is a target under AVFoundation's default *variable* rate
+> strategy, not a promise. Asked for 128 kbit/s, its AAC encoder writes a 440 Hz
+> sine wave at about 30 — which is correct behaviour and makes the request a
+> ceiling. The lossy-source rule therefore compares the requested ceiling against
+> the source's measured rate, which errs toward *not* re-encoding; what the file
+> actually came out at is read back from it and reported as
+> `result.destination`.
 
 ### Frame extraction
 
@@ -718,6 +862,144 @@ the pinned upstream release and its SHA-256, why this route rather than a SwiftP
 xcframework's slices, and a binary target cannot deliver it), the refresh steps,
 and exactly what a consumer has to do.
 
+### Downloading media with yt-dlp
+
+**`LatheFetch` runs `yt-dlp` on device.** Not a reimplementation and not a
+bundled copy: the real project, installed at run time by the installer above,
+driven through a Swift surface shaped like the rest of the package.
+
+```swift
+let fetcher = MediaFetcher(runtime: runtime, installer: packages)
+
+try await fetcher.install()                       // yt-dlp + yt-dlp-ejs, two pure wheels
+let readiness = try await fetcher.prepare()       // wires up the JS solver
+print(readiness.report)                           // and says what works here
+
+let listing = try await fetcher.listing(for: url) // every rendition the extractor found
+let selection = try FormatSelector.select(from: listing, policy: .upTo(height: 1080))
+let media = try await fetcher.download(selection, from: listing,
+                                       to: destination, progress: handle)
+media.wasMuxed          // whether two streams were joined to make this
+```
+
+Three things make this harder than running a gallery downloader, and each has a
+specific answer.
+
+#### 1. `ffmpeg` cannot be called, so the merge happens in Swift
+
+YouTube serves high-quality video and audio as separate streams. `yt-dlp` merges
+them by shelling out to `ffmpeg`, and PEP 730 removes process spawning on iOS.
+
+The cheap answer is to constrain format selection to renditions that are already
+muxed. **It is a much worse answer than it sounds, and the measurement is worth
+having:** against `yt-dlp` 2026.8.19, a 4K test video returned **53 renditions
+from the default client set, not one of which carried both tracks**. Forcing an
+older client shape surfaces exactly one — format `18`, 360p H.264/AAC — and that
+is the entire pre-muxed catalogue. The 720p progressive format this fallback used
+to be worth having is gone.
+
+So it is the floor, not the answer. `FormatPolicy.preMuxedOnly` selects it, and
+`MediaFetcher.preMuxedCapableYouTubeClients` names the clients that still publish
+one, because against the *default* clients a pre-muxed policy finds nothing at
+all.
+
+The real path is `StreamMuxer`: `yt-dlp` downloads the two streams separately —
+one concrete format id per call, never a `+` expression, which is what keeps
+`yt-dlp`'s merger unreachable — and `AVAssetWriter` joins them. **Nothing is
+re-encoded.** Reader and writer are both in passthrough (`outputSettings: nil`),
+so the encoded samples are written through unchanged; re-encoding a stream that
+was downloaded thirty seconds ago costs time and a generation of quality in
+exchange for nothing. The test asserts the codec four-character code *and the
+total encoded byte count* survive, because a transcode can land on the same codec
+and cannot land on the same sample sizes.
+
+Two hazards are worth naming. Driving a two-input `AVAssetWriter` by polling
+`isReadyForMoreMediaData` **deadlocks silently** — one input goes not-ready and
+never returns, the writer stays `.writing` and reports no error; the fix is one
+`requestMediaDataWhenReady` pump per input, as in `LatheVideo`. And an MPEG-4
+file will not hold VP9 or Opus, so the pair is chosen from codecs it will hold —
+otherwise the failure arrives *after* both streams have been downloaded.
+
+#### 2. YouTube needs a JavaScript runtime, and gets JavaScriptCore
+
+Since late 2025 `yt-dlp` solves YouTube's player challenges by running a
+JavaScript program in `deno`, `node`, `bun` or `quickjs` — discovered on `PATH`
+and started as a subprocess. All four are unavailable here.
+
+`JavaScriptCore` is a system framework on both platforms, needs no subprocess and
+no entitlement. `LatheFetch` registers a challenge provider backed by it, so the
+solver runs in a `JSContext` with a `console.log` shim and nothing else — which
+is all the program wants, since it stubs its own browser globals.
+
+**The measurement, because the JIT is not available to an ordinary iOS app.** A
+~3.0 MB YouTube player plus a batch of `n` and signature challenges, on an Apple
+silicon Mac:
+
+| | |
+|---|---|
+| JIT enabled | ≈0.24 s |
+| interpreter only | ≈1.6 s |
+
+Seven times slower and still fine: this runs once per player per session, and
+`yt-dlp` batches every challenge for an item into a single solve.
+`JavaScriptEngine.benchmark` exists so the claim can be re-checked on a real
+device rather than inherited from this table.
+
+**This is the most fragile joint in the feature, and it is pinned and named.**
+The provider subclasses `EJSBaseJCP`, which lives under `yt_dlp.extractor.youtube
+.jsc._builtin` — a **private** module; `yt-dlp`'s own `jsc/README.md` names only
+`…jsc.provider` as public. Using solely public API would mean reimplementing
+several hundred lines of script sourcing, version checking, hash verification and
+caching, which would go stale *silently*; subclassing the private base goes stale
+**loudly, at import**. `MediaFetcherDriver.developedAgainstVersion` records the
+release it was written against, and when it breaks `readiness()` reports the
+solver as unavailable with the reason while everything except
+signature-protected YouTube keeps working.
+
+#### 3. `pycryptodomex` is a C extension, and is never installed
+
+`yt-dlp` prefers it for AES and falls back to its own pure-Python implementation
+when it is absent — `yt_dlp/aes.py` branches on `Cryptodome.AES` and nothing hard
+-requires the C module. Since iOS can never load a run-time-installed extension,
+the fallback is the permanent state, and `Readiness.cryptographyBackend` reports
+it so a slow AES-128 HLS decrypt is a known property rather than a mystery. The
+cost beyond speed is the handful of extractors that want RSA or CMAC rather than
+AES.
+
+Note that `yt-dlp`'s own packaging already excludes `brotli` on
+`sys_platform == "ios"`, and that its base `dependencies` array is **empty** —
+everything is an extra. So the install is two pure-Python wheels with no
+transitive graph at all.
+
+#### Installed, not bundled — and the reason is maintenance, not licence
+
+`yt-dlp` is public domain (the Unlicense), so bundling it would be legally
+unencumbered. It is installed anyway because **`yt-dlp` breaks weekly**: sites
+change their players and their token schemes, and a copy inside an application is
+stale the day it ships and staler every day after — with an App Store review
+cycle standing between a user and a fix that was not the application's.
+Installing it means the fix is thirty seconds away, through the same code path
+that installed it.
+
+Bundling remains legitimate for an offline-first consumer, and is supported:
+`PythonPackageInstaller.install(wheel:named:verifying:)` takes bytes already in
+memory, so an application can ship a wheel in its bundle and install it with no
+network. What it buys is a first launch that works on a plane; what it costs is
+that the copy goes stale, and on these sites stale means broken. **This is the one
+place the treatment differs from `gallery-dl`, and the difference is maintenance,
+not licence.**
+
+#### What a download guarantees
+
+Every byte goes into a working directory beside the destination, and the
+destination is written exactly once — by a move, or by the muxer. A cancellation,
+a network failure or a crashed extractor leaves the destination as it was found:
+absent, or, when retrying over an existing file, intact rather than truncated.
+Cancellation is carried on the progress callback's return value, the same
+contract `ProgressSink` already has, which makes `yt-dlp` raise its own
+`DownloadCancelled` and unwind through the paths it already has for a user
+pressing `^C`.
+
 ### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
@@ -784,11 +1066,20 @@ them in does not move anyone's call sites.
 **No binary media is committed to this repository.** Every clip the suite needs —
 solid-colour and split-colour video at a known size and frame rate, tracks of
 silence, of a continuous tone, and of 0.2 s of tone inside a minute of silence,
-plus audio-only and deliberately-not-media files — is synthesised at run time by
-`AVAssetWriter` and `AVAudioFile`. Fixture properties are therefore known by
+AAC files at a known bitrate with iTunes tags and cover art, multi-channel PCM
+with a real channel layout, plus audio-only and deliberately-not-media files — is
+synthesised at run time by `AVAssetWriter` and `AVAudioFile`. Fixture properties are therefore known by
 construction rather than measured from a file somebody once made, and there is
 nothing whose provenance has to be explained. A machine that cannot generate a
 given clip records a known issue naming the reason instead of quietly passing.
+
+Anything asserting about **size** uses deterministic white noise rather than a
+tone, and the reason is a bug this caught: a sine wave is the easiest signal a
+psychoacoustic model will ever meet, so AVFoundation's AAC encoder writes one at
+a quarter of the bitrate it was asked for. A size test built on a tone measures
+the encoder's opinion of sine waves. The AAC fixtures also pin
+`AVEncoderBitRateStrategyKey` to constant, so a fixture's bitrate is what it was
+told to be rather than a ceiling it may come nowhere near.
 
 The document fixtures go one step further and write their **ZIP archives by
 hand**, stored-method, with a real CRC per entry. Asking the system to zip a
