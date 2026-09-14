@@ -151,12 +151,24 @@ jobs:
           [ -n "$UDID" ] || UDID=$(pick_udid)
 
           if [ -z "$UDID" ]; then
-            echo "::error::No usable iOS Simulator destination for this scheme."
+            # Not a failure. GitHub's macOS images do not always ship an iOS
+            # SIMULATOR RUNTIME for the selected Xcode — the SDK is present
+            # (so the package still compiles for iOS) but no bootable device
+            # exists, and downloading a runtime costs multiple GB per run.
+            #
+            # Degrade to a compile check against the generic simulator
+            # destination. That still catches the thing most likely to break a
+            # cross-platform package — code that builds on macOS and not on
+            # iOS — and it says plainly that the tests did not run, rather
+            # than reporting a green tick that means less than it looks.
+            echo "::warning::No bootable iOS simulator on this runner — compiling for iOS only, tests not executed."
             echo "Installed runtimes, for comparison with the destinations above:"
             xcrun simctl list runtimes || true
-            exit 1
+            echo "mode=build-only" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "Using simulator $UDID"
+          echo "mode=test" >> "$GITHUB_OUTPUT"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: Build and test on the simulator
@@ -166,12 +178,21 @@ jobs:
           # is not worth failing a build over if an image bump drops it.
           FORMATTER="cat"
           if command -v xcbeautify >/dev/null 2>&1; then FORMATTER="xcbeautify"; fi
-          xcodebuild test \
-            -scheme "${{ steps.scheme.outputs.scheme }}" \
-            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
-            -resultBundlePath "$SCRATCH_PATH/ios-results.xcresult" \
-            CODE_SIGNING_ALLOWED=NO \
-            | $FORMATTER || exit "${PIPESTATUS[0]}"
+
+          if [ "${{ steps.sim.outputs.mode }}" = "test" ]; then
+            xcodebuild test \
+              -scheme "${{ steps.scheme.outputs.scheme }}" \
+              -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+              -resultBundlePath "$SCRATCH_PATH/ios-results.xcresult" \
+              CODE_SIGNING_ALLOWED=NO \
+              | $FORMATTER || exit "${PIPESTATUS[0]}"
+          else
+            xcodebuild build \
+              -scheme "${{ steps.scheme.outputs.scheme }}" \
+              -destination "generic/platform=iOS Simulator" \
+              CODE_SIGNING_ALLOWED=NO \
+              | $FORMATTER || exit "${PIPESTATUS[0]}"
+          fi
 
       - name: Upload test results
         if: always()
