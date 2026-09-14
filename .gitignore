@@ -32,6 +32,10 @@ timeline.json
 *.xcresult
 TestResults/
 
+# Fetched by Sources/LatheFetch/fetch-upstream.sh. An application build input,
+# ~32 MB and ~2,900 files; never committed. See Sources/LatheFetch/VENDORING.md.
+.python-apple-support/
+
 # macOS
 .DS_Store
 .AppleDouble

@@ -16,6 +16,12 @@ subprocesses and no server round-trip.
 > written yet — every unimplemented entry point throws a named
 > `LatheError.notImplemented` rather than crashing or silently succeeding. See
 > [What works today](#what-works-today).
+>
+> A tenth capability sits deliberately **outside** that surface: `LatheFetch`,
+> an embedded CPython interpreter and a pure-Python package installer, shipped
+> as its own product and excluded from the `Lathe` umbrella. It contains no
+> downloader — it is the runtime one would be written in. See
+> [Running Python on device](#running-python-on-device).
 
 ---
 
@@ -58,9 +64,11 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), its own ZIP central-directory reader; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
 | **`LatheAudio`** | Loudness and audibility analysis — peak, true peak, integrated LUFS, loudness range, silence ranges. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
+| **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — and an installer for pure-Python packages the *user* acquires at run time. Network ingest, so it is opt-in by product. |
 
 Import the umbrella for convenience, or a single module to keep your binary
-small: `import LatheImage` links no PDF or video code.
+small: `import LatheImage` links no PDF or video code. `import Lathe` links no
+Python at all, and that is a standing guarantee rather than today's arrangement.
 
 ```swift
 import Lathe
@@ -76,6 +84,8 @@ print(Lathe.capabilityReport)   // what this system can actually encode
 .product(name: "LatheImage", package: "Lathe")   // stills only
 .product(name: "LatheVideo", package: "Lathe")   // probing, thumbnails, transcode
 .product(name: "Lathe",      package: "Lathe")   // all five, via one import
+
+.product(name: "LatheFetch", package: "Lathe")   // embedded CPython — NOT in the umbrella
 ```
 
 The `Lathe` umbrella product is **media processing only, permanently**. Modules
@@ -83,6 +93,25 @@ that ingest media from the network — downloaders, in-app browsers — will shi
 separate products and are deliberately excluded from it, so an app that wants
 none of that code can guarantee it has none by choosing a product, rather than by
 auditing a transitive import graph after every version bump.
+
+**`LatheFetch` is the first of those, and it is the case the rule was written
+for.** It is a `.library` product of its own; it is *not* among the `Lathe`
+target's dependencies, and adding it there would hand an embedded interpreter to
+every existing consumer of the umbrella in a routine version bump. The
+consequences of depending on it are real and worth choosing deliberately:
+
+- it binds a CPython interpreter, which your application supplies and embeds;
+- it fetches from a package index on the user's behalf, which is network
+  activity an App Store reviewer will ask about;
+- it makes third-party Python code executable in your process.
+
+None of that belongs to an app that recompresses photographs, and the product
+list is how such an app proves it has none of it.
+
+`LatheFetch` depends on `LatheCore` — for the logging subsystem, so one predicate
+still filters the whole package out of a host's logs — and on nothing else in
+this package. The dependency runs in that direction only: `import LatheCore`
+links no Python.
 
 ---
 
@@ -529,6 +558,116 @@ there are none; for a born-digital PDF there often are, which is one more reason
 the skip is on by default — but a document with annotations is not what this
 writer is for.
 
+### Running Python on device
+
+**`LatheFetch` embeds a real CPython interpreter, and installs pure-Python
+packages the user asks for.** It is a separate product; see
+[Linking contract](#linking-contract) for why.
+
+The premise is narrow and worth stating: some ecosystems are too large to
+reimplement. A site-extraction library carries a couple of thousand
+site-specific extractors and rewrites them as the sites change; porting that to
+Swift means inheriting the churn permanently. Running the real thing does not.
+Nothing in this module knows anything about downloading — it is the runtime such
+a thing would run *in*.
+
+```swift
+import LatheFetch
+
+let runtime = try PythonRuntime.bootstrap(.discovered())
+print(runtime.platform.diagnosticReport)      // what this interpreter is, and cannot do
+
+try runtime.evaluate("sum(range(10))").value.int          // 45
+try runtime.execute("print('hi')").standardOutput          // "hi\n"
+
+let packages = PythonPackageInstaller(runtime: runtime, root: applicationSupport)
+try await packages.install("gallery-dl")                   // resolved, hash-verified, unpacked
+try await packages.activate()                              // on sys.path
+try runtime.importModule("gallery_dl")
+```
+
+Five things in it are not obvious, and each is a trap that was hit:
+
+**There is one interpreter per process, and it is never torn down.**
+`Py_Initialize` runs once and `Py_Finalize` is not reliably re-entrant, so
+`PythonRuntime` has **no public initialiser and no `shutdown()`** — only a static
+`bootstrap` returning a shared instance. Calling it again with a different
+`PYTHONHOME` throws rather than pretending to honour it. The constraint is in the
+API's shape instead of in a comment someone has to find.
+
+**Every entry point takes the GIL, and calls may arrive from anywhere.** No Swift
+lock guards execution — serialising in Swift as well would defeat the
+interpreter's own concurrency, since Python drops the GIL around blocking I/O,
+which is exactly when a second caller should run. Concurrent calls therefore
+genuinely interleave, which is why **captured output is thread-local**: two
+callers printing at once must not harvest each other's lines. Only the short
+hand-off of a call's source and arguments is serialised, and the lock ordering
+there (handoff before GIL, never the reverse) is what keeps it from deadlocking
+against a caller already inside Python.
+
+**`PYTHONHOME` is validated before initialisation, not after.** CPython's answer
+to an unfindable standard library is `Py_FatalError` and `abort()` — on a device
+that is a crash report rather than an error anyone can catch. `PythonLayout`
+therefore checks for the actual landmark (`lib/pythonX.Y/os.py`, the file
+CPython's own path calculation looks for) and throws a catchable
+`PythonError.invalidLayout` first. An empty `lib/python3.13` passes a
+directory-exists check and still aborts, which is why the check is for the file.
+
+**`sys.stdout` and `sys.stderr` are captured, not left on file descriptors 1 and
+2.** Those descriptors go nowhere on a device, and print output is most of what
+makes an embedded interpreter debuggable. `execute` returns what the call
+printed; `drainBackgroundOutput()` returns what Python's *own* threads printed,
+from a bounded buffer.
+
+**Errors arrive as Swift errors carrying the Python traceback**, with Lathe's own
+driver frame trimmed off so the trace starts at the caller's first line.
+`PythonException` has `type`, `message`, the formatted `traceback`, and whatever
+the code printed before it raised.
+
+#### PEP 730: what does not work on iOS, and is not papered over
+
+iOS does not let a process spawn another. `os.fork` and `subprocess` raise, and a
+great deal of published Python shells out — to `ffmpeg`, to `curl`, to itself.
+`LatheFetch` **does not shim any of that**. What it does is make the failure
+legible: `PythonException.isPlatformRestriction` is true for those cases, and the
+error text says the call site has to be replaced rather than retried. An
+unadorned `OSError` reads like a bug in the Python being run, and it is not one.
+`PythonRuntime.platform` reports `hasFork`, `subprocessIsImportable` and
+`canSpawnProcesses`, read out of the live interpreter rather than inferred from a
+version.
+
+#### The installer refuses compiled wheels, on purpose
+
+A wheel containing a `.so` is rejected at install time with the offending members
+named. This is not a missing feature: iOS cannot load a dynamic library that was
+not inside the signed application bundle, so a compiled extension downloaded at
+run time can never be imported, by any installer. Saying so at install time
+beats an `ImportError` three screens later that reads like an application bug.
+
+`install`, `installed()`, `update` and `remove` operate on a directory laid out
+exactly like `pip install --target`, so the result is legible to anyone who knows
+Python packaging and nothing about Lathe. Downloads are checked against the
+index's published SHA-256 **at the transport boundary**, so unverified bytes
+never reach the installer at all, and a file published without a hash is refused
+rather than trusted.
+
+**Nothing installed this way is distributed by Lathe.** No wheel, no mirror, no
+default set, no install-on-first-use. The user, at run time, on their own device,
+from an index they chose. That distinction is the whole reason the installer
+exists rather than a `Resources/` directory with some wheels in it, and it is
+what keeps the licence policy below true whatever a user installs.
+
+#### Acquisition
+
+There is no CPython in this repository and none is downloaded to build or test
+it. `LatheFetch` resolves fifteen stable-ABI symbols with `dlsym` against
+whatever CPython the process has — the `Python.framework` an iOS app embeds, or
+the host's framework build on macOS. `Sources/LatheFetch/VENDORING.md` records
+the pinned upstream release and its SHA-256, why this route rather than a SwiftPM
+`binaryTarget` (the short version: the standard library lives *beside* the
+xcframework's slices, and a binary target cannot deliver it), the refresh steps,
+and exactly what a consumer has to do.
+
 ### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
@@ -611,6 +750,14 @@ precisely what each test claims they contain. The same goes for the PDFs: a
 `CGPDFContext` can even express, so those pages are written with Core Graphics
 and rotated with PDFKit.
 
+The Python suite follows the same rule with the same reasoning. **No wheel is
+committed either**: the archives it needs — a pure one, one with a `.so` in it
+whose filename claims otherwise, one with a `../` member, one that is ZIP64 by
+its sentinel — are assembled byte by byte at run time, stored-method, with a real
+CRC per entry. No packaging tool will produce those on request, and they are
+precisely what the installer's refusals are about. The interpreter tests need no
+fixture at all; they need a CPython, and say so when there is none.
+
 ---
 
 ## Licence policy
@@ -640,10 +787,30 @@ not, and the script that refreshes them. Every vendored file is byte-for-byte
 upstream. `LatheImage` is the only module that links it, so a consumer that
 depends on `LatheCore` or `LatheAudio` alone ships none of it.
 
-**Anything that ingests media from a URL deliberately lives outside Lathe.**
-Downloaders bring both licence complexity and app-store policy problems, and
-keeping them structurally outside this package means the boundary cannot be
-crossed by accident during a refactor.
+**What is bound but not linked: CPython.** `LatheFetch` embeds a Python
+interpreter, and there is no CPython in this repository — fifteen stable-ABI
+symbols are resolved at run time against a framework the *application* supplies.
+CPython is PSF-2.0 and the Apple build scripts are BSD-3-Clause, both permissive
+and GPL-compatible. An application that embeds the framework is distributing
+CPython and inherits the notice obligation; one that uses the host's interpreter
+on macOS is not. `Sources/LatheFetch/VENDORING.md` has the pinned release, the
+checksum and the reasoning.
+
+**Packages a user installs at run time are outside this policy, by
+construction.** `PythonPackageInstaller` distributes nothing: no wheel is
+bundled, mirrored, cached or defaulted, and every install is something a user
+asked for from an index they chose. Their licences bind that user, not this
+package — which is exactly why the installer exists rather than a `Resources/`
+directory with some wheels in it, and why the no-GPL rule above survives contact
+with an ecosystem this package has no control over.
+
+**Anything that ingests media from a URL stays out of the `Lathe` umbrella.**
+Downloaders bring both licence complexity and app-store policy problems, so the
+boundary is the **product list**, and `Package.swift` enforces it: such modules
+are separate `.library` products and never dependencies of the `Lathe` target, so
+the line cannot be crossed by accident during a refactor. `LatheFetch` is the
+first module on that side of it — it is the runtime a downloader would be
+written in, and contains no downloader itself.
 
 ---
 
@@ -674,6 +841,21 @@ swift test
 > bundles can fail with `resource fork, Finder information, or similar detritus
 > not allowed`. Build to local disk instead:
 > `swift build --scratch-path /tmp/lathe-build`.
+
+Nothing has to be fetched or installed first — including for `LatheFetch`, which
+binds CPython at run time rather than at build time. Two environment variables
+change what the suite covers:
+
+```sh
+LATHE_FETCH_NETWORK_TESTS=1 swift test     # also exercise PyPI. Off by default.
+LATHE_PYTHON_HOME=/path/to/framework/Versions/3.13 \
+LATHE_PYTHON_LIBRARY=/path/to/libpython3.13.dylib swift test   # pin an interpreter
+```
+
+The interpreter tests run against whatever CPython the machine has — Xcode's own
+`Python3.framework` is the last-resort fallback, so in practice they run
+everywhere — and record a **known issue naming the reason** when there is none,
+rather than failing or quietly passing.
 
 ---
 
@@ -714,9 +896,12 @@ Two rules for anything that lands here:
 
 1. **No version gating for codec capability.** Probe at runtime and degrade.
 2. **No GPL or AGPL dependencies**, direct or transitive.
-3. **A vendored dependency comes with a `VENDORING.md`**: the pinned tag and
-   commit, what was taken and left out, a refresh script, and its licence
-   reproduced in `THIRD-PARTY-NOTICES.md`.
+3. **A third-party dependency comes with a `VENDORING.md`** — whether it is
+   vendored as source, linked, or bound at run time: the pinned version, how it
+   is acquired and why that route, what a consumer has to do, a refresh script,
+   and its licence reproduced in `THIRD-PARTY-NOTICES.md`.
+4. **Network ingest gets its own product** and never joins the `Lathe` umbrella.
+   See [Linking contract](#linking-contract).
 
 ---
 

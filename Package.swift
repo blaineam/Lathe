@@ -49,6 +49,13 @@ let package = Package(
         .library(name: "LatheVideo", targets: ["LatheVideo"]),
         .library(name: "LatheDoc", targets: ["LatheDoc"]),
         .library(name: "LatheAudio", targets: ["LatheAudio"]),
+
+        // Network ingest, and the first module the rule above was written for.
+        // `LatheFetch` embeds a CPython interpreter and installs Python packages
+        // the user asks for at run time. It is a separate product precisely so
+        // an application doing pure media processing can *prove* it links none
+        // of that, by naming the products it depends on.
+        .library(name: "LatheFetch", targets: ["LatheFetch"]),
     ],
     targets: [
         // MARK: - Umbrella
@@ -85,6 +92,55 @@ let package = Package(
         .target(name: "LatheDoc", dependencies: ["LatheCore", "LatheImage"]),
 
         .target(name: "LatheAudio", dependencies: ["LatheCore"]),
+
+        // MARK: - Network ingest
+        //
+        // An embedded CPython interpreter, and an installer for pure-Python
+        // packages the user acquires at run time.
+        //
+        // ## Why this target has no binary dependency
+        //
+        // The reflex here is the opposite of the one for libwebp below: a
+        // `binaryTarget` on beeware/Python-Apple-support's `Python.xcframework`.
+        // Three things rule it out, and the third is decisive:
+        //
+        // * **SwiftPM cannot consume the published artifact.** A `binaryTarget`
+        //   takes either a local path or a remote `.xcframework.zip` with a
+        //   checksum. Every Python-Apple-support release asset is a `.tar.gz`.
+        // * **Committing ~40 MB of binary is not acceptable here**, and a fetch
+        //   script producing a *local* binary target would make `swift build`
+        //   fail on a fresh clone until somebody ran it — including for the
+        //   existing media modules, which have nothing to do with Python.
+        // * **The xcframework is not the whole dependency.** The pure-Python
+        //   standard library — 2,500-odd files — and the per-slice `lib-dynload`
+        //   extension modules sit *beside* the slices in that archive, not
+        //   inside them. SwiftPM embeds a binary target's framework and has no
+        //   mechanism to place anything else in an app bundle, so the
+        //   binaryTarget route delivers an interpreter that cannot find its own
+        //   standard library and aborts. Upstream's own integration is an Xcode
+        //   build phase, which is an application-level thing.
+        //
+        // So the interpreter is **acquired by the application and bound at run
+        // time**: fifteen stable-ABI symbols resolved through `dlsym`, against
+        // whatever CPython the process has — the `Python.framework` an iOS app
+        // embedded, or the host's framework build on macOS. That keeps
+        // `swift build`, `swift test` and the iOS build working with nothing
+        // fetched, which is also what keeps this target from taxing every other
+        // module in the package. See Sources/LatheFetch/VENDORING.md for the
+        // full argument, the pinned upstream release, and what a consumer has to
+        // do.
+        //
+        // It depends on LatheCore for the logging subsystem, so one predicate
+        // still filters the whole package out of a host's logs. Nothing in
+        // LatheCore depends back.
+        .target(
+            name: "LatheFetch",
+            dependencies: ["LatheCore"],
+            exclude: [
+                "VENDORING.md",
+                "fetch-upstream.sh",
+            ]
+        ),
 
         // MARK: - Vendored C
         //
@@ -173,5 +229,12 @@ let package = Package(
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
+
+        // The Python suite runs against whatever CPython the host machine has,
+        // and records a known issue naming the reason when there is none —
+        // rather than failing, which would make an unconfigured machine look
+        // like a broken package, or passing quietly, which would make it look
+        // like a tested one. Its network tests are opt-in; see the suite.
+        .testTarget(name: "LatheFetchTests", dependencies: ["LatheFetch"]),
     ]
 )
