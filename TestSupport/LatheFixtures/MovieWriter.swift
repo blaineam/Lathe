@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreMedia
+import CoreGraphics
 import CoreVideo
 import Foundation
 import LatheCore
@@ -19,6 +20,18 @@ struct MovieWriter {
     let left: FixtureColour
     let right: FixtureColour
     let audio: FixtureAudio
+    /// Fills every frame with deterministic pseudo-random pixels instead of flat
+    /// colour. A flat frame compresses to almost nothing at *every* quality, so
+    /// it cannot tell a working quality knob from a disconnected one; noise that
+    /// also changes between frames defeats inter-frame prediction as well.
+    let noise: Bool
+    /// Written into the track's display matrix, so the clip is stored on one set
+    /// of axes and presented on another — the everyday portrait-phone case.
+    let rotationDegrees: Int
+    /// Container metadata, for testing ``MetadataPolicy`` end to end.
+    let creationDate: Date?
+    /// ISO 6709, as QuickTime stores a location.
+    let location: String?
 
     /// The audio track is AAC rather than PCM because that is what a QuickTime
     /// file off a camera actually contains, and the audio code under test should
@@ -43,6 +56,11 @@ struct MovieWriter {
             ]
         )
         videoInput.expectsMediaDataInRealTime = false
+        if rotationDegrees != 0 {
+            videoInput.transform = CGAffineTransform(
+                rotationAngle: CGFloat(rotationDegrees) * .pi / 180
+            )
+        }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: videoInput,
             sourcePixelBufferAttributes: [
@@ -74,6 +92,8 @@ struct MovieWriter {
             writer.add(input)
             audioInput = input
         }
+
+        writer.metadata = metadataItems()
 
         guard writer.startWriting() else {
             throw FixtureError.writerUnavailable(
@@ -148,7 +168,7 @@ struct MovieWriter {
         else {
             throw FixtureError.writeFailed("could not take a pixel buffer from the pool")
         }
-        fill(pixelBuffer)
+        fill(pixelBuffer, frame: index)
 
         let time = CMTime(value: CMTimeValue(index), timescale: CMTimeScale(frameRate))
         guard adaptor.append(pixelBuffer, withPresentationTime: time) else {
@@ -157,8 +177,9 @@ struct MovieWriter {
         return true
     }
 
-    /// Fills a BGRA buffer: `left` on the left half, `right` on the right.
-    private func fill(_ pixelBuffer: CVPixelBuffer) {
+    /// Fills a BGRA buffer: `left` on the left half, `right` on the right — or
+    /// pseudo-random noise when ``noise`` is set.
+    private func fill(_ pixelBuffer: CVPixelBuffer, frame index: Int) {
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
         defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
 
@@ -171,14 +192,52 @@ struct MovieWriter {
         for row in 0..<height {
             let line = base.advanced(by: row * bytesPerRow).assumingMemoryBound(to: UInt8.self)
             for column in 0..<width {
-                let colour = column < midpoint ? left : right
                 let pixel = line.advanced(by: column * 4)
-                pixel[0] = colour.blue
-                pixel[1] = colour.green
-                pixel[2] = colour.red
-                pixel[3] = 255
+                if noise {
+                    // xorshift64, seeded from the pixel's position and the frame
+                    // number: reproducible across runs and machines, and
+                    // different in every frame.
+                    var state = UInt64(index &* 2_654_435_761)
+                        ^ UInt64(row &* 40_503) ^ UInt64(column &* 2_246_822_519) ^ 0x9E37_79B9
+                    state ^= state << 13
+                    state ^= state >> 7
+                    state ^= state << 17
+                    pixel[0] = UInt8(truncatingIfNeeded: state)
+                    pixel[1] = UInt8(truncatingIfNeeded: state >> 8)
+                    pixel[2] = UInt8(truncatingIfNeeded: state >> 16)
+                    pixel[3] = 255
+                } else {
+                    let colour = column < midpoint ? left : right
+                    pixel[0] = colour.blue
+                    pixel[1] = colour.green
+                    pixel[2] = colour.red
+                    pixel[3] = 255
+                }
             }
         }
+    }
+
+    // MARK: - Metadata
+
+    /// Container metadata, written the way a camera writes it: a QuickTime
+    /// creation date as an ISO 8601 string, and a location as ISO 6709.
+    private func metadataItems() -> [AVMetadataItem] {
+        var items: [AVMetadataItem] = []
+        if let creationDate {
+            let item = AVMutableMetadataItem()
+            item.identifier = .quickTimeMetadataCreationDate
+            item.dataType = kCMMetadataBaseDataType_UTF8 as String
+            item.value = ISO8601DateFormatter().string(from: creationDate) as NSString
+            items.append(item)
+        }
+        if let location {
+            let item = AVMutableMetadataItem()
+            item.identifier = .quickTimeMetadataLocationISO6709
+            item.dataType = kCMMetadataBaseDataType_UTF8 as String
+            item.value = location as NSString
+            items.append(item)
+        }
+        return items
     }
 
     // MARK: - Audio

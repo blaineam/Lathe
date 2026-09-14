@@ -8,10 +8,10 @@ and re-encoded to a requested quality — entirely on the device, with no
 subprocesses and no server round-trip.
 
 > **Status: early.** The module structure, the public API surface and the
-> progress/cancellation seam are real and tested, and so are the first five
+> progress/cancellation seam are real and tested, and so are the first six
 > capabilities: media probing, an ffprobe-compatible JSON shim, loudness and
-> audibility analysis, frame extraction, and still-image encoding. Video
-> transcode, PDF and animation are not written yet — every unimplemented entry
+> audibility analysis, frame extraction, still-image encoding, and video
+> transcoding. PDF and animation are not written yet — every unimplemented entry
 > point throws a named `LatheError.notImplemented` rather than crashing or
 > silently succeeding. See [What works today](#what-works-today).
 
@@ -29,7 +29,10 @@ H.264 and HEVC with constant-quality control; Vision does OCR.
 
 Lathe is the thin, well-tested layer over those frameworks, plus a small number
 of permissively licensed native libraries for the gaps they leave — of which the
-significant one is **WebP encode**, which ImageIO genuinely cannot do.
+significant one is **WebP encode**, which ImageIO genuinely cannot do. That gap
+is closed: `LatheImage` vendors libwebp's encoder as C source and writes WebP
+itself, lossy and lossless. It is the only third-party code in the package; see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 It is designed for two kinds of consumer:
 
@@ -232,6 +235,96 @@ deserves suspicion:
   lossy format accepts 1.0. Lathe does not clamp it silently; it fails, with an
   error that names the cause, and leaves no file.
 
+### Video transcoding
+
+`VideoTranscoder` re-encodes one video: codec, quality target, aspect-fit
+downscale, metadata policy and audio disposition, in a single pass.
+
+```swift
+let result = try await VideoTranscoder().transcode(
+    source: clip, to: smaller,
+    codec: .hevc, quality: .quality(0.55),
+    resize: .longestSide(1080), metadata: .stripLocation
+)
+print(result.usedHardwareAcceleration, result.rateControl, result.audio)
+```
+
+`AVAssetReader` decodes, VideoToolbox encodes, `AVAssetWriter` muxes — and the
+encoder is driven **directly** rather than through `AVAssetWriterInput`'s output
+settings. That is the decision the rest follows from: an
+`AVVideoCompressionProperties` dictionary cannot set a constant quality on every
+codec, cannot reach a property newer than AVFoundation's convenience keys, and —
+the decisive one — offers no way to read back whether a hardware encoder was
+actually used. Owning the `VTCompressionSession` makes all three available, and
+the result type reports them instead of asserting them.
+
+**Quality is a quality, not a bitrate.** `QualityTarget.quality(0...1)` maps to
+`kVTCompressionPropertyKey_Quality`, which is `API_AVAILABLE(macos(10.8),
+ios(8.0))` — constant-quality video encoding is reachable at this package's
+deployment floor and needs no recent OS.
+`QualityTarget.constantQualityFactor(_:)` maps to the newer
+`kVTCompressionPropertyKey_ConstantQualityFactor`, which is **probed rather than
+version-gated**: the session is asked, through
+`VTSessionCopySupportedPropertyDictionary`, whether it knows the key, and where
+it does not the same number is applied to `Quality` instead. Either way
+`VideoTranscodeResult.rateControl` says which one ran, so a fallback is visible
+rather than silent. `QualityTarget.lossless` is refused outright — VideoToolbox
+has no lossless H.264 or HEVC mode, and quietly re-reading "do not re-encode" as
+"re-encode at maximum quality" would be the worst possible answer.
+
+**B-frames stay on.** `kVTCompressionPropertyKey_AllowFrameReordering` is true by
+Apple's default and is set explicitly here anyway, in both directions, because
+the well-known failure is a transcoder that turns it off and never mentions it —
+a double-digit bitrate cost at equal quality that reads as "VideoToolbox is just
+worse". What the session actually negotiated is read back and reported.
+
+**No `AVVideoComposition`, for anything.** Not for rotation and not for
+resizing. A composition is the obvious way to scale through a reader/writer pair
+and it routes every frame through the compositor, which flattens the source and
+drops Dolby Vision's per-frame metadata before the encoder is ever reached. A
+`VTPixelTransferSession` between decode and encode does the scale instead, and
+the track's rotation is *carried* as the writer input's `transform` rather than
+baked into pixels — so a portrait video stays portrait without a pixel moving.
+Colour primaries, transfer function and matrix travel from the source's format
+description onto the encoder, and an HDR source is decoded into a 10-bit buffer
+rather than an 8-bit one. None of that makes this a Dolby Vision-preserving
+transcode; a re-encode regenerates the bitstream. The claim is narrower and
+checkable: nothing in this path throws the colour information away before the
+encoder sees it.
+
+**It never enlarges, and it never leaves a partial file.** The size comes from
+`ResizeTarget.resolve(from:)` — clamped to the source, resolved against the
+*displayed* size and mapped back onto the stored axes — and is then rounded down
+to even dimensions, because 4:2:0 chroma cannot represent an odd one. The whole
+transcode is written to a sibling temporary file that is moved into place only
+after the writer reports `.completed` and the file is non-empty, so a
+cancellation or a codec failure leaves the destination exactly as it was.
+
+**Audio is passed through, not re-encoded.** Where the destination container
+accepts the source's audio as it stands — asked of the writer, not looked up in
+a table — the encoded samples are copied across untouched. Re-encoding AAC to
+AAC is a second generation of loss bought for nothing when what was asked for is
+a smaller *video* track. Where the container refuses it, the track is decoded and
+re-encoded to AAC rather than dropped, and `VideoTranscodeResult.audio` says
+which happened.
+
+Progress is measured rather than animated: the fraction is the current frame's
+presentation time over the asset's duration, reported from the pump that reads
+the frames, so cancel latency is one frame rather than one file.
+
+Two platform findings the suite pins:
+
+- **`ConstantQualityFactor` is not CRF.** The name suggests the inverted 0–51
+  scale of the familiar command-line encoders; Apple's key is `0.0...1.0` with
+  1.0 the *best* quality, per its own header. Lathe's `QualityTarget` documents
+  it as CRF semantics and that wording is now wrong; the mapping here follows
+  the header, not the name.
+- **Driving two writer inputs by polling `isReadyForMoreMediaData` deadlocks.**
+  The video input goes not-ready part way through and never recovers, while the
+  writer's status stays `.writing` and reports no error at all. One
+  `requestMediaDataWhenReady` pump per input is the shape that works, and the
+  failure it replaces is worth naming because it is completely silent.
+
 ### The capability probe
 
 **The capability probe is real, and it is the piece everything else depends on.**
@@ -288,10 +381,9 @@ Cancel latency is **one work unit**, stated rather than hidden: most native medi
 libraries do not poll for cancellation internally, so a unit boundary is the
 honest granularity.
 
-Everything else — video transcode, PDF and comic archives, animation, the
-lossless metadata rewrite — is an API surface with throwing stubs. That is
-deliberate: the shapes are reviewable now, and filling them in does not move
-anyone's call sites.
+Everything else — PDF and comic archives, animation, the lossless metadata
+rewrite — is an API surface with throwing stubs. That is deliberate: the shapes
+are reviewable now, and filling them in does not move anyone's call sites.
 
 ### Tests
 
@@ -324,6 +416,14 @@ ruled out by it:
 A permissively licensed library may be vendored or linked statically. An
 LGPL component, if one is ever added, must be dynamically linked and kept in a
 separate repository — it does not go in this one.
+
+**What is actually linked today: libwebp** (BSD-3-Clause, plus a patent grant),
+vendored as source under `Sources/CWebP/upstream/` and compiled by SwiftPM — no
+binary artifact, no `.xcframework`, no release pipeline. `Sources/CWebP/VENDORING.md`
+records the pinned tag and commit, exactly which files were taken and which were
+not, and the script that refreshes them. Every vendored file is byte-for-byte
+upstream. `LatheImage` is the only module that links it, so a consumer that
+depends on `LatheCore` or `LatheAudio` alone ships none of it.
 
 **Anything that ingests media from a URL deliberately lives outside Lathe.**
 Downloaders bring both licence complexity and app-store policy problems, and
@@ -399,6 +499,9 @@ Two rules for anything that lands here:
 
 1. **No version gating for codec capability.** Probe at runtime and degrade.
 2. **No GPL or AGPL dependencies**, direct or transitive.
+3. **A vendored dependency comes with a `VENDORING.md`**: the pinned tag and
+   commit, what was taken and left out, a refresh script, and its licence
+   reproduced in `THIRD-PARTY-NOTICES.md`.
 
 ---
 

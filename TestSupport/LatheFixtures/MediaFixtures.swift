@@ -103,6 +103,14 @@ public actor FixtureLibrary {
     ///     instead, so a grayscale reduction has something to reduce. A solid
     ///     frame cannot distinguish a working luminance conversion from one that
     ///     returns a constant.
+    ///   - noise: fill every frame with deterministic pseudo-random pixels
+    ///     instead. A flat clip is the wrong fixture for anything that asserts
+    ///     about *size*: it compresses to nearly nothing at every quality, so a
+    ///     quality knob that does nothing still passes.
+    ///   - rotationDegrees: written into the track's display matrix, so the clip
+    ///     is stored on one set of axes and displayed on another.
+    ///   - creationDate: a QuickTime creation date, for metadata policy tests.
+    ///   - location: an ISO 6709 location string, likewise.
     public func movie(
         named name: String,
         size: PixelSize = PixelSize(width: 160, height: 120),
@@ -110,12 +118,18 @@ public actor FixtureLibrary {
         seconds: Double = 2,
         colour: FixtureColour = .init(red: 32, green: 32, blue: 32),
         rightHalf: FixtureColour? = nil,
-        audio: FixtureAudio = .none
+        audio: FixtureAudio = .none,
+        noise: Bool = false,
+        rotationDegrees: Int = 0,
+        creationDate: Date? = nil,
+        location: String? = nil
     ) async throws -> URL {
         try await cached(name) { url in
             try await MovieWriter(
                 url: url, size: size, frameRate: frameRate, seconds: seconds,
-                left: colour, right: rightHalf ?? colour, audio: audio
+                left: colour, right: rightHalf ?? colour, audio: audio,
+                noise: noise, rotationDegrees: rotationDegrees,
+                creationDate: creationDate, location: location
             ).write()
         }
     }
