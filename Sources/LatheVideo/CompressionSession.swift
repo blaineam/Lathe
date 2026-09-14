@@ -118,11 +118,24 @@ final class VideoCompressor: @unchecked Sendable {
         expectedFrameRate: Double?
     ) throws {
         var created: VTCompressionSession?
-        // A hint, not a demand: `…EnableHardwareAcceleratedVideoEncoder` asks for
-        // hardware but does not require it, so a machine without one still gets a
-        // session instead of a refusal. What actually happened is read back below.
+        // A hint, not a demand: this asks for hardware but does not require it,
+        // so a machine without one still gets a session instead of a refusal.
+        // What actually happened is read back below.
+        //
+        // The key is spelled as a literal rather than via
+        // `kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder`,
+        // which is `API_AVAILABLE(ios(17.4))` while this package's floor is
+        // iOS 17.0 — referencing the symbol fails the iOS build outright.
+        //
+        // A literal is the right answer rather than a workaround, and for the
+        // same reason the property keys elsewhere in this file are probed
+        // rather than version-gated: VideoToolbox specification keys ARE their
+        // names (verified — the constant's value is exactly this string), and
+        // an encoder ignores a specification key it does not recognise. So an
+        // older OS quietly does what it would have done anyway; the header
+        // documents hardware as the default there in any case.
         let specification: [CFString: Any] = [
-            kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
+            "EnableHardwareAcceleratedVideoEncoder" as CFString: true,
         ]
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
