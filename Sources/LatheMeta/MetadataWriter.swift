@@ -1,0 +1,275 @@
+import Foundation
+import LatheCore
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
+#if canImport(ImageIO)
+import ImageIO
+import UniformTypeIdentifiers
+#endif
+#if canImport(PDFKit)
+import PDFKit
+#endif
+
+/// Writes metadata into a file **without re-encoding what the file contains.**
+///
+/// ## The requirement that shapes everything here
+///
+/// Someone who wants a corrected title must not be given a re-encoded film.
+/// Metadata injection has to be a container rewrite: the samples, the scan data,
+/// the page content streams all come across untouched, and only the part of the
+/// file that describes them changes. That is not an optimisation — a metadata
+/// tool that silently costs a generation of quality is worse than no tool,
+/// because the damage is invisible until it has been applied to a library.
+///
+/// So each backend uses the one API that copies rather than encodes:
+///
+/// | Store | How | What is copied |
+/// |---|---|---|
+/// | MP4 family | `AVAssetExportSession` at the passthrough preset | Every sample, bit for bit |
+/// | Stills | `CGImageDestinationAddImageFromSource` | The encoded image data, DCT coefficients included |
+/// | PDF | PDFKit document attributes | The page tree |
+///
+/// The tests assert this rather than assuming it: they compare the compressed
+/// payloads before and after, not the rendered result.
+///
+/// ## Writing replaces; it does not merge
+///
+/// ``write(_:to:writingTo:)`` puts exactly the given ``MediaMetadata`` into the
+/// output. Merging by default would make removing a field impossible — there
+/// would be no way to express "no comment" that differed from "leave the comment
+/// alone". ``MetadataReader`` captures unmapped fields in
+/// ``MediaMetadata/custom``, so the read-modify-write in ``update(_:writingTo:_:)``
+/// preserves what it did not touch, and that is where merging belongs.
+public struct MetadataWriter: Sendable {
+
+    public init() {}
+
+    /// Writes `source` to `destination` carrying `metadata`, leaving the media
+    /// itself untouched.
+    @discardableResult
+    public func write(
+        _ metadata: MediaMetadata, to source: URL, writingTo destination: URL
+    ) async throws -> MetadataWriteResult {
+        try MetaFiles.requireReadableFile(at: source)
+        try MetaFiles.requireDistinct(source: source, destination: destination)
+
+        let store = try MetadataStore.detect(at: source)
+        let inputBytes = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
+
+        let outputBytes: UInt64
+        switch store {
+        case .iTunesAtoms:
+            outputBytes = try await writeContainer(metadata, source: source, destination: destination)
+        case .imageProperties:
+            outputBytes = try writeImage(metadata, source: source, destination: destination)
+        case .pdfInfo:
+            outputBytes = try writePDF(metadata, source: source, destination: destination)
+        case .id3:
+            // AVFoundation reads ID3 and cannot write it, and an MP3 tag is not
+            // a container rewrite — it is a length-prefixed block prepended to
+            // the audio frames, which needs a writer of its own. Refused by name
+            // rather than half-attempted, because the failure of a half-attempt
+            // is a file whose tags silently did not change.
+            throw LatheError.encodeUnavailable(
+                format: "ID3 writing (an MP3's tags need a writer this module does not have yet; "
+                    + "M4A carries the same facts and can be written)"
+            )
+        }
+
+        return MetadataWriteResult(
+            output: destination,
+            store: store,
+            inputByteCount: UInt64(inputBytes),
+            outputByteCount: outputBytes
+        )
+    }
+
+    /// Reads, mutates, and writes — the shape almost every edit actually takes.
+    ///
+    /// Fields the closure does not touch survive, including ones this module
+    /// has no name for, because the read captured them.
+    @discardableResult
+    public func update(
+        _ source: URL,
+        writingTo destination: URL,
+        _ edit: (inout MediaMetadata) -> Void
+    ) async throws -> MetadataWriteResult {
+        var metadata = try await MetadataReader().read(source)
+        edit(&metadata)
+        return try await write(metadata, to: source, writingTo: destination)
+    }
+
+    // MARK: - MP4 family
+
+    #if canImport(AVFoundation)
+    private func writeContainer(
+        _ metadata: MediaMetadata, source: URL, destination: URL
+    ) async throws -> UInt64 {
+        let asset = AVURLAsset(url: source)
+        guard let session = AVAssetExportSession(
+            asset: asset, presetName: AVAssetExportPresetPassthrough
+        ) else {
+            throw LatheError.encodeUnavailable(format: "passthrough export for \(source.lastPathComponent)")
+        }
+
+        let fileType = try await Self.outputFileType(for: asset, source: source, session: session)
+        let items = MetadataItemBuilder.items(for: metadata)
+
+        return try MetaFiles.writingAtomically(
+            to: destination,
+            pathExtension: destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension,
+            stage: "metadata-passthrough"
+        ) { scratch in
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var failure: Error?
+            session.outputURL = scratch
+            session.outputFileType = fileType
+            session.metadata = items
+            session.exportAsynchronously {
+                if session.status != .completed {
+                    failure = session.error ?? LatheError.encodingFailed(
+                        stage: "metadata-passthrough", code: nil,
+                        reason: "the export ended in state \(session.status.rawValue)"
+                    )
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let failure {
+                throw LatheError.encodingFailed(
+                    stage: "metadata-passthrough", code: nil,
+                    reason: (failure as NSError).localizedDescription
+                )
+            }
+        }
+    }
+
+    /// The container to write, preferring the one the source already is.
+    ///
+    /// Rewriting an `.m4v` as a plain `.mp4` would work and would also drop the
+    /// hint some players use to treat it as video rather than audio, so the
+    /// source's own type is kept whenever the session will produce it.
+    private static func outputFileType(
+        for asset: AVURLAsset, source: URL, session: AVAssetExportSession
+    ) async throws -> AVFileType {
+        let supported = await session.supportedFileTypes
+        let byExtension: [String: AVFileType] = [
+            "mp4": .mp4, "m4v": .m4v, "m4a": .m4a, "mov": .mov, "qt": .mov,
+        ]
+        if let preferred = byExtension[source.pathExtension.lowercased()],
+           supported.contains(preferred) {
+            return preferred
+        }
+        if let first = supported.first { return first }
+        throw LatheError.encodeUnavailable(
+            format: "no output container for \(source.lastPathComponent)"
+        )
+    }
+    #else
+    private func writeContainer(
+        _ metadata: MediaMetadata, source: URL, destination: URL
+    ) async throws -> UInt64 {
+        throw LatheError.encodeUnavailable(format: "container metadata needs AVFoundation")
+    }
+    #endif
+
+    // MARK: - Stills
+
+    #if canImport(ImageIO)
+    private func writeImage(
+        _ metadata: MediaMetadata, source: URL, destination: URL
+    ) throws -> UInt64 {
+        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil),
+              let type = CGImageSourceGetType(imageSource)
+        else {
+            throw LatheError.readFailed(path: source.lastPathComponent, reason: "not a readable image")
+        }
+
+        var properties = (CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
+            as? [CFString: Any]) ?? [:]
+        ImagePropertyBuilder.apply(metadata, to: &properties)
+
+        return try MetaFiles.writingAtomically(
+            to: destination,
+            pathExtension: destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension,
+            stage: "metadata-image"
+        ) { scratch in
+            guard let dest = CGImageDestinationCreateWithURL(scratch as CFURL, type, 1, nil) else {
+                throw LatheError.encodeUnavailable(format: String(type))
+            }
+            // From the SOURCE, not from a decoded CGImage: this copies the
+            // encoded bytes and replaces only the property dictionaries, which
+            // is what makes the edit lossless. Adding a CGImage instead would
+            // re-encode every pixel.
+            CGImageDestinationAddImageFromSource(dest, imageSource, 0, properties as CFDictionary)
+            guard CGImageDestinationFinalize(dest) else {
+                throw LatheError.encodingFailed(
+                    stage: "metadata-image", code: nil, reason: "ImageIO declined to finalise"
+                )
+            }
+        }
+    }
+    #else
+    private func writeImage(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
+        throw LatheError.encodeUnavailable(format: "still metadata needs ImageIO")
+    }
+    #endif
+
+    // MARK: - PDF
+
+    #if canImport(PDFKit)
+    private func writePDF(
+        _ metadata: MediaMetadata, source: URL, destination: URL
+    ) throws -> UInt64 {
+        guard let document = PDFDocument(url: source) else {
+            throw LatheError.invalidInput(
+                reason: "\(source.lastPathComponent) is not a PDF PDFKit can open"
+            )
+        }
+        var attributes = document.documentAttributes ?? [:]
+        attributes[PDFDocumentAttribute.titleAttribute] = metadata.title
+        attributes[PDFDocumentAttribute.subjectAttribute] = metadata.summary
+        attributes[PDFDocumentAttribute.authorAttribute] = metadata.creators.first
+        attributes[PDFDocumentAttribute.creationDateAttribute] = metadata.date
+        if let keywords = metadata.custom["pdf.Keywords"] {
+            attributes[PDFDocumentAttribute.keywordsAttribute] =
+                keywords.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        } else {
+            attributes[PDFDocumentAttribute.keywordsAttribute] = nil
+        }
+        attributes[PDFDocumentAttribute.creatorAttribute] = metadata.custom["pdf.Creator"]
+        attributes[PDFDocumentAttribute.producerAttribute] = metadata.custom["pdf.Producer"]
+        document.documentAttributes = attributes
+
+        return try MetaFiles.writingAtomically(
+            to: destination, pathExtension: "pdf", stage: "metadata-pdf"
+        ) { scratch in
+            guard document.write(to: scratch) else {
+                throw LatheError.writeFailed(
+                    path: destination.lastPathComponent, reason: "PDFKit declined to write"
+                )
+            }
+        }
+    }
+    #else
+    private func writePDF(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
+        throw LatheError.encodeUnavailable(format: "PDF metadata needs PDFKit")
+    }
+    #endif
+}
+
+/// What a metadata write produced.
+public struct MetadataWriteResult: Sendable, Equatable {
+    public var output: URL
+    public var store: MetadataStore
+    public var inputByteCount: UInt64
+    public var outputByteCount: UInt64
+
+    public init(output: URL, store: MetadataStore, inputByteCount: UInt64, outputByteCount: UInt64) {
+        self.output = output
+        self.store = store
+        self.inputByteCount = inputByteCount
+        self.outputByteCount = outputByteCount
+    }
+}

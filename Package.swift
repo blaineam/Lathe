@@ -49,6 +49,7 @@ let package = Package(
         .library(name: "LatheVideo", targets: ["LatheVideo"]),
         .library(name: "LatheDoc", targets: ["LatheDoc"]),
         .library(name: "LatheAudio", targets: ["LatheAudio"]),
+        .library(name: "LatheMeta", targets: ["LatheMeta"]),
 
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
@@ -65,7 +66,9 @@ let package = Package(
         // `products` above.
         .target(
             name: "Lathe",
-            dependencies: ["LatheCore", "LatheImage", "LatheVideo", "LatheDoc", "LatheAudio"]
+            dependencies: [
+                "LatheCore", "LatheImage", "LatheVideo", "LatheDoc", "LatheAudio", "LatheMeta",
+            ]
         ),
 
         // MARK: - Domain modules
@@ -92,6 +95,13 @@ let package = Package(
         .target(name: "LatheDoc", dependencies: ["LatheCore", "LatheImage"]),
 
         .target(name: "LatheAudio", dependencies: ["LatheCore"]),
+
+        // Metadata: reading and editing what a file SAYS about itself, as
+        // opposed to what it contains. Deliberately depends on LatheCore alone.
+        // Nothing here decodes or encodes media — an injection is a container
+        // rewrite — so a consumer that only wants to fix a title should not have
+        // to link an image encoder or a video pipeline to do it.
+        .target(name: "LatheMeta", dependencies: ["LatheCore"]),
 
         // MARK: - Network ingest
         //
@@ -229,6 +239,7 @@ let package = Package(
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
+        .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,
         // and records a known issue naming the reason when there is none —

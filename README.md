@@ -63,6 +63,7 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. |
 | **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), page editing — reorder, remove, insert, merge — for both formats, and its own ZIP reader and writer; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
 | **`LatheAudio`** | Audio. Inspection (duration, codec, bitrate, lossless-or-not), loudness and audibility analysis, and transcoding to AAC or Apple Lossless with a rule against pointless re-encoding. |
+| **`LatheMeta`** | Metadata: reading and editing what a file *says about itself* — iTunes-style atoms (MP4/M4V/M4A/MOV), EXIF/IPTC/XMP stills, PDF document attributes — in one normalised model. Injection never re-encodes the media. ID3 reads; ID3 writing is not implemented. Depends on `LatheCore` alone. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 

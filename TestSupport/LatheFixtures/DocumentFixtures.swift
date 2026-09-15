@@ -36,6 +36,24 @@ public enum DocumentFixtures {
         return try encode(image, as: "public.png", frames: [[:]])
     }
 
+    /// A solid-colour JPEG.
+    ///
+    /// JPEG specifically, because the metadata tests have to prove that an edit
+    /// did not re-encode, and JPEG is the format where re-encoding is both
+    /// lossy and provable: the entropy-coded scan after the `SOS` marker changes
+    /// if a single DCT coefficient was recomputed, and does not if the bytes
+    /// were copied.
+    public static func solidJPEG(
+        size: CGSize = CGSize(width: 64, height: 96),
+        gray: CGFloat = 0.5
+    ) throws -> Data {
+        let image = try bitmap(size: size) { context in
+            context.setFillColor(gray: gray, alpha: 1)
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        return try encode(image, as: "public.jpeg", frames: [[:]])
+    }
+
     /// A PNG with `text` drawn large and black on white.
     ///
     /// Drawn big on purpose. The OCR round-trip has to assert on the words that

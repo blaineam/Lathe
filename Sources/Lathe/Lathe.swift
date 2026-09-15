@@ -4,7 +4,7 @@
 /// all of them can write a single import:
 ///
 /// ```swift
-/// import Lathe   // LatheCore · LatheImage · LatheVideo · LatheDoc · LatheAudio
+/// import Lathe   // LatheCore · LatheImage · LatheVideo · LatheDoc · LatheAudio · LatheMeta
 /// ```
 ///
 /// A consumer that only needs one domain should import that module directly
@@ -13,6 +13,7 @@
 @_exported import LatheCore
 @_exported import LatheDoc
 @_exported import LatheImage
+@_exported import LatheMeta
 @_exported import LatheVideo
 
 public enum Lathe {
