@@ -50,6 +50,7 @@ let package = Package(
         .library(name: "LatheDoc", targets: ["LatheDoc"]),
         .library(name: "LatheAudio", targets: ["LatheAudio"]),
         .library(name: "LatheMeta", targets: ["LatheMeta"]),
+        .library(name: "LatheLookup", targets: ["LatheLookup"]),
 
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
@@ -102,6 +103,20 @@ let package = Package(
         // rewrite — so a consumer that only wants to fix a title should not have
         // to link an image encoder or a video pipeline to do it.
         .target(name: "LatheMeta", dependencies: ["LatheCore"]),
+
+        // Online metadata lookup: TMDb for film and television, OpenSubtitles
+        // for subtitles, each reached with the USER's own API key.
+        //
+        // Deliberately NOT part of LatheFetch, and the distinction is the one
+        // the linking contract exists to make. LatheFetch downloads media and
+        // is the module an App Store build must be able to leave out; this
+        // fetches a synopsis and a poster for a file the user already has,
+        // which is an ordinary API call. Keeping them apart is what lets a
+        // store app enrich a library without linking a downloader.
+        //
+        // Separate from LatheMeta as well, so a consumer that only edits tags
+        // offline links no networking at all.
+        .target(name: "LatheLookup", dependencies: ["LatheCore", "LatheMeta"]),
 
         // MARK: - Network ingest
         //
@@ -240,6 +255,7 @@ let package = Package(
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
         .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
+        .testTarget(name: "LatheLookupTests", dependencies: ["LatheLookup"]),
 
         // The Python suite runs against whatever CPython the host machine has,
         // and records a known issue naming the reason when there is none —
