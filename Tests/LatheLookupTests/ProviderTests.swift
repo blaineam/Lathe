@@ -27,11 +27,25 @@ actor ScriptedTransport: HTTPTransport {
         self.init([Reply(status: status, body: Data(json.utf8))])
     }
 
+    /// Replies chosen by what the request asked for rather than by arrival
+    /// order. An unknown-kind search issues its film and series requests
+    /// concurrently, so an ordered script hands them out by whichever hits the
+    /// actor first — which makes any test of that path a coin toss.
+    private var byPath: [String: Reply] = [:]
+
+    init(byPath: [String: Reply]) { self.replies = []; self.byPath = byPath }
+
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
-        let reply = replies.isEmpty
-            ? Reply(status: 200, body: Data("{}".utf8))
-            : replies.removeFirst()
+        let path = request.url?.path ?? ""
+        let reply: Reply
+        if let matched = byPath.first(where: { path.hasSuffix($0.key) })?.value {
+            reply = matched
+        } else if replies.isEmpty {
+            reply = Reply(status: 200, body: Data("{}".utf8))
+        } else {
+            reply = replies.removeFirst()
+        }
         let response = HTTPURLResponse(
             url: request.url!, statusCode: reply.status,
             httpVersion: "HTTP/1.1", headerFields: reply.headers
@@ -90,20 +104,29 @@ struct ProviderTests {
 
     // MARK: - Requests
 
-    /// **The key goes in a header, never in the query string.** URLs are logged
-    /// by proxies, caches and crash reporters; a key in one is a key published.
-    @Test("the API key is sent as a header and never appears in the URL")
+    /// **A bearer credential goes in a header, never in the query string.**
+    /// URLs are logged by proxies, caches and crash reporters; a credential in
+    /// one is a credential published.
+    ///
+    /// This holds for the read access token, which TMDb accepts as a bearer.
+    /// It cannot hold for a v3 API key, which TMDb accepts *only* as a query
+    /// item — see `apiKeyGoesInTheQuery`. This test used a key of neither
+    /// shape and asserted the header for both, which is how sending every
+    /// credential as a bearer survived: the one shape most people actually
+    /// copy was never exercised.
+    @Test("a bearer credential is sent as a header and never appears in the URL")
     func keyIsNotInTheURL() async throws {
         let transport = ScriptedTransport(json: #"{"results":[]}"#)
+        let token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2ln"
         let tmdb = TMDbProvider(
-            credentials: ProviderCredentials(apiKey: "SECRET-KEY"), transport: transport
+            credentials: ProviderCredentials(apiKey: token), transport: transport
         )
         _ = try await tmdb.search(LookupQuery(title: "Heat", kind: .movie))
 
         let request = try #require(await transport.requests.first)
         let url = try #require(request.url?.absoluteString)
-        #expect(!url.contains("SECRET-KEY"), "the key leaked into the URL: \(url)")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer SECRET-KEY")
+        #expect(!url.contains(token), "the credential leaked into the URL: \(url)")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)")
         #expect(url.contains("/search/movie"))
         #expect(url.contains("query=Heat"))
     }
@@ -448,4 +471,96 @@ struct ProviderTests {
         #expect(subtitles.imdbID == "tt1234567")
         #expect(subtitles.languages == ["en", "fr"])
     }
+
+    // MARK: - The two TMDb credentials
+
+    /// **TMDb issues two credentials and they are not interchangeable.**
+    ///
+    /// Settings → API shows an API Key and an API Read Access Token on the same
+    /// page. Only the token is a bearer credential; the key is accepted solely
+    /// as a query item. Sending everything as a bearer token made the more
+    /// commonly copied of the two fail every request.
+    @Test("a v3 API key is sent as a query item, not as a bearer token")
+    func apiKeyGoesInTheQuery() async throws {
+        let transport = ScriptedTransport(json: #"{"results":[]}"#)
+        let key = "0123456789abcdef0123456789abcdef"
+        let tmdb = TMDbProvider(
+            credentials: ProviderCredentials(apiKey: key), transport: transport)
+
+        _ = try await tmdb.search(LookupQuery(title: "A Silent Voice", kind: .movie))
+
+        let request = try #require(await transport.requests.first)
+        let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+        #expect(query?.contains { $0.name == "api_key" && $0.value == key } == true)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test("a v4 read access token is sent as a bearer header, and never in the URL")
+    func readAccessTokenGoesInTheHeader() async throws {
+        let transport = ScriptedTransport(json: #"{"results":[]}"#)
+        // A JWT's shape: three non-empty dot-separated segments.
+        let token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl"
+        let tmdb = TMDbProvider(
+            credentials: ProviderCredentials(apiKey: token), transport: transport)
+
+        _ = try await tmdb.search(LookupQuery(title: "A Silent Voice", kind: .movie))
+
+        let request = try #require(await transport.requests.first)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(token)")
+        // A URL is logged by proxies, caches and crash reporters. Where there
+        // is a choice, the credential does not go in one.
+        #expect(request.url?.absoluteString.contains(token) == false)
+    }
+
+    @Test("the two credential shapes are told apart by shape, not by length")
+    func credentialShapeDetection() {
+        #expect(TMDbProvider.isReadAccessToken("a.b.c"))
+        #expect(!TMDbProvider.isReadAccessToken("0123456789abcdef0123456789abcdef"))
+        #expect(!TMDbProvider.isReadAccessToken("a..c"), "an empty segment is not a JWT")
+        #expect(!TMDbProvider.isReadAccessToken("a.b"))
+        #expect(!TMDbProvider.isReadAccessToken(""))
+    }
+
+    // MARK: - A rejected key is not an empty result
+
+    /// **The failure mode this replaces was the expensive one.** An unknown-kind
+    /// search runs a film search and a series search together. Both were
+    /// wrapped in `try?`, so a 401 became two empty arrays and the caller
+    /// reported "nothing matched" — which sends someone to edit their search
+    /// text when the actual problem is their credentials.
+    @Test("a rejected key surfaces as unauthorised, not as an empty result")
+    func rejectedKeyIsNotSilent() async throws {
+        let transport = ScriptedTransport(byPath: [
+            "/search/movie": .init(
+                status: 401, body: Data(#"{"status_message":"Invalid API key"}"#.utf8)),
+            "/search/tv": .init(
+                status: 401, body: Data(#"{"status_message":"Invalid API key"}"#.utf8)),
+        ])
+        let tmdb = TMDbProvider(
+            credentials: ProviderCredentials(apiKey: "wrong"), transport: transport)
+
+        await #expect(throws: LookupError.self) {
+            try await tmdb.search(LookupQuery(title: "A Silent Voice", kind: .unknown))
+        }
+    }
+
+    /// One side failing is survivable, and must stay so: a film search can fail
+    /// while the series search answers perfectly well.
+    @Test("one side failing still returns the other side's results")
+    func oneSideFailingIsSurvivable() async throws {
+        let transport = ScriptedTransport(byPath: [
+            "/search/movie": .init(status: 500, body: Data("{}".utf8)),
+            "/search/tv": .init(status: 200, body: Data(#"""
+            {"results":[{"id":7,"name":"A Show","first_air_date":"2011-04-17"}]}
+            """#.utf8)),
+        ])
+        let tmdb = TMDbProvider(
+            credentials: ProviderCredentials(apiKey: "0123456789abcdef0123456789abcdef"),
+            transport: transport)
+
+        let matches = try await tmdb.search(LookupQuery(title: "A Show", kind: .unknown))
+        #expect(matches.count == 1)
+        #expect(matches.first?.title == "A Show")
+    }
+
 }

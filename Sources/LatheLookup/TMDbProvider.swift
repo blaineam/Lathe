@@ -51,6 +51,45 @@ public struct TMDbProvider: MetadataProvider {
 
     public var isConfigured: Bool { credentials.hasKey }
 
+    // MARK: - Authenticating
+
+    /// TMDb issues two different credentials, and they are not interchangeable.
+    ///
+    /// - The **API Read Access Token** is a JWT, and goes in an `Authorization:
+    ///   Bearer` header.
+    /// - The **API Key** is a 32-character string, and TMDb accepts it *only*
+    ///   as an `api_key` query item. Sent as a bearer token it is refused.
+    ///
+    /// Settings → API shows both on the same page, one above the other, so
+    /// whichever one a person copies has to work. Sending only the header made
+    /// the far more commonly copied of the two fail every request — and, worse,
+    /// fail as "nothing matched" rather than as "that key was rejected".
+    ///
+    /// The header is preferred wherever it is usable, because a query string is
+    /// logged by proxies, caches and crash reporters and a key in one is a key
+    /// published. For a v3 key there is no such choice: the query item is the
+    /// only thing TMDb accepts, so the alternative to putting it there is not
+    /// supporting the credential most users have.
+    static func isReadAccessToken(_ key: String) -> Bool {
+        // A JWT: three base64url segments separated by dots. Checked by shape
+        // rather than by length, because a key's length is not contractual and
+        // a misclassification here is an authentication failure.
+        let parts = key.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 3 && parts.allSatisfy { !$0.isEmpty }
+    }
+
+    static func credentialQueryItems(for key: String?) -> [URLQueryItem] {
+        guard let key, !key.isEmpty, !isReadAccessToken(key) else { return [] }
+        return [URLQueryItem(name: "api_key", value: key)]
+    }
+
+    private func authenticate(_ request: inout URLRequest) {
+        guard let key = credentials.apiKey, !key.isEmpty, Self.isReadAccessToken(key) else {
+            return
+        }
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+    }
+
     // MARK: - Searching
 
     public func search(_ query: LookupQuery) async throws -> [MetadataMatch] {
@@ -68,9 +107,23 @@ public struct TMDbProvider: MetadataProvider {
             // Interleaved rather than concatenated: putting every film above
             // every series would make an ambiguous name always resolve to a
             // film, which is a guess dressed as an ordering.
-            async let movies = try? searchMovies(query)
-            async let series = try? searchSeries(query)
-            return Self.interleave(await movies ?? [], await series ?? [])
+            async let movieResult = Result { try await searchMovies(query) }
+            async let seriesResult = Result { try await searchSeries(query) }
+            let movies = await movieResult
+            let series = await seriesResult
+
+            // One side failing is survivable — a film search can 404 while the
+            // series search answers. Both failing is not a result, it is an
+            // error, and returning an empty list for it reports a rejected key
+            // as "nothing matched": the one message that sends someone looking
+            // at their search text instead of their credentials.
+            switch (movies, series) {
+            case (.failure(let error), .failure):
+                throw error
+            default:
+                return Self.interleave(
+                    (try? movies.get()) ?? [], (try? series.get()) ?? [])
+            }
         }
     }
 
@@ -224,16 +277,13 @@ public struct TMDbProvider: MetadataProvider {
         ) else {
             throw LookupError.transport(provider: name, detail: "could not build a URL for \(path)")
         }
-        components.queryItems = items
+        components.queryItems = items + Self.credentialQueryItems(for: credentials.apiKey)
         guard let url = components.url else {
             throw LookupError.transport(provider: name, detail: "could not build a URL for \(path)")
         }
 
         var request = URLRequest(url: url)
-        // The key goes in a header, never in the query string: a URL is logged
-        // by proxies, caches and crash reporters, and a key in one is a key
-        // published. TMDb accepts both; only one of them is safe.
-        request.setValue("Bearer \(credentials.apiKey ?? "")", forHTTPHeaderField: "Authorization")
+        authenticate(&request)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, _) = try await sendChecked(request)
