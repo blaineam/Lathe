@@ -52,6 +52,13 @@ let package = Package(
         .library(name: "LatheMeta", targets: ["LatheMeta"]),
         .library(name: "LatheLookup", targets: ["LatheLookup"]),
 
+        // MP3 encoding. Its OWN product, and not part of the umbrella, because
+        // it is the only non-permissive code in this package: it vendors LAME,
+        // which is LGPL. Naming this product is how a consumer takes on that
+        // obligation, and NOT naming it is how a consumer proves it has not.
+        // See Sources/CLAME/VENDORING.md before depending on it.
+        .library(name: "LatheMP3", targets: ["LatheMP3"]),
+
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
         // the user asks for at run time. It is a separate product precisely so
@@ -117,6 +124,16 @@ let package = Package(
         // Separate from LatheMeta as well, so a consumer that only edits tags
         // offline links no networking at all.
         .target(name: "LatheLookup", dependencies: ["LatheCore", "LatheMeta"]),
+
+        // MP3 encoding, kept apart from LatheAudio on purpose. Apple ships no
+        // MP3 encoder on any platform — only a decoder — so this is the one
+        // capability that cannot be had from the system, and the only way to
+        // have it is to vendor an LGPL library. Separating it means the rest of
+        // the package stays permissive and a consumer chooses.
+        .target(
+            name: "LatheMP3",
+            dependencies: ["LatheCore", "CLAME"]
+        ),
 
         // MARK: - Network ingest
         //
@@ -227,6 +244,30 @@ let package = Package(
             cSettings: [.headerSearchPath("upstream")]
         ),
 
+        // LAME, vendored. **LGPL** — the only non-permissive code in this
+        // package. See Sources/CLAME/VENDORING.md.
+        .target(
+            name: "CLAME",
+            path: "Sources/CLAME",
+            exclude: [
+                "refresh-upstream.sh",
+                "upstream/COPYING",
+                "upstream/README-VENDORED.txt",
+            ],
+            sources: ["upstream/libmp3lame"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("upstream"),
+                .headerSearchPath("upstream/libmp3lame"),
+                .headerSearchPath("include"),
+                .define("HAVE_CONFIG_H"),
+                // LAME's own sources warn heavily under modern clang, and none
+                // of it is actionable without patching upstream — which this
+                // package does not do, so that a version bump stays a copy.
+                .unsafeFlags(["-Wno-everything"]),
+            ]
+        ),
+
         // MARK: - Test support
 
         // Test fixtures are *generated*, never committed: `AVAssetWriter` and
@@ -260,6 +301,7 @@ let package = Package(
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
         .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
         .testTarget(name: "LatheLookupTests", dependencies: ["LatheLookup"]),
+        .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,
         // and records a known issue naming the reason when there is none —
