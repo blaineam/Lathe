@@ -57,17 +57,20 @@ import LatheCore
 /// ``AudioInspector``, not copied from the settings dictionary handed to the
 /// encoder.
 ///
-/// ## Chapters are not preserved — plainly
+/// ## Chapters are preserved
 ///
 /// An audiobook's chapters are not metadata items. They are a separate text
-/// track plus a track association, and carrying them across means muxing a
-/// second input and rebuilding the association. **This transcoder does not do
-/// it**, so a chaptered file comes out as one long unmarked track.
+/// track plus a track association, which is why a transcode that copies every
+/// metadata item across can still produce one long unmarked block — the
+/// chapters were never in the metadata to copy. Carrying them means muxing a
+/// second input, encoding each title as a text sample, and rebuilding the
+/// association; see ``ChapterTrack``.
 ///
-/// Rather than losing them quietly, chapters are counted before the encode and
-/// reported as ``AudioTranscodeResult/droppedChapterCount``, with a log line at
-/// `info`. ``AudioInspector/inspect(_:)`` reports the same count beforehand, so
-/// a library pass can skip chaptered files, or accept the loss on purpose.
+/// Where the destination container cannot hold a chapter track — a WAV has
+/// nowhere to put one — the chapters are lost and counted in
+/// ``AudioTranscodeResult/droppedChapterCount`` rather than silently absent.
+/// ``AudioTranscodeResult/preservedChapterCount`` reports the ones that made
+/// it, so a caller never has to infer which happened.
 ///
 /// ## Opus
 ///
@@ -270,19 +273,10 @@ public struct AudioTranscoder: Sendable {
             )
         }
 
-        if info.chapterCount > 0 {
-            // Stated loudly rather than discovered by a user with an audiobook.
-            LatheLog.audio.info(
-                """
-                \(LatheLog.publicPath(request.source), privacy: .public) has \
-                \(info.chapterCount, privacy: .public) chapter(s); this transcoder does not carry \
-                chapters and the output will not have them
-                """
-            )
-        }
-
         // MARK: Reader.
         let asset = try await AudioFiles.asset(at: request.source)
+        let sourceChapters = await ChapterTrack.read(from: asset)
+            .normalisedChapters(totalDuration: info.duration)
         guard let track = try await AudioFiles.firstAudioTrack(of: asset) else {
             throw LatheError.invalidInput(reason: "\(info.fileName) has no audio track to transcode")
         }
@@ -348,6 +342,18 @@ public struct AudioTranscoder: Sendable {
         }
         writer.add(input)
 
+        // MARK: Chapters.
+        //
+        // After the audio input is attached, because the association is made
+        // between two inputs and the writer will only accept it while it is
+        // still being configured. A container that cannot hold a chapter track
+        // returns nil rather than failing the transcode: a WAV has nowhere to
+        // put one, and refusing the whole job over it would be worse than
+        // producing the file that was asked for and reporting the loss.
+        let chapterAttachment = ChapterTrack.makeInput(
+            for: sourceChapters, writer: writer, associatedWith: input
+        )
+
         // MARK: Run.
         guard reader.startReading() else {
             throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
@@ -363,6 +369,13 @@ public struct AudioTranscoder: Sendable {
         let sessionStart = trackRange.start.isValid && trackRange.start >= .zero
             ? trackRange.start : .zero
         writer.startSession(atSourceTime: sessionStart)
+
+        // Started here and awaited after the audio pump, not before it: the
+        // writer drives its inputs together, so waiting for the text samples to
+        // land before feeding the audio waits forever. See ``ChapterTrack``.
+        let chapterWrite = chapterAttachment.input.map {
+            ChapterTrack.beginWriting(sourceChapters, to: $0)
+        }
 
         var finished = false
         defer {
@@ -416,6 +429,11 @@ public struct AudioTranscoder: Sendable {
         if let end = state.endTime, end > sessionStart {
             writer.endSession(atSourceTime: end)
         }
+        // The chapter pump runs alongside the audio one; its samples have to be
+        // in before the file is closed.
+        let chapterOutcome = await chapterWrite?.value
+        let preservedChapters = chapterOutcome?.written ?? 0
+        let chapterLossReason = chapterAttachment.reason ?? chapterOutcome?.failure
         await writer.finishWriting()
         finished = true
 
@@ -498,7 +516,9 @@ public struct AudioTranscoder: Sendable {
             channels: target.channels,
             metadataItemsWritten: metadata.items.count,
             carriedArtwork: metadata.carriedArtwork,
-            droppedChapterCount: info.chapterCount
+            droppedChapterCount: max(0, sourceChapters.count - preservedChapters),
+            preservedChapterCount: preservedChapters,
+            chapterLossReason: sourceChapters.count > preservedChapters ? chapterLossReason : nil
         )
     }
 

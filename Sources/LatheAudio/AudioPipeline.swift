@@ -380,10 +380,28 @@ public struct AudioTranscodeResult: Sendable, Equatable {
 
     /// Chapters found in the source and **not** carried across.
     ///
-    /// Non-zero means the output lost them. See ``AudioTranscoder`` on why they
-    /// are not written, and ``AudioInspector`` for how to detect them before
-    /// starting.
+    /// Non-zero means the output lost them.
+    ///
+    /// Not every container can hold a chapter track — a WAV has nowhere to put
+    /// one — so this is how a caller learns that a chaptered audiobook came out
+    /// of a transcode as one unmarked block. See ``preservedChapterCount`` for
+    /// the ones that survived.
     public var droppedChapterCount: Int
+
+    /// Chapters carried into the output.
+    ///
+    /// Preserving them is not a metadata copy: a chapter list is a separate text
+    /// track tied to the audio by a track association, which is why a transcode
+    /// that carries every metadata item across can still lose every chapter. See
+    /// ``ChapterTrack``.
+    public var preservedChapterCount: Int
+
+    /// Why chapters were lost, when they were.
+    ///
+    /// A reason rather than a bare count, because the two causes need different
+    /// responses: a container that cannot hold a chapter track is the caller's
+    /// choice of destination, and anything else is a bug worth reporting.
+    public var chapterLossReason: String?
 
     /// The size difference as a fraction of the source, negative when the file
     /// shrank. `nil` when skipped or when the source's size is unknown.
@@ -403,7 +421,9 @@ public struct AudioTranscodeResult: Sendable, Equatable {
         channels: AppliedChannelPolicy,
         metadataItemsWritten: Int,
         carriedArtwork: Bool,
-        droppedChapterCount: Int
+        droppedChapterCount: Int,
+        preservedChapterCount: Int = 0,
+        chapterLossReason: String? = nil
     ) {
         self.output = output
         self.outcome = outcome
@@ -416,6 +436,8 @@ public struct AudioTranscodeResult: Sendable, Equatable {
         self.metadataItemsWritten = metadataItemsWritten
         self.carriedArtwork = carriedArtwork
         self.droppedChapterCount = droppedChapterCount
+        self.preservedChapterCount = preservedChapterCount
+        self.chapterLossReason = chapterLossReason
     }
 }
 
