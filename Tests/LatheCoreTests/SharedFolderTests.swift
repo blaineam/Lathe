@@ -97,4 +97,56 @@ struct SharedFolderTests {
         #expect(path.contains("Library/Containers/com.example.app/Data"))
         #expect(path.hasSuffix(".json"))
     }
+
+    // MARK: - Finding the file from the inside
+
+    /// The publisher and the reader have to land on the same file, and they
+    /// compute it from opposite sides of the sandbox. This is the seam where
+    /// they could silently disagree.
+    @Test func sandboxedHomeResolvesToItsOwnApplicationSupport() throws {
+        let identifier = "com.example.Sandboxed"
+        let home = URL(fileURLWithPath: "/Users/someone/Library/Containers/\(identifier)/Data")
+
+        let inside = try SharedFolder.selfPublicationURL(home: home, bundleIdentifier: identifier)
+
+        // Under a sandbox the process's Application Support *is* the
+        // container's, so the resolved file is the reader's file. The test
+        // runner is not sandboxed, so all that can be asserted here is that
+        // the container branch was taken — not the literal path, which would
+        // have a Containers segment nested inside the container.
+        #expect(inside.lastPathComponent == SharedFolder.fileName)
+        #expect(!inside.path.contains("/Library/Containers/\(identifier)/Data/Library/Containers"))
+    }
+
+    @Test func unsandboxedHomeResolvesToTheContainerPathTheReaderUses() throws {
+        let identifier = "com.example.Plain"
+        let home = URL(fileURLWithPath: "/Users/someone")
+
+        let inside = try SharedFolder.selfPublicationURL(home: home, bundleIdentifier: identifier)
+
+        #expect(inside == SharedFolder.publicationURL(forBundleIdentifier: identifier))
+    }
+
+    @Test func aMissingBundleIdentifierDoesNotCrash() throws {
+        let url = try SharedFolder.selfPublicationURL(
+            home: URL(fileURLWithPath: "/Users/someone"), bundleIdentifier: nil)
+        #expect(url.lastPathComponent == SharedFolder.fileName)
+    }
+
+    @Test func publishingToAnExplicitFileRoundTrips() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent(SharedFolder.fileName)
+
+        let folder = SharedFolder(path: "/Users/someone/Downloads", chosenBy: "Sami")
+        try folder.publish(to: file)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let read = try decoder.decode(SharedFolder.self, from: Data(contentsOf: file))
+        #expect(read.path == folder.path)
+        #expect(read.chosenBy == "Sami")
+    }
+
 }

@@ -53,28 +53,83 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         self.updatedAt = updatedAt
     }
 
-    /// Where a given application publishes its choice.
+    public static let fileName = "shared-download-folder.json"
+
+    /// Where a given application publishes its choice, **as seen from outside
+    /// that application** — which is the only vantage point this can be
+    /// computed from.
     ///
     /// Inside that application's own container, because a sandboxed app can
     /// write nowhere else without a grant — and its container is at a path
     /// anybody unsandboxed can compute and read.
+    ///
+    /// The publisher must not call this about itself. A sandboxed process's
+    /// home directory *is* its container, so computing this from the inside
+    /// produces a Containers path nested inside the container — a real file,
+    /// in a place nobody looks. The publisher uses ``publish()``, which finds
+    /// the same file from the inside.
     public static func publicationURL(forBundleIdentifier identifier: String) -> URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Containers", isDirectory: true)
             .appendingPathComponent(identifier, isDirectory: true)
             .appendingPathComponent("Data/Library/Application Support", isDirectory: true)
-            .appendingPathComponent("shared-download-folder.json")
+            .appendingPathComponent(fileName)
     }
 
-    /// Publishes this choice. Called by the application that owns the grant.
+    /// Publishes this choice. Called by the application that owns the grant,
+    /// about itself.
+    ///
+    /// Sandboxed, Application Support *is* the container's, so this lands
+    /// exactly where a reader computing ``publicationURL(forBundleIdentifier:)``
+    /// will look. Unsandboxed — under a test runner, or if the sandbox is ever
+    /// turned off — Application Support is the user's own, which no reader
+    /// consults, so the container path is written explicitly instead.
+    public func publish() throws {
+        try publish(to: Self.selfPublicationURL())
+    }
+
+    /// Publishes this choice on behalf of another application. For tests, and
+    /// for an unsandboxed publisher naming itself.
     public func publish(forBundleIdentifier identifier: String) throws {
-        let url = Self.publicationURL(forBundleIdentifier: identifier)
+        try publish(to: Self.publicationURL(forBundleIdentifier: identifier))
+    }
+
+    /// Stops publishing this application's own choice.
+    public static func withdraw() {
+        guard let url = try? selfPublicationURL() else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    public func publish(to url: URL) throws {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(self).write(to: url, options: .atomic)
+    }
+
+    /// The file this process should write, found from the inside.
+    static func selfPublicationURL(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) throws -> URL {
+        let identifier = bundleIdentifier ?? ""
+
+        // A sandboxed home directory ends in the container's Data directory.
+        // When it does, Application Support beneath it is the file the reader
+        // is looking for, and asking FileManager keeps us honest about a
+        // container laid out differently than we assumed.
+        if !identifier.isEmpty,
+           home.path.hasSuffix("/Library/Containers/\(identifier)/Data")
+        {
+            let support = try FileManager.default.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true)
+            return support.appendingPathComponent(fileName)
+        }
+
+        return publicationURL(forBundleIdentifier: identifier)
     }
 
     /// Reads what another application published, or nil.
@@ -99,7 +154,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         return folder
     }
 
-    /// Stops publishing.
+    /// Stops publishing on behalf of another application.
     public static func withdraw(forBundleIdentifier identifier: String) {
         try? FileManager.default.removeItem(at: publicationURL(forBundleIdentifier: identifier))
     }
