@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lathe — on-device media processing for Apple platforms</title>
-<meta name="description" content="A Swift media engine that runs entirely on the device: probing, loudness, frames and encoding through the system frameworks, with no subprocesses.">
+<meta name="description" content="A Swift media engine that runs entirely on the device: probing, encoding, frames, metadata and loudness through the system frameworks, with no subprocesses. Apache-2.0, and free.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="lathe.css">
 </head>
 <body>
@@ -21,60 +21,62 @@
   </div>
 </nav>
 
-<header class="hero bleed">
+<header class="hero">
   <div class="wrap">
     <div class="label">Swift package · iOS 17+ · macOS 14+ · Apache-2.0</div>
-    <h1>Lathe</h1>
-    <p class="lede">Media, turned down to spec — <b>entirely on the device</b>, with no subprocesses and no server round-trip. <b>Free, and free of charge.</b></p>
+    <h1>Media, turned<br>down to spec.</h1>
+    <p class="lede">A media engine that runs <b>entirely on the device</b> — no subprocesses, no server round-trip, no third-party runtime. <b>Free, and free of charge.</b></p>
+    <div class="hero-actions">
+      <a class="cta edge" href="mac.html">Get the Mac app</a>
+      <a class="cta ghost" href="documentation.html">Read the documentation</a>
+    </div>
+    <div class="dimension"><i>measured against ffmpeg, cwebp, cjpeg, avifenc, lame &amp; exiftool</i></div>
   </div>
-  <div class="rule-band"><i></i><i></i><i></i></div>
 </header>
 
 <div class="facts bleed">
   <div class="fact"><div class="k">Tests</div><div class="v">568 <em>green</em></div></div>
-  <div class="fact"><div class="k">Dependencies</div><div class="v"><em>None</em></div></div>
+  <div class="fact"><div class="k">Runtime dependencies</div><div class="v"><em>None</em></div></div>
   <div class="fact"><div class="k">Subprocesses</div><div class="v"><em>Zero</em></div></div>
   <div class="fact"><div class="k">Modules</div><div class="v">10 <em>products</em></div></div>
 </div>
 
-<section class="wrap" style="padding-bottom:0">
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">Start here</div>
+    <h2>Three ways in</h2>
+  </div>
   <div class="caps">
-    <a class="cap" href="documentation.html" style="text-decoration:none">
-      <h3>Documentation &rarr;</h3>
-      <p>Ten modules, what each one does, and the four ideas that make the rest
-      predictable.</p>
-      <span class="mono">API reference</span>
-    </a>
-    <a class="cap" href="benchmarks.html" style="text-decoration:none">
-      <h3>Benchmarks &rarr;</h3>
-      <p>Measured against ffmpeg, cwebp, cjpeg, avifenc, lame and exiftool &mdash;
-      including the rows where Lathe loses.</p>
-      <span class="mono">Real numbers</span>
-    </a>
-    <a class="cap" href="mac.html" style="text-decoration:none">
+    <a class="cap" href="mac.html">
       <h3>The Mac app &rarr;</h3>
-      <p>A downloader built on the engine, free to use and free to read. Paste
-      links, or browse signed in and take what is there.</p>
-      <span class="mono">macOS 26 &middot; no charge</span>
+      <p>A downloader built on the engine. Paste links, or browse signed in and take what is there. Free, and free to read.</p>
+      <span class="mono">macOS · no charge</span>
     </a>
-    <a class="cap" href="sami.html" style="text-decoration:none">
+    <a class="cap" href="sami.html">
       <h3>Sami &rarr;</h3>
-      <p>The paid app the engine exists for. Compression, metadata, subtitles and
-      documents, all on device.</p>
-      <span class="mono">iOS &amp; macOS</span>
+      <p>The app the engine exists for. Compression, tagging, extraction and documents — on iPhone, iPad and Mac.</p>
+      <span class="mono">App Store</span>
+    </a>
+    <a class="cap" href="documentation.html">
+      <h3>The package &rarr;</h3>
+      <p>Ten products, chosen individually, so an App&nbsp;Store target never links code it should not contain.</p>
+      <span class="mono">Apache-2.0</span>
     </a>
   </div>
 </section>
 
+<div class="wrap"><div class="hr"></div></div>
+
 <section class="wrap">
   <div class="sec-head">
     <div class="label">01 — Why</div>
-    <h2>Porting the C&nbsp;tools is&nbsp;the wrong&nbsp;answer</h2>
+    <h2>Porting the C&nbsp;tools is the wrong answer</h2>
   </div>
   <div class="prose">
     <p>Most media tooling on Apple platforms is a command-line binary wrapped in a process spawn. That is fine on a desktop and <b>impossible on iOS</b>, where <code>fork</code>/<code>exec</code> is not available at all.</p>
-    <p>The instinct is to port the C tools. But the system frameworks already do most of the work, in hardware, with no licence exposure — ImageIO encodes HEIC, AVIF, JPEG, PNG, GIF, TIFF, JPEG&nbsp;2000 and PDF; AVFoundation probes and extracts frames; VideoToolbox encodes H.264 and HEVC with constant-quality control; Vision does OCR.</p>
+    <p>The instinct is to port the C tools. But the system frameworks already do most of the work, in hardware, with no licence exposure — ImageIO encodes HEIC, AVIF, JPEG, PNG, GIF and TIFF; AVFoundation probes and extracts frames; VideoToolbox encodes H.264 and HEVC with constant-quality control; Vision does OCR.</p>
     <p class="pull">Lathe is the thin, well-tested layer over those frameworks — plus the few permissive libraries that fill the gaps they really do leave.</p>
+    <p>Two gaps are real. <b>WebP</b> has no encoder in ImageIO on any Apple platform, so libwebp is vendored. <b>MP3</b> likewise, so LAME is. Everything else is the system doing the work it was built for.</p>
   </div>
 </section>
 
@@ -83,43 +85,88 @@
 <section class="wrap">
   <div class="sec-head">
     <div class="label">02 — Implemented</div>
-    <h2>What works today</h2>
+    <h2>What it does</h2>
   </div>
-  <div class="caps">
-    <div class="cap">
-      <h3>Media probing</h3>
-      <p>Container headers via <code>AVURLAsset</code> — duration, per-track codec, coded and display dimensions, frame rate, bit rate, channels. No decoding, so a four-hour film costs what a four-second clip costs.</p>
-      <span class="mono">MediaProbe · MediaInfo</span>
+  <div class="parts">
+    <div class="part">
+      <div class="n">PROBE</div>
+      <h4>Media probing</h4>
+      <p>Duration, codecs, dimensions, frame rate, channels — from the container header. A four-hour film costs what a four-second clip costs.</p>
     </div>
-    <div class="cap">
-      <h3>ffprobe-shaped output</h3>
-      <p>The same facts in the shape <code>ffprobe -of json</code> emits, so a subprocess prober can be replaced in one reviewable change. Numeric-looking fields stay <em>strings</em>, because every parser written against ffprobe expects them to be.</p>
-      <span class="mono">MediaInfo.ffprobeJSON()</span>
+    <div class="part">
+      <div class="n">IMAGE</div>
+      <h4>Still encoding</h4>
+      <p>HEIC, AVIF, JPEG, PNG, TIFF, GIF and WebP, with the capability checked <em>before</em> encoding so a format that cannot be written fails clearly.</p>
     </div>
-    <div class="cap">
-      <h3>Loudness — and audibility</h3>
-      <p>Two questions that are easy to mistake for one. A measurement, and a decision. The difference is the interesting part; see below.</p>
-      <span class="mono">LoudnessProbe</span>
+    <div class="part">
+      <div class="n">VIDEO</div>
+      <h4>Transcoding</h4>
+      <p>H.264 and HEVC through VideoToolbox, constant-quality and hardware-accelerated, with chapters and timing preserved across the rewrite.</p>
     </div>
-    <div class="cap">
-      <h3>Still-image encoding</h3>
-      <p>Format, quality, downscale-only resizing and metadata policy in one pass, with the capability checked <em>before</em> encoding so an unsupported format fails clearly instead of leaving an empty file.</p>
-      <span class="mono">ImageEncoder</span>
+    <div class="part">
+      <div class="n">AUDIO</div>
+      <h4>Loudness &amp; MP3</h4>
+      <p>Mean volume the way the familiar filter reports it, an audibility decision that stops as soon as it knows, and MP3 encoding via LAME.</p>
     </div>
-    <div class="cap">
-      <h3>Frame extraction</h3>
-      <p>Thumbnails at a requested time and max edge; raw 8-bit grayscale frames for perceptual hashing, which never touch disk.</p>
-      <span class="mono">FrameExtractor</span>
+    <div class="part">
+      <div class="n">FRAMES</div>
+      <h4>Frame extraction</h4>
+      <p>Thumbnails at a time and a max edge, every <em>n</em> seconds, or a fixed count sampled evenly — plus raw grayscale frames for hashing that never touch disk.</p>
     </div>
-    <div class="cap">
-      <h3>Capability probing</h3>
-      <p>Asks the OS what it can encode by <em>attempting</em> a destination, never by reading a type list. Correct on OS versions nobody has tested — which matters, because some format identifiers carry no availability annotation at all.</p>
-      <span class="mono">EncodeSupport</span>
+    <div class="part">
+      <div class="n">META</div>
+      <h4>Tags</h4>
+      <p>iTunes-style atoms, ID3, EXIF/IPTC and PDF attributes through one model — written beside the original and swapped in only once it worked.</p>
+    </div>
+    <div class="part">
+      <div class="n">DOC</div>
+      <h4>Documents</h4>
+      <p>PDF page counts, compression, and searchable-PDF OCR through Vision.</p>
+    </div>
+    <div class="part">
+      <div class="n">LOOKUP</div>
+      <h4>Metadata lookup</h4>
+      <p>Film and television titles, episode numbering and artwork from TMDb, using the caller's own key.</p>
+    </div>
+    <div class="part">
+      <div class="n">FETCH</div>
+      <h4>Network ingest</h4>
+      <p>A separate product that is never in the umbrella, so an App&nbsp;Store target cannot link it by accident.</p>
     </div>
   </div>
 </section>
 
-<div class="wrap"><div class="hr"></div></div>
+<section class="sami bleed">
+  <div class="wrap">
+    <div class="sami-grid">
+      <div>
+        <div class="label">The app it was built for</div>
+        <h2>Sami</h2>
+        <div class="prose" style="margin-top:20px">
+          <p><b>Sami</b> is a media optimizer for Apple Photos, folders and cloud drives — one universal app across iPhone, iPad and Mac. It reclaims storage by compressing exactly the photos, videos and PDFs you choose, with a side-by-side preview before anything is committed.</p>
+          <p>Lathe is its engine. Every capability on this page exists because a shipping app needed it to work on a phone, offline, without spawning anything — which is why the library is shaped the way it is rather than the way a command-line tool would be.</p>
+          <p>The library is free and always will be. Sami is where the work is paid for.</p>
+        </div>
+        <div class="hero-actions">
+          <a class="cta" href="https://apps.apple.com/us/app/sami-media-optimizer/id6758907995">Download on the App&nbsp;Store</a>
+          <a class="cta ghost" href="sami.html">What it does</a>
+        </div>
+      </div>
+      <div class="sami-card">
+        <h3>Sami — Media Optimizer</h3>
+        <p>Optimization for Photos and folders, watched folders on macOS, Shortcuts and Siri automation, and network-aware throttling for NAS and cloud drives.</p>
+        <ul>
+          <li>iPhone, iPad and Mac</li>
+          <li>HEIF, JPEG, WebP and AVIF output</li>
+          <li>Bulk tagging with artwork lookup</li>
+          <li>Frames and audio out of any video</li>
+          <li>Preview before committing</li>
+          <li>Runs from Shortcuts and Siri</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section class="wrap">
   <div class="sec-head">
@@ -137,40 +184,15 @@
 <span class="k">let</span> audible = <span class="k">try await</span> LoudnessProbe().hasAudibleAudio(url: url)</code></pre>
   <div class="prose" style="margin-top:20px">
     <p><code>meanVolumeDB</code> reports the same statistic the familiar command-line filter prints, so existing thresholds keep working. New logic should use <code>hasAudibleAudio</code>, which reads windowed peak and short-term RMS and <b>returns the moment it knows</b>. A loud file is decided in the first window; only a genuinely silent one is read to the end, because that is the only way to be sure.</p>
+    <p>That distinction is the whole design in miniature: answer the question the caller actually has, and say which one was answered.</p>
   </div>
 </section>
 
-<section class="sami bleed">
-  <div class="wrap">
-    <div class="sami-grid">
-      <div>
-        <div class="label">04 — What it is for</div>
-        <h2>Built to become Sami’s engine</h2>
-        <div class="prose" style="margin-top:20px">
-          <p><b>Sami</b> is a smart media optimizer for Apple Photos, folders and cloud drives — one universal app across iPhone, iPad and Mac. It reclaims storage by compressing exactly the photos, videos and PDFs you choose, with a side-by-side preview before anything is committed.</p>
-          <p>Lathe is the engine being built to replace the one underneath it. Every capability here — probing, loudness, frame extraction, still encoding, and the video path in progress — exists because a real shipping app needs it to work on a phone, offline, without spawning anything.</p>
-          <p class="note">To be exact: Sami does not run on Lathe yet. Lathe is being built so that it can.</p>
-        </div>
-      </div>
-      <div class="sami-card">
-        <h3>Sami — Media Optimizer</h3>
-        <p>Apple Photos and folder optimization, watched folders on macOS, Shortcuts automation, PDF support, and network-aware throttling for NAS and cloud drives.</p>
-        <ul>
-          <li>iPhone, iPad and Mac</li>
-          <li>Pick exactly what gets optimized</li>
-          <li>Preview before committing</li>
-          <li>Runs from Shortcuts and Siri</li>
-        </ul>
-        <a class="cta" href="https://apps.apple.com/us/app/sami-media-optimizer/id6758907995">Download on the App&nbsp;Store</a>
-        <a class="cta ghost" href="https://wemiller.com/apps/sami/">See what it does</a>
-      </div>
-    </div>
-  </div>
-</section>
+<div class="wrap"><div class="hr"></div></div>
 
 <section class="wrap">
   <div class="sec-head">
-    <div class="label">05 — Linking</div>
+    <div class="label">04 — Linking</div>
     <h2>One repo, separate products</h2>
   </div>
   <div class="prose">
@@ -180,18 +202,21 @@
     <table>
       <thead><tr><th>Product</th><th>Contents</th><th>App Store</th></tr></thead>
       <tbody>
-        <tr><td class="mod">Lathe</td><td>The media-processing modules, together</td><td><span class="pill ok">always safe</span></td></tr>
-        <tr><td class="mod">LatheCore</td><td>Shared types, progress, errors</td><td><span class="pill ok">safe</span></td></tr>
-        <tr><td class="mod">LatheImage</td><td>Still images, capability probe</td><td><span class="pill ok">safe</span></td></tr>
-        <tr><td class="mod">LatheVideo</td><td>Probing, frames, transcoding</td><td><span class="pill ok">safe</span></td></tr>
-        <tr><td class="mod">LatheDoc</td><td>PDF and archives</td><td><span class="pill ok">safe</span></td></tr>
-        <tr><td class="mod">LatheAudio</td><td>Loudness and audibility</td><td><span class="pill ok">safe</span></td></tr>
-        <tr><td class="mod">network ingest</td><td>Fetching from the network — not yet written</td><td><span class="pill no">never in the umbrella</span></td></tr>
+        <tr><td class="mono">Lathe</td><td>The media-processing modules, together</td><td><span class="pill ok">always safe</span></td></tr>
+        <tr><td class="mono">LatheCore</td><td>Shared types, progress, errors</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheImage</td><td>Still images, capability probe</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheVideo</td><td>Probing, frames, transcoding</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheAudio</td><td>Loudness, audibility, transcoding</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheMeta</td><td>Tags, across every store</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheDoc</td><td>PDF and archives</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheMP3</td><td>MP3 encoding via LAME</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheLookup</td><td>TMDb, with the caller's own key</td><td><span class="pill ok">safe</span></td></tr>
+        <tr><td class="mono">LatheFetch</td><td>Network ingest</td><td><span class="pill no">never in the umbrella</span></td></tr>
       </tbody>
     </table>
   </div>
   <div class="prose" style="margin-top:22px">
-    <p>The umbrella product is the media-processing modules and <b>will never absorb a network-ingest module</b>. Depending on <code>Lathe</code> therefore cannot pull one in by accident; linking one has to be a deliberate line in your own manifest.</p>
+    <p>The umbrella product is the media-processing modules and <b>will never absorb the ingest module</b>. Depending on <code>Lathe</code> therefore cannot pull it in by accident; linking it has to be a deliberate line in your own manifest.</p>
   </div>
 </section>
 
@@ -199,25 +224,16 @@
 
 <section class="wrap">
   <div class="sec-head">
-    <div class="label">06 — Install</div>
+    <div class="label">05 — Install</div>
     <h2>Take only what you need</h2>
   </div>
   <pre><code><span class="c">// Package.swift</span>
-.package(url: <span class="k">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="k">"0.2.0"</span>)
+.package(url: <span class="k">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="k">"0.8.4"</span>)
 
 <span class="c">// then, per target</span>
 .product(name: <span class="k">"LatheVideo"</span>, package: <span class="k">"Lathe"</span>)</code></pre>
-</section>
-
-<section class="wrap">
-  <div class="sec-head">
-    <div class="label">07 — Not yet</div>
-    <h2>Compression comparisons</h2>
-  </div>
-  <div class="empty">
-    <h3>Deliberately empty.</h3>
-    <p>This will hold before/after comparisons with a draggable slider, real byte counts, real percentages saved and a quality score — each naming the tool it is measured against, because “40% smaller” means nothing without “…than what”.</p>
-    <p>Those figures will be <b>generated by the test suite</b> and regenerated on every release, not written by hand. Until the encoders are finished there is nothing to generate, and publishing numbers that nothing produced is exactly what that design exists to prevent.</p>
+  <div class="prose" style="margin-top:22px">
+    <p>Or take the umbrella — <code>Lathe</code> — which re-exports every media-processing module and deliberately excludes ingest.</p>
   </div>
 </section>
 
@@ -225,7 +241,7 @@
   <div class="wrap">
     <div>Apache-2.0 · <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a></div>
     <div>Requires iOS 17 / macOS 14. No third-party runtime dependencies.</div>
-    <div>Powering <a href="https://apps.apple.com/us/app/sami-media-optimizer/id6758907995">Sami</a> — eventually.</div>
+    <div>Powering <a href="sami.html">Sami</a>.</div>
   </div>
 </footer>
 
