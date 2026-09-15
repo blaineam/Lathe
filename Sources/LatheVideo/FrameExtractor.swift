@@ -126,6 +126,142 @@ public struct FrameExtractor: Sendable {
         return target
     }
 
+    // MARK: - A sequence of frames
+
+    /// How many frames to take, and where from.
+    public enum FrameSelection: Sendable, Equatable {
+        /// One frame every `seconds`, from the start.
+        case everySeconds(Double)
+        /// This many frames, spread evenly across the whole thing.
+        case count(Int)
+        /// Exactly these timestamps.
+        case atSeconds([Double])
+    }
+
+    /// Extract several frames and write them as numbered stills.
+    ///
+    /// One generator for the whole run, rather than calling ``thumbnail(from:to:atSeconds:maxWidth:accuracy:quality:)``
+    /// in a loop: building it means opening the asset and loading its tracks,
+    /// which on a long file is most of the cost and is identical every time.
+    ///
+    /// Names are zero-padded to the width of the largest index. That is not
+    /// cosmetic — everything that displays a folder of images sorts by name,
+    /// and `frame-10` sorting between `frame-1` and `frame-2` is the usual way
+    /// a contact sheet comes out shuffled.
+    ///
+    /// - Parameters:
+    ///   - source: the video to read.
+    ///   - directory: where the stills go. Created if it does not exist.
+    ///   - selection: which frames. See ``FrameSelection``.
+    ///   - format: the image format to write.
+    ///   - basename: the stem of each filename.
+    ///   - maxWidth: longest edge, in pixels. Never enlarges.
+    ///   - progress: reported per frame, under the stage name `"frames"`.
+    /// - Returns: the files written, in order.
+    @discardableResult
+    public func frames(
+        from source: URL,
+        into directory: URL,
+        selection: FrameSelection,
+        format: ImageFormat = .jpeg,
+        basename: String = "frame",
+        maxWidth: Int = 1920,
+        accuracy: FrameAccuracy = .precise,
+        quality: QualityTarget = .quality(0.8),
+        progress: ProgressHandle = .ignoring()
+    ) async throws -> [URL] {
+        guard maxWidth > 0 else {
+            throw LatheError.invalidConfiguration(
+                reason: "maxWidth must be positive, got \(maxWidth)")
+        }
+        try EncodeSupport.shared.requireEncodable(format)
+        guard let typeIdentifier = EncodeSupport.shared.destinationTypeIdentifier(for: format) else {
+            throw LatheError.encodeUnavailable(format: format.description)
+        }
+
+        let asset = AVURLAsset(url: source)
+        let duration = CMTimeGetSeconds(try await asset.load(.duration))
+        guard duration.isFinite, duration > 0 else {
+            throw LatheError.invalidConfiguration(
+                reason: "this file has no duration to take frames from")
+        }
+
+        let timestamps = try Self.timestamps(for: selection, duration: duration)
+        guard !timestamps.isEmpty else {
+            throw LatheError.invalidConfiguration(reason: "that selection asks for no frames")
+        }
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let (generator, displaySize) = try await Self.makeGenerator(for: source, accuracy: accuracy)
+        let target = ResizeTarget.longestSide(maxWidth).resolve(from: displaySize)
+        generator.maximumSize = CGSize(width: target.width, height: target.height)
+
+        let width = String(timestamps.count).count
+        var written: [URL] = []
+        for (index, seconds) in timestamps.enumerated() {
+            try progress.checkCancellation()
+
+            let number = String(format: "%0\(width)d", index + 1)
+            let url = directory
+                .appendingPathComponent("\(basename)-\(number)")
+                .appendingPathExtension(format.preferredFilenameExtension)
+
+            let frame = try await Self.copyFrame(generator, atSeconds: seconds, from: source)
+            let image = try Self.exactly(target, from: frame)
+            try Self.write(image, to: url, typeIdentifier: typeIdentifier,
+                           format: format, quality: quality)
+            written.append(url)
+
+            guard progress.report(LatheProgress(
+                fraction: Double(index + 1) / Double(timestamps.count),
+                stage: "frames",
+                unitIndex: UInt64(index + 1),
+                unitCount: UInt64(timestamps.count))) else {
+                throw LatheError.cancelled(atUnit: UInt64(index + 1))
+            }
+        }
+        return written
+    }
+
+    /// Turns a selection into timestamps, inside the asset.
+    static func timestamps(for selection: FrameSelection, duration: Double) throws -> [Double] {
+        switch selection {
+        case .everySeconds(let interval):
+            guard interval > 0 else {
+                throw LatheError.invalidConfiguration(
+                    reason: "the interval must be positive, got \(interval)")
+            }
+            var times: [Double] = []
+            var t = 0.0
+            while t < duration {
+                times.append(t)
+                t += interval
+            }
+            return times
+
+        case .count(let count):
+            guard count > 0 else {
+                throw LatheError.invalidConfiguration(
+                    reason: "the frame count must be positive, got \(count)")
+            }
+            guard count > 1 else { return [duration / 2] }
+            // Spread across the middle of each slice rather than from zero to
+            // the very end: the first and last frames of a video are very often
+            // black, and a contact sheet that opens and closes on black is the
+            // classic way this goes wrong.
+            return (0..<count).map { index in
+                duration * (Double(index) + 0.5) / Double(count)
+            }
+
+        case .atSeconds(let seconds):
+            // Clamped rather than refused: a timestamp past the end is an
+            // ordinary thing to ask for from a caller that guessed the
+            // duration, and the last frame is the honest answer.
+            return seconds.map { min(max(0, $0), max(0, duration - 0.001)) }
+        }
+    }
+
     // MARK: - Perceptual-hash input
 
     /// Extract one frame as `size × size` bytes of 8-bit grayscale.
