@@ -43,23 +43,52 @@ root does not build any of it.
 - **Rows Lathe loses are kept.** A table where one side wins everything is not
   believed, and would not be true.
 
-## Energy: asked for, and not answered
+## Energy
 
-The interesting claim about hardware encoding is **watts**, not seconds, and
-there is no trustworthy way to get that figure here — `powermetrics` needs root.
+`Scripts/measure-energy.sh` measures it with `powermetrics`, which **needs
+sudo** — it reads SoC power counters and refuses otherwise. The script asks once
+and stores nothing.
 
-**The CPU column is the closest honest proxy and it is not energy.** It
-*understates* what hardware costs, because a fixed-function encoder does its work
-in a block that never appears as CPU time at all. A row showing Lathe using 1/295
-of the CPU is showing where the work moved, not that it became free.
+```sh
+./Benchmarks/Scripts/measure-energy.sh              # 20 s per workload
+./Benchmarks/Scripts/measure-energy.sh --seconds 40
+```
 
-`proc_pid_rusage`'s `ri_billed_energy` is readable without root and looked like
-the answer. It is reproducible across runs — hardware HEVC reports ~135,000,000
-units against `libx265`'s ~60,000 — and that is three orders of magnitude in the
-direction that says *hardware costs more*, which is almost certainly not what the
-field means. Its units and sampling are not documented well enough to publish. It
-is written down because it is a real reproducible observation, and kept out of
-the table because a number nobody can interpret does not belong in one.
+It measures an idle baseline first and subtracts it, runs each workload in a
+loop for a fixed window so there are enough samples to average, and reports
+millijoules **per operation**. Short operations are looped rather than timed
+once because `powermetrics` averages over an interval: a 700 ms transcode
+sampled once is one or two readings of a noisy signal.
+
+### Three things to know before quoting a number from it
+
+1. **Apple calls these estimates.** From `powermetrics --help`, verbatim:
+   *"Average power values reported by powermetrics are estimated and may be
+   inaccurate — hence they should not be used for any comparison between
+   devices, but can be used to help optimize apps for energy efficiency."* A
+   against B on one machine is what this is for.
+2. **There is no video-encode-engine sampler.** `powermetrics` offers
+   `cpu_power`, `gpu_power` and `ane_power`, and nothing for the media engine. A
+   hardware HEVC encode happens in a block none of those rails describes. **If
+   hardware encoding reads as nearly free, suspect the instrument before
+   believing the result** — the script prints every rail it saw, and the sample
+   count per rail, so that is checkable rather than assumed.
+3. **It measures the machine, not the process.** Close everything else, or a
+   browser reindexing in the background lands in the numbers.
+
+### The proxy in the table
+
+The CPU column in `RESULTS.md` is **not** energy, and it *understates* what
+hardware costs for exactly the reason in point 2: a fixed-function encoder does
+work that never appears as CPU time. A row showing Lathe using 1/295 of the CPU
+shows where the work moved, not that it became free.
+
+`proc_pid_rusage`'s `ri_billed_energy` is readable without root and looked like a
+way to avoid sudo entirely. It reproduces across runs — hardware HEVC reports
+~135,000,000 units against `libx265`'s ~60,000 — and that is three orders of
+magnitude in the direction saying *hardware costs more*, which is almost
+certainly not what the field means. Its units and sampling are not documented
+well enough to publish, so it is recorded here and kept out of the table.
 
 ## What the current results say
 

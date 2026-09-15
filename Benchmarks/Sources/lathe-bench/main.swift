@@ -1,5 +1,7 @@
 import Foundation
 import LatheCore
+import LatheImage
+import LatheVideo
 
 // The comparison harness.
 //
@@ -27,7 +29,58 @@ import LatheCore
 // * **Rows Lathe loses are kept.** A table where one side wins everything is not
 //   believed, and would not be true.
 
+/// Runs one operation in a loop until a deadline, printing how many times it
+/// managed it.
+///
+/// Exists for the energy script, which needs a workload that lasts long enough
+/// to sample. `powermetrics` reports an average over an interval, so a 700 ms
+/// transcode measured once is one or two samples of a noisy signal; the same
+/// transcode run for twenty seconds is a number.
+func loopMode(_ name: String, seconds: Double) async {
+    let deadline = Date().addingTimeInterval(seconds)
+    var iterations = 0
+    do {
+        let video = try await Fixtures.video()
+        let still = try Fixtures.stillPNG()
+        let output = Fixtures.directory.appendingPathComponent("loop-out")
+
+        while Date() < deadline {
+            switch name {
+            case "hevc":
+                _ = try await VideoTranscoder().transcode(
+                    source: video, to: output.appendingPathExtension("mov"),
+                    codec: .hevc, quality: .quality(0.65)
+                )
+            case "webp":
+                _ = try await ImageEncoder().encode(
+                    source: still, to: output.appendingPathExtension("webp"),
+                    format: .webp, quality: .quality(0.8)
+                )
+            case "probe":
+                _ = try await MediaProbe().probe(url: video)
+            case "idle":
+                try await Task.sleep(nanoseconds: 50_000_000)
+            default:
+                FileHandle.standardError.write(Data("unknown workload \(name)\n".utf8))
+                exit(2)
+            }
+            iterations += 1
+        }
+    } catch {
+        FileHandle.standardError.write(Data("loop failed: \(error)\n".utf8))
+        exit(1)
+    }
+    print(iterations)
+}
+
 func main() async {
+    // `lathe-bench --loop <workload> <seconds>` for the energy script.
+    let arguments = CommandLine.arguments
+    if arguments.count >= 4, arguments[1] == "--loop" {
+        await loopMode(arguments[2], seconds: Double(arguments[3]) ?? 20)
+        return
+    }
+
     var comparisons: [Comparison] = []
     var skipped: [String] = []
 
