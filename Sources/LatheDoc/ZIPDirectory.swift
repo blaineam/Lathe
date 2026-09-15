@@ -159,6 +159,19 @@ enum ZIPDirectory {
         }
 
         let directory = try read(handle, at: directoryOffset, count: Int(directorySize), name: name)
+        return try parseCentralDirectory(directory, entryCount: entryCount)
+    }
+
+    /// Parses a central directory that has already been read, however it was
+    /// read.
+    ///
+    /// Split out from ``entries(of:name:)`` so the same parsing serves a file on
+    /// disk and a remote archive fetched with two range requests. The index of a
+    /// ZIP is at its END, so counting the pages of a two-gigabyte comic over a
+    /// network costs a few kilobytes — which is the claim this type's
+    /// documentation has always made, and which was only true locally until
+    /// there was a way to read a range remotely.
+    static func parseCentralDirectory(_ directory: Data, entryCount: UInt64) throws -> [ZIPEntry] {
         var reader = ByteReader(directory)
         var entries: [ZIPEntry] = []
         entries.reserveCapacity(min(Int(entryCount), 4096))
@@ -295,7 +308,27 @@ enum ZIPDirectory {
         let searchLength = Int(min(fileSize, UInt64(maximumEndRecordSearch)))
         let searchStart = fileSize - UInt64(searchLength)
         let tail = try read(handle, at: searchStart, count: searchLength, name: name)
+        return try locateCentralDirectory(
+            inTail: tail, tailOffset: searchStart, fileSize: fileSize, name: name,
+            readZIP64: { offset, count in try read(handle, at: offset, count: count, name: name) }
+        )
+    }
 
+    /// The same location from a tail already in hand, for a remote archive whose
+    /// end was fetched with a range request.
+    ///
+    /// `readZIP64` is how the ZIP64 record is reached when it lies outside the
+    /// tail. A remote reader that cannot issue a second request passes `nil`,
+    /// and an archive that genuinely needs ZIP64 is then refused rather than
+    /// counted with the saturated 16-bit fields — a 70000-page archive reported
+    /// as 4464 is a wrong number rather than a failure, so it gets believed.
+    static func locateCentralDirectory(
+        inTail tail: Data,
+        tailOffset: UInt64,
+        fileSize: UInt64,
+        name: String,
+        readZIP64: ((UInt64, Int) throws -> Data)? = nil
+    ) throws -> (entryCount: UInt64, offset: UInt64, size: UInt64) {
         guard let endIndex = lastIndex(of: endOfCentralDirectorySignature, in: tail) else {
             throw LatheError.invalidInput(
                 reason: "\(name) has no ZIP end-of-central-directory record"
@@ -319,9 +352,10 @@ enum ZIPDirectory {
             || directoryOffset32 == 0xFFFF_FFFF
 
         if saturated,
+           let readZIP64,
            let locator = try zip64Locator(in: tail, endingAt: endIndex),
            locator < fileSize {
-            let record = try read(handle, at: locator, count: 56, name: name)
+            let record = try readZIP64(locator, 56)
             var zip = ByteReader(record)
             if try zip.u32() == zip64EndSignature {
                 zip.skip(28)                                 // size, versions, disk numbers, per-disk count
@@ -332,6 +366,12 @@ enum ZIPDirectory {
             }
         }
 
+        if saturated && readZIP64 == nil {
+            throw LatheError.invalidInput(
+                reason: "\(name) needs its ZIP64 record, which this reader cannot reach from the "
+                    + "tail alone"
+            )
+        }
         return (UInt64(totalEntries16), UInt64(directoryOffset32), UInt64(directorySize32))
     }
 

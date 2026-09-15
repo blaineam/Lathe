@@ -214,7 +214,12 @@ public struct DocumentInspector: Sendable {
     /// handles it, and so is a `.zip` full of pages.
     static func sniff(_ url: URL, name: String) throws -> SniffedType {
         let magic = try DocumentFiles.leadingBytes(of: url, count: 8, name: name)
+        return sniff(leadingBytes: magic)
+    }
 
+    /// The same decision from bytes already in hand, so a remote file can be
+    /// identified from a sixteen-byte range request rather than a download.
+    static func sniff(leadingBytes magic: [UInt8]) -> SniffedType {
         if magic.starts(with: Array("%PDF-".utf8)) { return .pdf }
         if magic.starts(with: Array("Rar!".utf8)) { return .rar }
 
@@ -236,8 +241,17 @@ public struct DocumentInspector: Sendable {
 
     /// The sniffed type as a countable document, or a refusal that names what
     /// the file actually is.
+    /// The countable kind for bytes already in hand.
+    static func kind(ofLeadingBytes magic: [UInt8], name: String) throws -> DocumentKind {
+        try kind(sniff(leadingBytes: magic), name: name)
+    }
+
     static func kind(of url: URL, name: String) throws -> DocumentKind {
-        switch try sniff(url, name: name) {
+        try kind(sniff(url, name: name), name: name)
+    }
+
+    private static func kind(_ sniffed: SniffedType, name: String) throws -> DocumentKind {
+        switch sniffed {
         case .pdf:
             return .pdf
         case .zip:

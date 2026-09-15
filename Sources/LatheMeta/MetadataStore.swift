@@ -43,7 +43,15 @@ public enum MetadataStore: Sendable, Equatable, CustomStringConvertible {
         }
 
         let magic = try leadingBytes(of: url, count: 16, name: label)
+        return try detect(leadingBytes: magic, name: label)
+    }
 
+    /// The store a file's first bytes imply.
+    ///
+    /// Separated from ``detect(at:name:)`` so the same decision can be made
+    /// about a remote file from a range request — sixteen bytes rather than a
+    /// download — and so the sniffing itself is testable without a file.
+    public static func detect(leadingBytes magic: [UInt8], name label: String) throws -> MetadataStore {
         if magic.starts(with: Array("%PDF-".utf8)) { return .pdfInfo }
 
         // ISO base media: a `ftyp` box at offset 4. The box's size precedes it,

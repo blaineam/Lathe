@@ -250,6 +250,10 @@ let package = Package(
         // MARK: - Tests
 
         .testTarget(name: "LatheCoreTests", dependencies: ["LatheCore"]),
+        .testTarget(
+            name: "LatheRemoteTests",
+            dependencies: ["LatheCore", "LatheDoc", "LatheMeta", "LatheFixtures"]
+        ),
         .testTarget(name: "LatheImageTests", dependencies: ["LatheImage"]),
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),

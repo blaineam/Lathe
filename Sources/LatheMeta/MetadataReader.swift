@@ -23,6 +23,43 @@ public struct MetadataReader: Sendable {
 
     /// Everything the file says about itself.
     public func read(_ url: URL) async throws -> MediaMetadata {
+        try await read(MediaSource(url))
+    }
+
+    /// Reads media that may be on disk or at a plain URL.
+    ///
+    /// The MP4 family is **streamed**: AVFoundation reads the container's
+    /// metadata by range request, so the atoms come back without the samples.
+    /// Everything else is staged to a temporary file first, because ImageIO,
+    /// PDFKit and the ID3 parser all need a file — and that is a real download,
+    /// bounded by `limits`.
+    ///
+    /// The store is detected from the first bytes either way, which for a remote
+    /// source is one small range request rather than a guess from the URL's
+    /// extension. A URL that ends in `.mp4` and serves a JPEG is read as a JPEG.
+    public func read(
+        _ source: MediaSource,
+        transport: any MediaDataTransport = URLSessionMediaTransport(),
+        limits: RemoteLimits = .standard
+    ) async throws -> MediaMetadata {
+        guard source.isRemote else {
+            return try await readLocal(source.url)
+        }
+
+        let head = try await transport.range(source.url, offset: 0, length: 16, limits: limits)
+        let store = try MetadataStore.detect(leadingBytes: [UInt8](head), name: source.suggestedName)
+
+        if store == .iTunesAtoms {
+            // Streamed. The metadata atoms live in `moov`, and AVFoundation
+            // fetches only what it needs to read them.
+            return try await readAVFoundation(source.url)
+        }
+        return try await source.withLocalFile(transport: transport, limits: limits) { staged in
+            try await readLocal(staged)
+        }
+    }
+
+    private func readLocal(_ url: URL) async throws -> MediaMetadata {
         try MetaFiles.requireReadableFile(at: url)
         switch try MetadataStore.detect(at: url) {
         case .iTunesAtoms:

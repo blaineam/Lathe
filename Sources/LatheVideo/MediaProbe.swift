@@ -56,7 +56,24 @@ public struct MediaProbe: Sendable {
     ///   ``MediaInfo/isEmptyAsset`` set. They are facts about the file, and the
     ///   caller usually wants to branch on them rather than catch them.
     public func probe(url: URL) async throws -> MediaInfo {
-        try Self.requireReadableFile(at: url)
+        try await probe(MediaSource(url))
+    }
+
+    /// Inspect media that may be on disk or at a plain URL.
+    ///
+    /// **A remote source is streamed, not downloaded.** AVFoundation reads an
+    /// `http(s)` URL by range request, so probing a two-hour film over the
+    /// network costs the few kilobytes of its header rather than its several
+    /// gigabytes. That is the whole reason this overload passes the URL through
+    /// instead of staging it: a probe that quietly downloaded the film to
+    /// report its duration would be a surprising thing to have done, and on a
+    /// phone an expensive one.
+    ///
+    /// This reads the URL it is given and never goes looking for one — see
+    /// ``MediaSource``.
+    public func probe(_ source: MediaSource) async throws -> MediaInfo {
+        try source.validateLocal()
+        let url = source.url
 
         // `AVURLAssetPreferPreciseDurationAndTimingKey` makes the duration
         // exact rather than estimated from the container's headline value. It

@@ -59,6 +59,7 @@ storage; it takes a file and a target and gives you a file back.
 | Module | Contents |
 |---|---|
 | **`LatheCore`** | Shared vocabulary: error taxonomy, progress and cancellation, job identity, resize arithmetic, metadata policy, quality targets, logging. No codecs, no I/O. |
+*Reads a plain URL as well as a file.* `MediaSource` accepts `file`, `http` and `https`. Video and audio are **streamed** — AVFoundation reads a remote container by range request, so probing a two-hour film costs kilobytes — and a remote comic archive is counted from its index with two range requests. Formats whose readers need a file (ImageIO, PDFKit) are staged to a bounded temporary download. This reads the URL it is given and never goes looking for one; discovering media inside a web page is `LatheFetch`, which a store build can leave out.
 | **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp), aspect-fit downscale, metadata rewrite, frame/animation inspection, animation recompression. |
 | **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. |
 | **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), page editing — reorder, remove, insert, merge — for both formats, and its own ZIP reader and writer; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
