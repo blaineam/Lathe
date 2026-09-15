@@ -1,48 +1,51 @@
-# Lathe.app
+# Lathe (macOS)
 
-```sh
-./App/make-app.sh && open ./App/build/Lathe.app
+A downloader. Paste one URL or a hundred, or browse to a page and take what
+is on it, and Lathe fetches them in the background — with `yt-dlp` and
+`gallery-dl` when the page needs an extractor, and by streaming the URL
+directly when it does not.
+
+It is a front end for the Lathe library, not a separate program: the same
+`LatheFetch`, `LatheCore` and metadata code that Sami and the CLI use.
+
+## Building
+
+```
+./make-app.sh
 ```
 
-Drop files in, pick what to do, press Run.
+Writes `build/Lathe.app`. The bundle is **not code-signed**, so the first
+launch has to be right-click → Open; after that it opens normally. It is not
+notarized either, and deliberately so — see `../DISTRIBUTION.md`.
 
-- **Compress** — hardware-accelerated re-encode. Video to HEVC, stills to HEIC,
-  audio to AAC. Chapters are preserved, and the count is reported.
-- **Inspect** — what the file is and what it says about itself. Writes nothing.
-- **Strip location** — removes GPS and leaves everything else, **without
-  re-encoding**.
+Requires macOS 26 or newer. The interface is built on Liquid Glass
+(`glassEffect`, `GlassEffectContainer`), which does not exist before that.
 
-It never overwrites: results are written beside the original with a suffix, and a
-second run produces a second file rather than replacing the first.
+## What it does
 
-Work goes through the library's own `BulkRun`, so the app inherits its lane
-policy rather than inventing one — two videos at a time because the Mac has a
-small fixed number of encoders, images scaled to the cores, and the whole pool
-shrinking when the machine is hot or on battery.
+**A queue.** The field at the top takes URLs separated by spaces or
+newlines, so pasting a column out of a spreadsheet or a list out of a
+message works without editing it first. Each one becomes a row that reports
+its own state; the rows run concurrently under a network lane, which is the
+same `BulkRun` machinery the library uses everywhere else.
 
-## Not signed
+**A browser.** The Browse pane is a real `WKWebView` with a persistent data
+store, so signing in to a site once keeps you signed in. "Queue this" hands
+the current page to the extractors *along with the cookies for that page's
+domain* — which is what makes a members-only or region-locked page work at
+all. Only that domain's cookies are exported, never the whole jar.
 
-macOS will refuse the first launch. Right-click → Open, or
-`xattr -dr com.apple.quarantine App/build/Lathe.app`. Signing and notarisation
-live in the release workflow, which needs a Developer ID this script does not
-have.
+**A hand-off to Sami.** If Sami is installed and the toggle is on, a
+finished download is passed to it for conversion or compression under
+whatever preset you have set there. If it isn't, the file just lands in the
+download folder.
 
-## No Xcode project, on purpose
+**Onboarding.** Neither downloader ships inside the bundle. The banner on
+first run installs them into an app-private Python environment; nothing is
+written outside the app's own container and no system Python is touched.
 
-The whole repository builds with `swift build`. A `.xcodeproj` would be a second
-source of truth for the build that has to be kept in step by hand. A `.app` is a
-directory with an `Info.plist` in it, and `make-app.sh` makes that directory.
+## What it does not do
 
-## The icon is a placeholder, and looks like one on purpose
-
-`make-icon.sh` draws it in code: concentric rings turned down to a centre, a
-lathe seen end-on. Drawn rather than committed so there is no binary asset here
-and no dependency on a design tool — and so replacing it with a real one changes
-nothing else.
-
-## What this is not, yet
-
-**It is not the downloader.** The product this is meant to become fetches media
-and hands it to Sami; that needs `LatheFetch`'s Python runtime and a first-run
-installer, and none of that is wired up here. What exists today is the
-processing half, which is the half that works end to end.
+It does not download in the clear when the Tor toggle is on. If the proxy is
+unreachable the download fails rather than falling back — a downloader that
+quietly abandons the proxy it was told to use is worse than one that stops.

@@ -9,7 +9,7 @@ import PackageDescription
 
 let package = Package(
     name: "LatheApp",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("26.0")],
     dependencies: [.package(path: "..")],
     targets: [
         .executableTarget(
@@ -21,6 +21,11 @@ let package = Package(
                 .product(name: "LatheAudio", package: "Lathe"),
                 .product(name: "LatheDoc", package: "Lathe"),
                 .product(name: "LatheMeta", package: "Lathe"),
+                // The downloader. This is the ONE consumer that is meant to
+                // link it — the whole point of it being a separate product is
+                // that an App Store build can leave it out, and this app is not
+                // an App Store build.
+                .product(name: "LatheFetch", package: "Lathe"),
             ]
         )
     ]
