@@ -166,6 +166,22 @@ public struct VideoTranscodeResult: Sendable, Equatable {
     /// What happened to the audio track. See ``AudioDisposition``.
     public var audio: AudioDisposition
 
+    /// Chapters carried into the output.
+    ///
+    /// A film's scene markers and a lecture's sections are the same structure an
+    /// audiobook uses: a text track tied to the media by a track association,
+    /// not metadata. A transcode that copies every metadata item across still
+    /// loses them unless it muxes that track too.
+    public var preservedChapterCount: Int = 0
+
+    /// Chapters the output did not get.
+    public var droppedChapterCount: Int = 0
+
+    /// Why they were lost, when they were — a container with nowhere to put a
+    /// chapter track is the caller's choice of destination, and anything else is
+    /// worth reporting.
+    public var chapterLossReason: String?
+
     public init(
         output: URL,
         codec: VideoCodec,
@@ -178,7 +194,10 @@ public struct VideoTranscodeResult: Sendable, Equatable {
         usedHardwareAcceleration: Bool,
         frameReordering: Bool,
         rateControl: RateControl,
-        audio: AudioDisposition
+        audio: AudioDisposition,
+        preservedChapterCount: Int = 0,
+        droppedChapterCount: Int = 0,
+        chapterLossReason: String? = nil
     ) {
         self.output = output
         self.codec = codec
@@ -192,5 +211,8 @@ public struct VideoTranscodeResult: Sendable, Equatable {
         self.frameReordering = frameReordering
         self.rateControl = rateControl
         self.audio = audio
+        self.preservedChapterCount = preservedChapterCount
+        self.droppedChapterCount = droppedChapterCount
+        self.chapterLossReason = chapterLossReason
     }
 }

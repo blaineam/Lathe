@@ -314,6 +314,18 @@ public struct VideoTranscoder: Sendable {
             for: audioTrack, request: request, reader: reader, writer: writer
         )
 
+        // MARK: Chapters.
+        //
+        // Attached after the video input, because the association is made
+        // between two inputs and the writer only accepts it while it is still
+        // being configured. Associated with the VIDEO track: a player looks for
+        // the chapter list on the track it is showing.
+        let sourceChapters = await ChapterTrack.read(from: asset)
+            .normalisedChapters(totalDuration: assetDuration.seconds)
+        let chapterAttachment = ChapterTrack.makeInput(
+            for: sourceChapters, writer: writer, associatedWith: videoInput
+        )
+
         // MARK: Run.
         var sessionStart = videoRange.start
         if let audioStart = audio?.trackStart, audioStart < sessionStart { sessionStart = audioStart }
@@ -334,6 +346,13 @@ public struct VideoTranscoder: Sendable {
             )
         }
         writer.startSession(atSourceTime: sessionStart)
+
+        // Started, not awaited — a writer drives its inputs together, so waiting
+        // for the text samples before feeding the video waits forever. See
+        // ``ChapterTrack``.
+        let chapterWrite = chapterAttachment.input.map {
+            ChapterTrack.beginWriting(sourceChapters, to: $0)
+        }
 
         var finished = false
         defer {
@@ -424,6 +443,8 @@ public struct VideoTranscoder: Sendable {
         if let end = state.endTime, end > sessionStart {
             writer.endSession(atSourceTime: end)
         }
+        let chapterOutcome = await chapterWrite?.value
+        let preservedChapters = chapterOutcome?.written ?? 0
         await writer.finishWriting()
         finished = true
 
@@ -489,7 +510,12 @@ public struct VideoTranscoder: Sendable {
             usedHardwareAcceleration: compressor.usedHardwareAcceleration,
             frameReordering: compressor.frameReordering,
             rateControl: compressor.rateControl,
-            audio: audio?.disposition ?? .none
+            audio: audio?.disposition ?? .none,
+            preservedChapterCount: preservedChapters,
+            droppedChapterCount: max(0, sourceChapters.count - preservedChapters),
+            chapterLossReason: sourceChapters.count > preservedChapters
+                ? (chapterAttachment.reason ?? chapterOutcome?.failure)
+                : nil
         )
     }
 

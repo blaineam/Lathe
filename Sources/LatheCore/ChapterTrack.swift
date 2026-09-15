@@ -1,7 +1,7 @@
+#if canImport(AVFoundation)
 import AVFoundation
 import CoreMedia
 import Foundation
-import LatheCore
 
 /// Reading a file's chapters, and writing them into a new one.
 ///
@@ -24,7 +24,7 @@ import LatheCore
 /// that emits the wrong shape produces a file whose chapter list exists, has the
 /// right number of entries at the right times, and shows every title as empty or
 /// as mojibake.
-enum ChapterTrack {
+public enum ChapterTrack {
 
     // MARK: - Reading
 
@@ -35,7 +35,7 @@ enum ChapterTrack {
     /// locale is asked, and the first that yields anything wins. Asking only for
     /// the device's own language is how a French audiobook reports no chapters
     /// on an English phone.
-    static func read(from asset: AVAsset) async -> [Chapter] {
+    public static func read(from asset: AVAsset) async -> [Chapter] {
         let locales = (try? await asset.load(.availableChapterLocales)) ?? []
         var groups: [AVTimedMetadataGroup] = []
 
@@ -88,16 +88,16 @@ enum ChapterTrack {
     /// attach — a WAV has nowhere to put them — and a caller told only that it
     /// got none cannot tell an unsupported container from a bug. The string ends
     /// up in ``AudioTranscodeResult`` for exactly that reason.
-    enum Attachment {
+    public enum Attachment {
         case attached(AVAssetWriterInput)
         case refused(reason: String)
 
-        var input: AVAssetWriterInput? {
+        public var input: AVAssetWriterInput? {
             if case .attached(let input) = self { return input }
             return nil
         }
 
-        var reason: String? {
+        public var reason: String? {
             if case .refused(let reason) = self { return reason }
             return nil
         }
@@ -108,7 +108,7 @@ enum ChapterTrack {
     /// Refusal is not a failure. A WAV has nowhere to put a chapter track, and
     /// failing the whole transcode over it would be worse than producing the
     /// file the caller asked for and saying what was lost.
-    static func makeInput(
+    public static func makeInput(
         for chapters: [Chapter],
         writer: AVAssetWriter,
         associatedWith media: AVAssetWriterInput
@@ -165,7 +165,7 @@ enum ChapterTrack {
     ///
     /// - Returns: a task yielding how many chapters were written, and the first
     ///   reason one was not.
-    static func beginWriting(
+    public static func beginWriting(
         _ chapters: [Chapter], to input: AVAssetWriterInput, timescale: CMTimeScale = 1_000
     ) -> Task<(written: Int, failure: String?), Never> {
         guard !chapters.isEmpty else {
@@ -290,7 +290,7 @@ enum ChapterTrack {
     /// sample description: display flags, justification, a text box, a default
     /// style and a font table. The bridge below builds the description from
     /// those bytes, which is the only way to get one a writer will accept.
-    static func textFormatDescription() -> CMFormatDescription? {
+    public static func textFormatDescription() -> CMFormatDescription? {
         let description = sampleDescription()
         var format: CMFormatDescription?
         let status = description.withUnsafeBytes { raw -> OSStatus in
@@ -313,7 +313,7 @@ enum ChapterTrack {
     /// width and a short one is not a smaller description — it is a malformed
     /// one. The font table at the end is not optional either: a `tx3g` entry
     /// without an `ftab` box is rejected.
-    static func sampleDescription() -> Data {
+    public static func sampleDescription() -> Data {
         var out = Data()
         func u8(_ value: UInt8) { out.append(value) }
         func u16(_ value: UInt16) {
@@ -366,7 +366,7 @@ enum ChapterTrack {
     /// count is of BYTES, not characters, which is the detail that turns a
     /// chapter called "Café" into a truncated one on any file where the two
     /// differ.
-    static func samplePayload(for title: String) -> Data {
+    public static func samplePayload(for title: String) -> Data {
         let utf8 = Array(title.utf8)
         let clipped = utf8.count > Int(UInt16.max) ? Array(utf8.prefix(Int(UInt16.max))) : utf8
         var data = Data()
@@ -410,3 +410,4 @@ enum ChapterTrack {
         return buffer
     }
 }
+#endif
