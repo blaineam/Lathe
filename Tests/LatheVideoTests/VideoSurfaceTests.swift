@@ -89,10 +89,19 @@ struct VideoSurfaceTests {
                 == kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder as String)
         }
 
-        if #available(macOS 27.0, iOS 27.0, *) {
-            #expect(VTKey.constantQualityFactor
-                == kVTCompressionPropertyKey_ConstantQualityFactor as String)
-        }
+        // `ConstantQualityFactor` is NOT pinned against its SDK constant, and
+        // cannot be. `#available` is a runtime check: the symbol still has to
+        // exist when the file is compiled, so naming it here breaks the build on
+        // any SDK older than the one that introduced it — which is what CI
+        // runs, and is why this suite was red.
+        //
+        // The value is asserted directly instead. That is weaker, and the
+        // weakness is bounded: these keys' string values are their own names,
+        // they are ABI-stable, and `CompressionProperties/supported` asks the
+        // session what it actually accepts, so a wrong string here surfaces as
+        // an unsupported key on a machine that has the feature rather than as a
+        // silent misconfiguration.
+        #expect(VTKey.constantQualityFactor == "ConstantQualityFactor")
     }
 
     /// The fallback bitrate is a rule of thumb, but it must at least be
