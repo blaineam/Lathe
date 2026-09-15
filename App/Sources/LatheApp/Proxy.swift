@@ -106,22 +106,24 @@ struct SOCKSProxy: Equatable, Sendable {
         let connection = NWConnection(to: endpoint, using: .tcp)
         defer { connection.cancel() }
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await Self.handshake(over: connection)
-                if let host {
-                    try await Self.connect(to: host, port: 443, over: connection)
-                }
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw Failure.unreachable("it did not answer in time")
-            }
-            // The first task to finish decides; cancelling the group tears down
-            // the other one, and the connection's `defer` closes the socket
-            // whichever way this went.
-            try await group.next()
-            group.cancelAll()
+        // The deadline cancels the connection, rather than racing a
+        // `Task.sleep` against the work in a task group.
+        //
+        // That task-group version hung: the first probe never returned and the
+        // timeout child never fired either, so Tor's status would have sat on
+        // "Connecting…" forever and every download waiting on it would have
+        // waited forever too. Cancelling the connection makes whatever is
+        // pending on it fail, which is the same outcome through a mechanism
+        // with one moving part instead of three.
+        let deadline = DispatchWorkItem { connection.forceCancel() }
+        DispatchQueue.global().asyncAfter(
+            deadline: .now() + .milliseconds(Int(timeout.components.seconds * 1000)),
+            execute: deadline)
+        defer { deadline.cancel() }
+
+        try await Self.handshake(over: connection)
+        if let host {
+            try await Self.connect(to: host, port: 443, over: connection)
         }
     }
 
