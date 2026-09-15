@@ -1008,7 +1008,7 @@ enum Fixtures {
         ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
-            let frame = try #require(frame(index, of: delays.count), "could not build a GIF frame")
+            let frame = try #require(Self.frame(index, of: delays.count), "could not build a GIF frame")
             CGImageDestinationAddImage(destination, frame, [
                 kCGImagePropertyGIFDictionary: [
                     kCGImagePropertyGIFUnclampedDelayTime: delay,
@@ -1033,7 +1033,7 @@ enum Fixtures {
         ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
-            let frame = try #require(frame(index, of: delays.count))
+            let frame = try #require(Self.frame(index, of: delays.count))
             CGImageDestinationAddImage(destination, frame, [
                 kCGImagePropertyPNGDictionary: [
                     kCGImagePropertyAPNGUnclampedDelayTime: delay,
@@ -1058,7 +1058,7 @@ enum Fixtures {
         ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
-            let frame = try #require(frame(index, of: delays.count))
+            let frame = try #require(Self.frame(index, of: delays.count))
             CGImageDestinationAddImage(destination, frame, [
                 kCGImagePropertyHEICSDictionary: [
                     kCGImagePropertyHEICSUnclampedDelayTime: delay,
@@ -1080,7 +1080,7 @@ enum Fixtures {
             "could not create a TIFF destination"
         )
         for index in 0..<pages {
-            let page = try #require(frame(index, of: pages))
+            let page = try #require(Self.frame(index, of: pages))
             CGImageDestinationAddImage(destination, page, nil)
         }
         #expect(CGImageDestinationFinalize(destination), "could not finalise a TIFF fixture")
