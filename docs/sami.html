@@ -96,6 +96,21 @@
       <span class="mono">LatheDoc</span>
     </div>
     <div class="cap">
+      <h3>Video into stills</h3>
+      <p>A strip of frames out of any video &mdash; a set number spread across
+      it, or one every so many seconds. Sampled from the <b>middle of each
+      slice</b>, because the first and last frames of a video are usually black
+      and a contact sheet should not open and close on them.</p>
+      <span class="mono">FrameExtractor.frames</span>
+    </div>
+    <div class="cap">
+      <h3>Video into audio</h3>
+      <p>The soundtrack, on its own. The picture is never decoded &mdash; only
+      the audio track is read and re-encoded &mdash; which is why it finishes
+      about as fast as the file can be read.</p>
+      <span class="mono">AudioTranscoder</span>
+    </div>
+    <div class="cap">
       <h3>Metadata-only mode</h3>
       <p>Change the tags and leave the bytes alone. No re-encode, no generation
       loss, no waiting &mdash; for the very common case where the file is fine and

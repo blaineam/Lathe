@@ -116,8 +116,14 @@ targets: [
     <p class="sub"><b>Probing, frames and transcoding.</b> Container inspection without decoding,
    frame extraction, and VideoToolbox transcoding with constant-quality control.
    Chapters survive.</p>
-    <div class="types"><span>MediaProbe</span><span>MediaInfo</span><span>MediaTrackInfo</span><span>VideoTranscoder</span><span>VideoTranscodeRequest</span><span>VideoCodec</span><span>RateControl</span><span>BFramePolicy</span><span>FrameExtractor</span><span>FrameAccuracy</span><span>AudioDisposition</span><span>FFProbeReport</span></div>
-    <pre><span class="c">// Reads container headers only, so a four-hour film costs what a</span>
+    <div class="types"><span>MediaProbe</span><span>MediaInfo</span><span>MediaTrackInfo</span><span>VideoTranscoder</span><span>VideoTranscodeRequest</span><span>VideoCodec</span><span>RateControl</span><span>BFramePolicy</span><span>FrameExtractor</span><span>FrameSelection</span><span>FrameAccuracy</span><span>AudioDisposition</span><span>FFProbeReport</span></div>
+    <pre><span class="c">// A strip of stills, with one generator for the whole run. A count</span>
+<span class="c">// samples the middle of each slice, because the first and last frames</span>
+<span class="c">// of a video are usually black.</span>
+<span class="k">let</span> stills = <span class="k">try await</span> FrameExtractor().frames(
+    from: video, into: folder, selection: .count(<span class="k">12</span>))
+
+<span class="c">// Reads container headers only, so a four-hour film costs what a</span>
 <span class="c">// four-second clip costs.</span>
 <span class="k">let</span> info = <span class="k">try await</span> MediaProbe().inspect(source)
 print(info.duration, info.tracks.map(\.codec))
