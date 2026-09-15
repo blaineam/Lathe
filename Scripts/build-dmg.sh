@@ -10,9 +10,13 @@
 # the CI log cannot show you a Finder window.
 set -euo pipefail
 
-APP_PATH="${1:?usage: build-dmg.sh <app-path> <output-dmg> <identity>}"
-OUT_DMG="${2:?usage: build-dmg.sh <app-path> <output-dmg> <identity>}"
-IDENTITY="${3:?usage: build-dmg.sh <app-path> <output-dmg> <identity>}"
+APP_PATH="${1:?usage: build-dmg.sh <app-path> <output-dmg> [identity]}"
+OUT_DMG="${2:?usage: build-dmg.sh <app-path> <output-dmg> [identity]}"
+# Optional. An unsigned release is a real thing this project ships — see
+# DISTRIBUTION — and requiring an identity here meant the DMG step *failed*
+# whenever the signing secrets were absent, so a repository without them got no
+# disk image at all rather than an unsigned one.
+IDENTITY="${3:-}"
 
 APP_NAME="$(basename "$APP_PATH" .app)"
 VOL_NAME="$APP_NAME"
@@ -37,9 +41,14 @@ trap 'hdiutil detach "$DEVICE" -force >/dev/null 2>&1 || true; rm -rf "$WORK"' E
 cp -R "$APP_PATH" "$MOUNT/"
 ln -s /Applications "$MOUNT/Applications" 2>/dev/null || true
 
-if [ -f "Resources/dmg-background.png" ]; then
+# Drawn on demand rather than stored: it is a generated image, and a public
+# repository should not carry a binary it can make in a second.
+BACKGROUND="$WORK/background.png"
+if python3 "$(dirname "$0")/make-dmg-background.py" "$BACKGROUND" >/dev/null 2>&1; then
   mkdir -p "$MOUNT/.background"
-  cp "Resources/dmg-background.png" "$MOUNT/.background/background.png"
+  cp "$BACKGROUND" "$MOUNT/.background/background.png"
+else
+  echo "note: could not draw the background; shipping a plain window"
 fi
 
 sleep 2
@@ -79,6 +88,11 @@ sleep 1
 
 mkdir -p "$(dirname "$OUT_DMG")"
 hdiutil convert "$WORK/temp.dmg" -format UDZO -imagekey zlib-level=9 -o "$OUT_DMG" -quiet
-codesign --force --sign "$IDENTITY" --timestamp "$OUT_DMG"
+
+if [ -n "$IDENTITY" ]; then
+  codesign --force --sign "$IDENTITY" --timestamp "$OUT_DMG"
+else
+  echo "note: unsigned — no Developer ID was supplied"
+fi
 
 echo "==> $OUT_DMG"
