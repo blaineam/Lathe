@@ -29,28 +29,39 @@ final class Inbox {
     private var descriptor: CInt = -1
     private var pollTimer: Timer?
 
-    /// Where the folder lives.
+    /// The folder's name, in iCloud Drive and in the Shortcut alike.
+    nonisolated static let folderName = "Lathe Inbox"
+
+    /// iCloud Drive's own root, not this app's ubiquity container.
     ///
-    /// iCloud Drive if this Mac has it, because that is the only location the
-    /// phone can also write to. Otherwise a plain folder in the container,
-    /// which still serves every local use.
-    static func location() throws -> URL {
-        let fileManager = FileManager.default
-        let base: URL
-        if let ubiquity = fileManager.url(forUbiquityContainerIdentifier: nil) {
-            base = ubiquity.appendingPathComponent("Documents", isDirectory: true)
-        } else {
-            base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// This distinction is the whole feature. An app's container lives at
+    /// `Mobile Documents/iCloud~com~…` and **nothing else can write to it** —
+    /// a Shortcut saving a file to "Lathe Inbox" puts it in iCloud Drive
+    /// proper, at `com~apple~CloudDocs`. Pointing the watcher at the container
+    /// meant the two halves were looking at different folders with the same
+    /// name, and the hand-off would have silently never connected.
+    ///
+    /// Reachable directly because this app is not sandboxed. A sandboxed
+    /// build would need the user to grant the folder, which is a different
+    /// design and a reason this feature belongs to the Mac app.
+    nonisolated private static var iCloudDrive: URL? {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs",
+                                    isDirectory: true)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Where the folder lives.
+    nonisolated static func location() throws -> URL {
+        let base = iCloudDrive
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Lathe", isDirectory: true)
-        }
-        let inbox = base.appendingPathComponent("Lathe Inbox", isDirectory: true)
-        try fileManager.createDirectory(at: inbox, withIntermediateDirectories: true)
+        let inbox = base.appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
         return inbox
     }
 
-    static var isUsingiCloud: Bool {
-        FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
-    }
+    nonisolated static var isUsingiCloud: Bool { iCloudDrive != nil }
 
     func start() {
         guard source == nil, let folder = try? Self.location() else { return }

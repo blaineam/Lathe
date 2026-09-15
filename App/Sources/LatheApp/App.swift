@@ -441,9 +441,13 @@ struct TabStrip: View {
                 Button { browser.newTab() } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 11, weight: .semibold))
-                        .frame(width: 22, height: 22)
+                        .frame(width: 24, height: 24)
                 }
+                // `.circle` rather than a rounded rectangle: the tabs beside
+                // it are rectangles, and a round button is read as an action
+                // rather than as another tab.
                 .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
                 .help("New tab")
             }
             .padding(.horizontal, 16)
@@ -569,6 +573,12 @@ struct AddressBar: View {
                             ForEach(browser.places.recent.prefix(12)) { place in
                                 Button(place.label) { tab.load(place.url) }
                             }
+                        }
+                        Divider()
+                        // Where somebody actually looks for it: in the list
+                        // they want emptied, not three panes away in Settings.
+                        Button("Clear recently visited", role: .destructive) {
+                            browser.places.clearRecent()
                         }
                     }
                     if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
@@ -1065,13 +1075,16 @@ struct ShortcutsSettings: View {
     @Bindable var queue: Queue
     @State private var folder: URL?
     @State private var copied = false
+    @State private var installing = false
+    @State private var installed = false
+    @State private var failure: String?
 
     var body: some View {
         Form {
             Section("Send links from your phone") {
-                Text("Lathe watches a folder. Anything that can write a file into "
-                     + "it can queue a download — including a one-step Shortcut on "
-                     + "your iPhone's share sheet.")
+                Text("Lathe watches a folder in iCloud Drive. Share a link to it "
+                     + "from your iPhone and the download starts here — even if the "
+                     + "Mac was asleep when you shared it.")
                     .font(.callout)
 
                 if let folder {
@@ -1104,21 +1117,47 @@ struct ShortcutsSettings: View {
                 }
             }
 
-            Section("On your iPhone, once") {
-                StepRow(1, "Open Shortcuts and make a new shortcut called “Send to Lathe”.")
-                StepRow(2, "In its settings, turn on “Show in Share Sheet” and set it "
-                           + "to accept URLs.")
-                StepRow(3, "Add one action: “Append to Text File”. Point it at "
-                           + "iCloud Drive → Lathe Inbox → queue.txt.")
-                StepRow(4, "Set what it appends to the Shortcut Input, and add a new "
-                           + "line after it.")
-            }
+            Section("Add the shortcut") {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("“Send to Lathe”").font(.body.weight(.medium))
+                        Text("Built with the folder above already filled in, and "
+                             + "set to appear in the share sheet.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    if installing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Add Shortcut") {
+                            installing = true
+                            Task {
+                                defer { installing = false }
+                                do {
+                                    try ShortcutExport.install()
+                                    installed = true
+                                } catch {
+                                    failure = error.localizedDescription
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
 
-            Section {
-                Text("Then share any link to it. The file syncs, Lathe notices within "
-                     + "a second or two, and the download starts here — even if the "
-                     + "Mac was asleep when you shared it.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if installed {
+                    Label("Shortcuts is open — press Add Shortcut there, then turn on "
+                          + "iCloud syncing for Shortcuts on your iPhone if it is not "
+                          + "already. It appears in the share sheet on both.",
+                          systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                if let failure {
+                    Label(failure, systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             }
 
             Section("Right now") {
