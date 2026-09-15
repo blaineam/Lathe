@@ -53,6 +53,10 @@ final class BrowserTab: Identifiable {
 
     private var observations: [NSKeyValueObservation] = []
     private var mediaRelay: MediaRelay?
+    let delegate = TabDelegate()
+
+    /// Called when the page asks to close itself — `window.close()`.
+    var requestClose: (() -> Void)?
 
     /// Told when this tab settles on a page, so history can be kept.
     var onNavigate: ((URL, String?) -> Void)?
@@ -119,11 +123,31 @@ final class BrowserTab: Identifiable {
         })();
         """
 
-    init(store: WKWebsiteDataStore, url: URL? = nil) {
+    convenience init(store: WKWebsiteDataStore, url: URL? = nil) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = store
+        self.init(configuration: configuration, url: url)
+    }
 
+    /// - Parameter configuration: for an ordinary tab, one we made. For a
+    ///   popup, **the one WebKit handed us** — it carries the opener
+    ///   relationship, and a view built from a fresh configuration is not the
+    ///   window the page asked for.
+    init(configuration: WKWebViewConfiguration, url: URL? = nil) {
+        // Its own content controller, always — including for a popup, which
+        // arrives carrying the *opener's*.
+        //
+        // `addScriptMessageHandler` raises when a handler with that name is
+        // already registered, so reusing the opener's controller crashed the
+        // app outright the first time any link opened in a new tab. Removing
+        // the existing handler instead would have been worse: it is the
+        // opener's, and taking it away would silently break muting in the tab
+        // that spawned this one.
+        //
+        // Replacing it here is safe because a configuration is copied when the
+        // web view is created, so the opener's own configuration is untouched.
         let controller = WKUserContentController()
+        configuration.userContentController = controller
         controller.addUserScript(WKUserScript(
             source: Self.mediaScript,
             injectionTime: .atDocumentStart,
@@ -150,6 +174,14 @@ final class BrowserTab: Identifiable {
         relay.onAudioChange = { [weak self] playing in
             MainActor.assumeIsolated { self?.isPlayingAudio = playing }
         }
+
+        // Held strongly: `uiDelegate` and `navigationDelegate` are both weak,
+        // so a delegate nobody else retains is deallocated immediately and
+        // every dialog goes back to being silently dropped.
+        delegate.tab = self
+        webView.uiDelegate = delegate
+        webView.navigationDelegate = delegate
+
         observe()
         if let url { webView.load(URLRequest(url: url)) }
     }
@@ -253,6 +285,8 @@ final class BrowserTab: Identifiable {
     /// audible.
     func tearDown() {
         observations.removeAll()
+        webView.uiDelegate = nil
+        webView.navigationDelegate = nil
         webView.configuration.userContentController
             .removeScriptMessageHandler(forName: Self.mediaChannel)
         mediaRelay = nil
@@ -347,9 +381,39 @@ final class BrowserModel {
 
     @discardableResult
     func newTab(_ url: URL? = nil) -> BrowserTab {
-        let tab = BrowserTab(store: store, url: url)
+        adopt(BrowserTab(store: store, url: url))
+    }
+
+    /// A tab for a page that asked for a new window.
+    ///
+    /// Built from WebKit's configuration rather than ours, and deliberately
+    /// **not** loaded here: WebKit performs the navigation itself once this
+    /// returns the view. Loading the request as well would fetch it twice.
+    private func popupTab(_ configuration: WKWebViewConfiguration) -> BrowserTab {
+        adopt(BrowserTab(configuration: configuration))
+    }
+
+    @discardableResult
+    private func adopt(_ tab: BrowserTab) -> BrowserTab {
         tab.onNavigate = { [weak self] url, title in
             self?.places.record(url: url, title: title)
+        }
+        tab.requestClose = { [weak self, weak tab] in
+            guard let self, let tab else { return }
+            close(tab)
+        }
+        tab.delegate.bringForward = { [weak self, weak tab] in
+            guard let self, let tab else { return }
+            selectedID = tab.id
+        }
+        tab.delegate.openTab = { [weak self] configuration, request in
+            guard let self else { return nil }
+            let opened = popupTab(configuration)
+            // A `window.open()` with no URL is a page that means to write into
+            // the new window itself, so there is nothing to show in the bar
+            // until it does.
+            if let url = request?.url { opened.address = url.absoluteString }
+            return opened.webView
         }
         tabs.append(tab)
         selectedID = tab.id
