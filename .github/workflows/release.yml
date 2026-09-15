@@ -45,8 +45,18 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.app
+      # Deliberately NOT pinning a specific Xcode.app — the same rule ci.yml
+      # already records, which this workflow contradicted. The runner image's
+      # Xcode path changes between image versions, and
+      # `/Applications/Xcode_26.app` does not exist on macos-26-arm64: every
+      # release run failed in eighteen seconds with "invalid developer
+      # directory", which reads like a toolchain problem with the project and
+      # is not one.
+      - name: Report toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
       - name: Run the suite
         run: swift test --scratch-path "$SCRATCH_PATH"
 
@@ -60,8 +70,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.app
+      # Deliberately NOT pinning a specific Xcode.app — the same rule ci.yml
+      # already records, which this workflow contradicted. The runner image's
+      # Xcode path changes between image versions, and
+      # `/Applications/Xcode_26.app` does not exist on macos-26-arm64: every
+      # release run failed in eighteen seconds with "invalid developer
+      # directory", which reads like a toolchain problem with the project and
+      # is not one.
+      - name: Report toolchain
+        run: |
+          xcode-select -p
+          xcodebuild -version
+          swift --version
 
       - name: Build the bundle
         run: |
