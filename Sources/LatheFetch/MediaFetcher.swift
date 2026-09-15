@@ -349,6 +349,21 @@ public actor MediaFetcher {
 
     private func installDriverIfNeeded() async throws {
         guard !driverIsInstalled else { return }
+
+        // Put the install root on `sys.path` before anything tries to import
+        // from it.
+        //
+        // This is not only an install-time concern, which is the bug it used
+        // to be: `activate()` was called from `install()` alone, so a process
+        // that found `yt-dlp` already installed from an earlier run never put
+        // its directory on the path and every import failed with "No module
+        // named 'yt_dlp'". The extractor worked exactly once — in the session
+        // that installed it — and appeared to uninstall itself on relaunch.
+        //
+        // It belongs here because this is the one place every entry point
+        // passes through, and `activate()` is idempotent.
+        try await installer.activate()
+
         // The interpreter outlives any one `MediaFetcher`, so "did I install
         // it" is asked of the interpreter rather than remembered here — a
         // second fetcher in the same process must not reinstall the module and
@@ -409,6 +424,44 @@ public actor MediaFetcher {
         LatheFetchLog.packages.notice(
             "Extracted \(listing.formats.count, privacy: .public) format(s) from \(listing.extractor ?? "?", privacy: .public)")
         return listing
+    }
+
+    /// What is inside a playlist, channel or gallery page.
+    ///
+    /// ``listing(for:)`` refuses a playlist, because there is no single set of
+    /// formats to report for one. This is the other half of that: it says what
+    /// the playlist holds, cheaply, so a caller can offer "just this one" and
+    /// "all of them" as a choice rather than guessing.
+    ///
+    /// Each entry is something to pass back to ``listing(for:)`` or
+    /// ``download(_:policy:to:progress:)`` — usually a URL, and for extractors
+    /// that publish only an id, the `extractor:id` form yt-dlp resolves itself.
+    ///
+    /// - Parameter limit: how many entries to walk at most. A channel can hold
+    ///   tens of thousands, and the underlying sequence is lazy, so this is a
+    ///   real bound on work rather than a slice of a list already in memory.
+    ///   ``Playlist/isTruncated`` says whether it bit.
+    public func entries(of url: URL, limit: Int = 500) async throws -> Playlist {
+        try await installDriverIfNeeded()
+
+        let request = try requestPayload(["url": url.absoluteString, "limit": limit])
+        let evaluation: PythonEvaluation
+        do {
+            evaluation = try await runtime.evaluateDetached(
+                "\(MediaFetcherDriver.entriesFunction)()", arguments: ["request": request])
+        } catch {
+            throw MediaFetchError.mapping(error)
+        }
+
+        guard let json = evaluation.value.string, let data = json.data(using: .utf8) else {
+            throw MediaFetchError.runtimeFailed(reason: "the extractor returned no JSON")
+        }
+        do {
+            return try JSONDecoder().decode(Playlist.self, from: data)
+        } catch {
+            throw MediaFetchError.runtimeFailed(
+                reason: "the playlist JSON did not decode: \(error)")
+        }
     }
 
     // MARK: - Downloading

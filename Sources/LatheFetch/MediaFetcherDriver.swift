@@ -28,6 +28,7 @@ enum MediaFetcherDriver {
     static let bindFunction = "_lathe_ytdlp_bind"
     static let registerProviderFunction = "_lathe_ytdlp_register_provider"
     static let extractFunction = "_lathe_ytdlp_extract"
+    static let entriesFunction = "_lathe_ytdlp_entries"
     static let downloadFunction = "_lathe_ytdlp_download"
     static let readinessFunction = "_lathe_ytdlp_readiness"
 
@@ -311,6 +312,70 @@ enum MediaFetcherDriver {
                 sanitised = ydl.sanitize_info(info)
 
             return json.dumps({"kind": "media", "info": sanitised}, default=str)
+
+
+        def _lathe_ytdlp_entries():
+            """The items inside a playlist, without extracting any of them.
+
+            `extract_flat="in_playlist"` is what makes this cheap: yt-dlp
+            returns each entry's identity from the index page it already
+            fetched, instead of visiting every item to resolve its formats.
+            On a channel with two thousand videos that is the difference
+            between one request and two thousand.
+
+            `entries` is a generator for most extractors, so it is walked
+            with a limit rather than measured. Asking `len()` for it is
+            what makes a large playlist hang, and asking for all of it is
+            what makes a large playlist never finish.
+            """
+            import itertools
+            import yt_dlp
+
+            request = json.loads(lathe_arguments["request"])
+            options = _lathe_base_options(request)
+            options["skip_download"] = True
+            options["format"] = "all"
+            options["extract_flat"] = "in_playlist"
+            limit = int(request.get("limit") or 500)
+
+            with yt_dlp.YoutubeDL(options) as ydl:
+                info = ydl.extract_info(request["url"], download=False, process=False)
+                if info is None:
+                    return json.dumps({"title": None, "entries": [], "truncated": False})
+
+                if info.get("_type") not in ("playlist", "multi_video"):
+                    # Not a playlist at all. Reporting the URL back as a
+                    # single entry means the caller has one code path for
+                    # "download everything here" whether or not "here"
+                    # turned out to hold more than one thing.
+                    url = info.get("webpage_url") or request["url"]
+                    return json.dumps({
+                        "title": info.get("title"),
+                        "entries": [{"url": url, "title": info.get("title")}],
+                        "truncated": False,
+                    })
+
+                walked = itertools.islice(info.get("entries") or [], limit + 1)
+                found = []
+                for entry in walked:
+                    if entry is None:
+                        continue
+                    url = entry.get("url") or entry.get("webpage_url")
+                    if not url:
+                        # A flat entry can carry only an id and the name of
+                        # the extractor that made it. `ie_key` is how yt-dlp
+                        # itself rebuilds a URL from that pair.
+                        ident, key = entry.get("id"), entry.get("ie_key")
+                        if ident and key:
+                            url = "%s:%s" % (key.lower(), ident)
+                    if url:
+                        found.append({"url": url, "title": entry.get("title")})
+
+                return json.dumps({
+                    "title": info.get("title"),
+                    "entries": found[:limit],
+                    "truncated": len(found) > limit,
+                })
 
 
         # ------------------------------------------------------------------

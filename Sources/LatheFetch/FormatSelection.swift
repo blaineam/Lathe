@@ -274,17 +274,48 @@ public enum FormatSelector {
         // Note this is a filter on the *pair* path only. A pre-muxed rendition
         // is kept exactly as it arrives and never opened by AVFoundation here,
         // so its codec is not this package's business.
-        let video = bestVideo(
-            from: candidates.filter { $0.isVideoOnly && StreamMuxer.canMuxVideo($0) }, policy: policy)
-        let audio = bestAudio(
-            from: candidates.filter { $0.isAudioOnly && StreamMuxer.canMuxAudio($0) }, policy: policy)
+        let videoPool = candidates.filter { $0.isVideoOnly && StreamMuxer.canMuxVideo($0) }
+        let audioPool = candidates.filter { $0.isAudioOnly && StreamMuxer.canMuxAudio($0) }
+
+        // A *vetted* half is one the muxer will actually be able to open.
+        //
+        // Two conditions, and both were learned the expensive way. The codec
+        // has to be known, because `canMuxVideo`/`canMuxAudio` deliberately
+        // pass a codec they cannot see — the right rule for them, since
+        // refusing to judge is not the same as judging badly, but it means an
+        // unknown codec reaches this point unexamined. And the rendition has
+        // to arrive in one request, because a manifest is downloaded as
+        // fragments and concatenated, and what comes out is not always
+        // something `AVFoundation` will open.
+        //
+        // Both were true of YouTube's format 233, which is an HLS audio
+        // manifest reporting no codec at all. It looked like the best audio
+        // half available, passed every check, and failed in the muxer — after
+        // the 4K video half had already been fetched.
+        let vettedVideo = videoPool.filter { $0.videoCodec != nil && $0.isSingleRequestHTTP }
+        let vettedAudio = audioPool.filter { $0.audioCodec != nil && $0.isSingleRequestHTTP }
+        let hasVettedPair = !vettedVideo.isEmpty && !vettedAudio.isEmpty
+
+        // Falling back to the unvetted pool rather than refusing: a site that
+        // publishes nothing but manifests is common, and a fragmented download
+        // that might need remuxing still beats no download at all.
+        let video = bestVideo(from: vettedVideo.isEmpty ? videoPool : vettedVideo, policy: policy)
+        let audio = bestAudio(from: vettedAudio.isEmpty ? audioPool : vettedAudio, policy: policy)
 
         // A pair is only worth the second request and the mux when it actually
         // beats the pre-muxed rendition. On a site that still publishes a
         // full-quality progressive file, it does not, and taking it anyway
         // would be paying for a re-container for nothing.
         if let video, let audio {
-            if let preMuxed, (preMuxed.height ?? 0) >= (video.height ?? 0) {
+            // A pre-muxed rendition wins on a tie of height, and wins outright
+            // when the pair could not be vetted. The second half of that is the
+            // important one: an unvettable pair might fail in the muxer after
+            // both halves have been downloaded, while a pre-muxed rendition is
+            // copied through and never opened here at all. Taking a smaller
+            // file that certainly works over a larger one that might not is the
+            // right trade at the point where the alternative costs a gigabyte
+            // to discover.
+            if let preMuxed, !hasVettedPair || (preMuxed.height ?? 0) >= (video.height ?? 0) {
                 return .single(preMuxed)
             }
             return .pair(video: video, audio: audio)
