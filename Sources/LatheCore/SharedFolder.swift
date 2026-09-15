@@ -2,6 +2,11 @@ import Foundation
 
 /// The folder two applications agree to meet in.
 ///
+/// A macOS arrangement in practice — it exists because one app is sandboxed
+/// and the other is not, and on iOS there is no unsandboxed peer to meet. It
+/// compiles everywhere regardless, because LatheCore is linked by iOS targets
+/// that use entirely unrelated parts of it.
+///
 /// ## The problem this exists for
 ///
 /// A sandboxed application cannot read a folder nobody granted it. Handing it
@@ -55,6 +60,20 @@ public struct SharedFolder: Codable, Sendable, Equatable {
 
     public static let fileName = "shared-download-folder.json"
 
+    /// This process's home directory.
+    ///
+    /// `NSHomeDirectory()` rather than `homeDirectoryForCurrentUser`, which
+    /// **does not exist on iOS** — the package builds for every Apple platform,
+    /// and an API that compiles only on the Mac breaks every iOS consumer of
+    /// LatheCore, whatever it uses the module for.
+    ///
+    /// The two agree wherever this type is used: unsandboxed they are both the
+    /// real home, and sandboxed they are both the container. That equivalence
+    /// is what makes the substitution safe rather than merely convenient.
+    public static func home() -> URL {
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+    }
+
     /// Where a given application publishes its choice, **as seen from outside
     /// that application** — which is the only vantage point this can be
     /// computed from.
@@ -69,7 +88,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
     /// in a place nobody looks. The publisher uses ``publish()``, which finds
     /// the same file from the inside.
     public static func publicationURL(forBundleIdentifier identifier: String) -> URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        home()
             .appendingPathComponent("Library/Containers", isDirectory: true)
             .appendingPathComponent(identifier, isDirectory: true)
             .appendingPathComponent("Data/Library/Application Support", isDirectory: true)
@@ -115,7 +134,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
     /// work with ``published(byBundleIdentifier:)`` — that call is computed
     /// from a vantage point the publisher does not have.
     public static func selfPublicationURL(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        home: URL = SharedFolder.home(),
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) throws -> URL {
         let identifier = bundleIdentifier ?? ""

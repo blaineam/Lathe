@@ -105,7 +105,14 @@ jobs:
           xcodebuild -list -json | tee /tmp/schemes.json
           SCHEME=$(python3 - <<'PY'
           import json
-          d = json.load(open("/tmp/schemes.json"))
+          # xcodebuild prefixes its JSON with log lines on some machines —
+          # "[MT] IDERunDestination: Supported platforms ... is empty." — and a
+          # plain json.load then throws, leaving SCHEME empty and reporting
+          # "No schemes found" for a package that has eleven of them. That is
+          # what this job did for its whole existence, so the iOS compile check
+          # it was supposed to provide never ran once.
+          raw = open("/tmp/schemes.json").read()
+          d = json.loads(raw[raw.index("{"):])
           info = d.get("workspace") or d.get("project") or {}
           schemes = info.get("schemes", [])
           pick = next((s for s in schemes if s.endswith("-Package")), None) \

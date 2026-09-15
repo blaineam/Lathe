@@ -107,8 +107,8 @@ public struct TMDbProvider: MetadataProvider {
             // Interleaved rather than concatenated: putting every film above
             // every series would make an ambiguous name always resolve to a
             // film, which is a guess dressed as an ordering.
-            async let movieResult = Result { try await searchMovies(query) }
-            async let seriesResult = Result { try await searchSeries(query) }
+            async let movieResult = attempt { try await searchMovies(query) }
+            async let seriesResult = attempt { try await searchSeries(query) }
             let movies = await movieResult
             let series = await seriesResult
 
@@ -124,6 +124,21 @@ public struct TMDbProvider: MetadataProvider {
                 return Self.interleave(
                     (try? movies.get()) ?? [], (try? series.get()) ?? [])
             }
+        }
+    }
+
+    /// Runs `work` and captures its outcome.
+    ///
+    /// Spelled out rather than using `Result`'s throwing initialiser, whose
+    /// `async` overload is newer than the oldest toolchain this package
+    /// builds with.
+    private func attempt(
+        _ work: () async throws -> [MetadataMatch]
+    ) async -> Result<[MetadataMatch], any Error> {
+        do {
+            return .success(try await work())
+        } catch {
+            return .failure(error)
         }
     }
 
