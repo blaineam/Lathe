@@ -454,6 +454,18 @@ final class Queue {
         return download
     }
 
+    /// How many downloads are in flight, for the menu bar to show.
+    var activeCount: Int {
+        downloads.filter { !$0.state.isTerminal }.count
+    }
+
+    /// Stops everything.
+    func cancelAll() {
+        for download in downloads where !download.state.isTerminal {
+            cancel(download)
+        }
+    }
+
     func cancel(_ download: Download) {
         download.cancellation.cancel()
         if !download.state.isTerminal {

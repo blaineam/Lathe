@@ -24,6 +24,16 @@ enum Entry {
             TorSelfTest.run()
             return
         }
+        /// Reports whether macOS will accept a login registration from this
+        /// build. It refuses one from an app it cannot verify, and the failure
+        /// is worth knowing about before somebody flips the switch and it
+        /// silently does nothing.
+        ///
+        ///     Lathe.app/Contents/MacOS/Lathe --login-selftest
+        if CommandLine.arguments.contains("--login-selftest") {
+            LoginSelfTest.run()
+            return
+        }
         LatheApp.main()
     }
 }
@@ -31,12 +41,15 @@ enum Entry {
 struct LatheApp: App {
     @State private var queue = Queue()
     @State private var browser = BrowserModel()
+    @State private var presence = Presence()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
         Window("Lathe", id: "main") {
             RootView(queue: queue, browser: browser)
                 .frame(minWidth: 900, minHeight: 580)
                 .task { await queue.refreshTools() }
+                .task(id: presence.style) { presence.apply() }
                 // Browsing and downloading go the same way. A toggle that
                 // routed the downloader but left the browser in the clear
                 // would be worse than no toggle: the page you visited to find
@@ -55,8 +68,28 @@ struct LatheApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .commands { CommandGroup(replacing: .newItem) {} }
 
+        // The menu bar item. Always present in menu-bar mode, because it is
+        // the only way back to the app; optional in Dock mode, where the Dock
+        // icon already does that job.
+        MenuBarExtra(isInserted: Binding(
+            get: { presence.menuBarItemIsVisible },
+            set: { presence.showsMenuBarItem = $0 })
+        ) {
+            MenuBarContents(queue: queue, presence: presence)
+        } label: {
+            // The count, so a glance at the menu bar answers the only question
+            // anybody has of a downloader that is not on screen.
+            Label {
+                Text(queue.activeCount == 0 ? "" : "\(queue.activeCount)")
+            } icon: {
+                Image(systemName: queue.isRunning
+                      ? "arrow.down.circle.fill" : "arrow.down.circle")
+            }
+        }
+        .menuBarExtraStyle(.menu)
+
         Settings {
-            SettingsView(queue: queue, browser: browser)
+            SettingsView(queue: queue, browser: browser, presence: presence)
         }
     }
 }
@@ -801,10 +834,11 @@ struct ActivityChip: View {
 struct SettingsView: View {
     @Bindable var queue: Queue
     var browser: BrowserModel
+    @Bindable var presence: Presence
 
     var body: some View {
         TabView {
-            GeneralSettings(queue: queue)
+            GeneralSettings(queue: queue, presence: presence)
                 .tabItem { Label("General", systemImage: "gearshape") }
             ToolsSettings(queue: queue)
                 .tabItem { Label("Downloaders", systemImage: "shippingbox") }
@@ -821,9 +855,58 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @Bindable var queue: Queue
+    @Bindable var presence: Presence
+    @State private var loginFailure: String?
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Show Lathe", selection: $presence.style) {
+                    ForEach(Presence.Style.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+
+                Text(presence.style.explanation)
+                    .font(.caption).foregroundStyle(.secondary)
+
+                if presence.style == .dock {
+                    Toggle("Also show a menu bar item", isOn: $presence.showsMenuBarItem)
+                }
+            }
+
+            Section("Startup") {
+                Toggle("Start Lathe when I log in", isOn: Binding(
+                    get: { presence.startsAtLogin },
+                    set: { wanted in
+                        do {
+                            loginFailure = nil
+                            try presence.setStartsAtLogin(wanted)
+                        } catch {
+                            loginFailure = error.localizedDescription
+                        }
+                    }))
+
+                if presence.loginApprovalPending {
+                    // The system asks separately, and there is nothing this app
+                    // can do about it except say where to go.
+                    Label("macOS is waiting for you to allow this in System "
+                          + "Settings → General → Login Items.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+
+                if let loginFailure {
+                    Text(loginFailure).font(.caption).foregroundStyle(.orange)
+                }
+
+                Text(presence.style == .menuBar
+                     ? "Starts with no window and no Dock icon — just the menu "
+                       + "bar item, ready for anything the Shortcut sends it."
+                     : "Opens normally at login. Switch to menu bar only above "
+                       + "if you would rather it started out of the way.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Downloads") {
                 LabeledContent("Folder") {
                     Button(queue.destination?.path ?? "Downloads") { queue.chooseDestination() }
@@ -1207,5 +1290,62 @@ struct StepRow: View {
                 .frame(width: 14, alignment: .trailing)
             Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+
+// MARK: - Menu bar
+
+/// What the menu bar item drops down.
+///
+/// Deliberately short. This exists so that an app with no Dock icon is still
+/// reachable and still says what it is doing — not so that the whole interface
+/// can be operated from a menu.
+struct MenuBarContents: View {
+    @Bindable var queue: Queue
+    @Bindable var presence: Presence
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if queue.activeCount > 0 {
+            Text("\(queue.activeCount) downloading")
+            Divider()
+        } else if queue.downloads.isEmpty {
+            Text("Nothing queued")
+            Divider()
+        }
+
+        Button("Open Lathe") {
+            // Both, and in this order: a menu-bar-only app is `.accessory`,
+            // which cannot come forward on its own, so the window would open
+            // behind whatever is in front.
+            NSApp.activate(ignoringOtherApps: true)
+            openWindow(id: "main")
+        }
+
+        Button("Paste and Download") {
+            guard let text = NSPasteboard.general.string(forType: .string) else { return }
+            let added = queue.add(text: text)
+            guard added > 0 else { return }
+            Task { await queue.start() }
+        }
+        .help("Takes whatever links are on the clipboard and starts them")
+
+        Divider()
+
+        Button("Downloads Folder") { queue.revealDestination() }
+
+        if queue.isRunning {
+            Button("Stop All") { queue.cancelAll() }
+        }
+
+        Divider()
+
+        Button("Settings…") {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        }
+        Button("Quit Lathe") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
     }
 }
