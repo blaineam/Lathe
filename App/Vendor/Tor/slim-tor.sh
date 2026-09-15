@@ -68,7 +68,8 @@ for pair in "${KEEP[@]}"; do
     before=$(stat -f%z "$dest/tor")
     # `lipo -thin` fails on a binary that is already single-architecture, which
     # the iOS slice is, so ask first rather than treating that as an error.
-    if lipo -archs "$dest/tor" 2>/dev/null | grep -q x86_64; then
+    # `grep` without -q on purpose: see the symbol check below.
+    if lipo -archs "$dest/tor" 2>/dev/null | grep x86_64 > /dev/null; then
         lipo -thin arm64 "$dest/tor" -output "$dest/tor.arm64"
         mv "$dest/tor.arm64" "$dest/tor"
     fi
@@ -80,9 +81,17 @@ for pair in "${KEEP[@]}"; do
     # The entry points the embedded client actually calls. Checking them here
     # means a bad strip is caught now rather than as a link error in somebody
     # else's build.
+    #
+    # `grep` rather than `grep -q`, and that is not a style choice. `-q` exits
+    # the moment it matches, `nm` is still writing tens of thousands of symbols
+    # into a closed pipe, and it dies of SIGPIPE — which under `set -o pipefail`
+    # makes the whole pipeline report failure. The first version of this script
+    # reported "tor_run_main did not survive stripping" for a symbol that was
+    # plainly there. Letting grep read to the end costs a fraction of a second
+    # and the pipeline tells the truth.
     for symbol in tor_run_main tor_main_configuration_new \
                   tor_main_configuration_setup_control_socket; do
-        nm -g "$dest/tor" 2>/dev/null | grep -q "T _$symbol" \
+        nm -g "$dest/tor" 2>/dev/null | grep "T _$symbol" > /dev/null \
             || { echo "$to: $symbol did not survive stripping" >&2; exit 1; }
     done
 
