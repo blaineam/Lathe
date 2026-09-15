@@ -1,3 +1,4 @@
+import AppIntents
 import AppKit
 import LatheCore
 import LatheFetch
@@ -48,7 +49,12 @@ struct LatheApp: App {
         Window("Lathe", id: "main") {
             RootView(queue: queue, browser: browser)
                 .frame(minWidth: 900, minHeight: 580)
-                .task { await queue.refreshTools() }
+                .task {
+                    // Published before anything else, so an intent that
+                    // arrives during launch finds a queue rather than failing.
+                    IntentBridge.shared.queue = queue
+                    await queue.refreshTools()
+                }
                 .task(id: presence.style) { presence.apply() }
                 // Browsing and downloading go the same way. A toggle that
                 // routed the downloader but left the browser in the clear
@@ -923,6 +929,27 @@ struct GeneralSettings: View {
             Section("Sami") {
                 Toggle("Hand finished files to Sami", isOn: $queue.handOffToSami)
                     .disabled(!queue.samiInstalled)
+
+                if let shared = queue.samiFolder {
+                    Toggle("Download into Sami's watched folder", isOn: Binding(
+                        get: { queue.usesSamiFolder },
+                        set: { queue.usesSamiFolder = $0 }))
+                    LabeledContent("That folder") {
+                        Text(shared.url.lastPathComponent)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("Sami can read this folder without each file being "
+                         + "handed to it, because you granted it there. "
+                         + "Downloading straight into it turns the hand-off "
+                         + "into a pipeline.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if queue.samiInstalled {
+                    Text("Sami has not been given a folder to watch. Choose one "
+                         + "in Sami's settings and it will appear here — it has "
+                         + "to be picked there, because that is the only way a "
+                         + "sandboxed app gets permission to read it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
                 if queue.samiInstalled {
                     Picker("Ask for", selection: $queue.samiIntent) {

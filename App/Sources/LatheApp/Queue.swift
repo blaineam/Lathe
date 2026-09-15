@@ -825,8 +825,25 @@ final class Queue {
 
     // MARK: - Destination
 
+    /// The folder Sami has been told to watch, if it named one.
+    ///
+    /// Sami is sandboxed and can only read a folder the user granted it, which
+    /// means the user has to pick it *there*. Once they have, downloading into
+    /// it is what lets Sami see the files without each one being opened —
+    /// which is the difference between a hand-off and a pipeline.
+    var samiFolder: SharedFolder? {
+        SharedFolder.published(byBundleIdentifier: Self.samiBundleID)
+    }
+
+    /// Whether to prefer it over the download folder.
+    var usesSamiFolder: Bool {
+        get { UserDefaults.standard.bool(forKey: "usesSamiFolder") }
+        set { UserDefaults.standard.set(newValue, forKey: "usesSamiFolder") }
+    }
+
     func defaultDestination() -> URL? {
-        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        if usesSamiFolder, let shared = samiFolder { return shared.url }
+        return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     }
 
     /// Opens the download folder in the Finder.

@@ -82,6 +82,47 @@ for key in CFBundleIconName CFBundleIconFile; do
         -c "Add :$key string $value" "$APP/Contents/Info.plist"
 done
 
+# App Intents have to be *compiled* to be found.
+#
+# Declaring an `AppIntent` in Swift is not enough: the system discovers them
+# from a Metadata.appintents bundle that a separate tool produces from the
+# compiler's const-value output. Xcode runs it as a build phase; SwiftPM does
+# not, which is why the intents existed and Shortcuts showed nothing.
+#
+# Everything it needs is already on disk after the build — the source list and
+# the .swiftconstvalues files the compiler emitted — so this is a matter of
+# handing them over rather than of generating anything new.
+echo "==> app intents"
+INTENTS_WORK="$(mktemp -d)"
+BUILD_DIR="$(swift build -c release --package-path "$HERE" --show-bin-path)"
+SCRATCH="$(dirname "$(dirname "$BUILD_DIR")")"
+
+find "$HERE/Sources/LatheApp" -name "*.swift" > "$INTENTS_WORK/sources.txt"
+find "$SCRATCH" -name "*.swiftconstvalues" -path "*LatheApp*" -path "*Release*" \
+    > "$INTENTS_WORK/constvalues.txt"
+
+TOOLCHAIN="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain"
+if [ -s "$INTENTS_WORK/constvalues.txt" ] && xcrun appintentsmetadataprocessor \
+        --output "$APP/Contents/Resources" \
+        --toolchain-dir "$TOOLCHAIN" \
+        --module-name LatheApp \
+        --sdk-root "$(xcrun --show-sdk-path --sdk macosx)" \
+        --xcode-version "$(xcodebuild -version | tail -1 | awk '{print $3}')" \
+        --platform-family macOS \
+        --deployment-target 26.0 \
+        --target-triple arm64-apple-macos26.0 \
+        --bundle-identifier com.lathe.app \
+        --source-file-list "$INTENTS_WORK/sources.txt" \
+        --swift-const-vals-list "$INTENTS_WORK/constvalues.txt" \
+        --quiet-warnings > /dev/null 2>&1; then
+    echo "    intents: $(ls "$APP/Contents/Resources" | grep -c appintents) bundle(s)"
+else
+    # Not fatal. Every other way into the app still works, and a release that
+    # fails because Siri phrases did not compile would be a poor trade.
+    echo "    note: App Intents metadata could not be built; Shortcuts will not see them"
+fi
+rm -rf "$INTENTS_WORK"
+
 # Launch Services caches an app's icon by bundle path, so a rebuilt bundle
 # at the same path keeps showing the previous icon until the cache is told
 # otherwise. Touching the bundle is what invalidates that.
