@@ -191,30 +191,45 @@ enum GalleryFetcherDriver {
             """Download everything on the page into one directory.
 
             The paths are collected by watching the job rather than by
-            listing the directory afterwards: the directory may already hold
-            files from an earlier run, and gallery-dl's `skip` setting means
-            those are deliberately not rewritten. Diffing a listing would
-            report them as new.
+            listing the directory afterwards: the directory may already
+            hold files from an earlier run, and gallery-dl's `skip`
+            setting means those are deliberately not rewritten. Diffing a
+            listing would report them as new.
             """
-            from gallery_dl import job
+            import logging
+
+            from gallery_dl import exception, job
 
             request = json.loads(lathe_arguments["request"])
             _lathe_gdl_configure(request)
 
             token = request["token"]
             limit = request.get("limit")
+            limit = int(limit) if limit else None
             written = []
-            state = {"cancelled": False, "seen": 0}
+            state = {"stopped": False}
+
+            # gallery-dl reports per-item failures through the logging
+            # module and carries on, so a run that downloads nothing
+            # still returns a status with no explanation attached. Without
+            # capturing this, "0 files" is all the caller ever learns.
+            problems = []
+
+            class _Capture(logging.Handler):
+                def emit(self, record):
+                    if record.levelno >= logging.WARNING:
+                        problems.append(record.getMessage())
+
+            capture = _Capture()
+            logging.getLogger("gallery-dl").addHandler(capture)
 
             class _LatheJob(job.DownloadJob):
                 def handle_url(self, url, kwdict):
-                    if state["cancelled"]:
-                        return
                     super().handle_url(url, kwdict)
                     path = getattr(self.pathfmt, "path", None)
                     if path:
                         written.append(path)
-                    state["seen"] += 1
+
                     keep_going = _lathe_gdl_progress({
                         "token": token,
                         "part": len(written),
@@ -223,18 +238,43 @@ enum GalleryFetcherDriver {
                         "downloaded_bytes": len(written),
                         "total_bytes": limit,
                     })
-                    if not keep_going:
-                        state["cancelled"] = True
-                    if limit and state["seen"] >= int(limit):
-                        state["cancelled"] = True
+
+                    if not keep_going or (limit and len(written) >= limit):
+                        # Raise, rather than set a flag and return early.
+                        #
+                        # Returning early stops the *downloading* and not the
+                        # *walking*: gallery-dl carries on enumerating the
+                        # gallery, one request per item, doing nothing with any
+                        # of them. On anything large that looks exactly like a
+                        # hang after the first file, and it is a request storm
+                        # aimed at a site that may well decide to stop
+                        # answering. That is what the first version of this did.
+                        #
+                        # TerminateExtraction rather than StopExtraction:
+                        # `run()` re-raises it at every level, so it unwinds the
+                        # whole nested job tree. StopExtraction carries a depth
+                        # that decrements on the way up, and at its default of 1
+                        # it would stop one child extractor while the parent
+                        # carried on to the next.
+                        state["stopped"] = True
+                        raise exception.TerminateExtraction()
 
             gallery_job = _LatheJob(request["url"])
-            status = gallery_job.run()
+            try:
+                status = gallery_job.run()
+            except exception.TerminateExtraction:
+                status = 0
+            except exception.GalleryDLException as exc:
+                problems.append("%s: %s" % (type(exc).__name__, exc))
+                status = getattr(exc, "code", 1)
+            finally:
+                logging.getLogger("gallery-dl").removeHandler(capture)
 
             return json.dumps({
                 "paths": [p for p in written if p and os.path.exists(p)],
                 "status": status,
-                "cancelled": state["cancelled"],
+                "cancelled": state["stopped"],
+                "problems": problems[:8],
             })
         """#
 }

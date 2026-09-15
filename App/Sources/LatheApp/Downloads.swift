@@ -2,6 +2,29 @@ import Foundation
 import LatheCore
 import LatheFetch
 
+/// A cancellation flag that any thread can read.
+///
+/// Returning `false` from a progress report is how a `ProgressHandle` asks a
+/// downloader to stop, and that answer has to be given on the downloader's own
+/// thread. So the flag lives here, behind a lock, rather than on the
+/// main-actor model that owns everything else about a download.
+final class CancelToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return flag
+    }
+
+    func cancel() {
+        lock.lock()
+        flag = true
+        lock.unlock()
+    }
+}
+
 /// Which tool should handle a URL.
 enum Tool: String, CaseIterable, Identifiable, Sendable {
     /// Decide per URL. The default, and what almost everyone should leave it on.
@@ -74,6 +97,22 @@ final class Download: Identifiable {
     /// downloads from two sites can be in flight at once, and one site's
     /// cookies must never be sent to the other.
     var cookieFile: URL?
+
+    /// What the downloader is doing right now — "downloading", "mux", or
+    /// "item 3 of 40" for a playlist. Shown under the title, because a long
+    /// download with a moving bar and no words is still a mystery.
+    var stage: String?
+
+    /// Set by the cancel button, read by the progress sink.
+    ///
+    /// A separate object rather than a property, because the sink runs on
+    /// whatever thread the downloader is on and has to answer "keep going?"
+    /// *synchronously* — it cannot await the main actor to find out. A
+    /// main-actor property is unreadable from there, and marking one
+    /// `nonisolated(unsafe)` would be a data race with a comment on it.
+    let cancellation = CancelToken()
+
+    var isCancelled: Bool { cancellation.isCancelled }
 
     /// What the router decided, once it has decided. Shown in the row, because
     /// "which tool is this using" is the first question when something fails.

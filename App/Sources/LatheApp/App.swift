@@ -9,8 +9,15 @@ struct LatheApp: App {
     var body: some Scene {
         Window("Lathe", id: "main") {
             RootView(queue: queue, browser: browser)
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(minWidth: 860, minHeight: 560)
                 .task { await queue.refreshTools() }
+                // Browsing and downloading go the same way. A toggle that
+                // routed the downloader but left the browser in the clear
+                // would be worse than no toggle: the page you visited to find
+                // the link is the part that identifies you.
+                .task(id: queue.routingSignature) {
+                    browser.setProxy(queue.useTor ? queue.proxy : nil)
+                }
         }
         .windowResizability(.contentMinSize)
         .commands { CommandGroup(replacing: .newItem) {} }
@@ -50,9 +57,24 @@ struct RootView: View {
             .fixedSize()
             .padding(.top, 10)
 
-            switch pane {
-            case .queue: QueueView(queue: queue)
-            case .browse: BrowsePane(queue: queue, browser: browser)
+            // Both panes stay in the hierarchy, and switching changes which
+            // one is visible.
+            //
+            // A `switch` here destroys the pane that leaves, which for the
+            // browser means tearing down its web views: coming back found a
+            // blank page, signed out, with the history gone. The tabs own
+            // their web views now, but a pane that is rebuilt from nothing
+            // every time is still the wrong shape for something you switch
+            // away from and expect to find as you left it.
+            ZStack {
+                QueueView(queue: queue)
+                    .opacity(pane == .queue ? 1 : 0)
+                    .allowsHitTesting(pane == .queue)
+                    .accessibilityHidden(pane != .queue)
+                BrowsePane(queue: queue, browser: browser)
+                    .opacity(pane == .browse ? 1 : 0)
+                    .allowsHitTesting(pane == .browse)
+                    .accessibilityHidden(pane != .browse)
             }
         }
         .background {
@@ -325,69 +347,324 @@ struct BrowsePane: View {
     @Bindable var queue: Queue
     @Bindable var browser: BrowserModel
     @FocusState private var addressFocused: Bool
-    @State private var adopted: String?
-    @State private var queued = false
+    @State private var adopted: Set<String> = []
+
+    private var tab: BrowserTab? { browser.selected }
 
     var body: some View {
-        VStack(spacing: 10) {
-            GlassEffectContainer(spacing: 12) {
-                HStack(spacing: 8) {
-                    Button(action: browser.back) { Image(systemName: "chevron.left") }
-                        .disabled(!browser.canGoBack)
-                    Button(action: browser.forward) { Image(systemName: "chevron.right") }
-                        .disabled(!browser.canGoForward)
-                    Button(action: browser.reload) { Image(systemName: "arrow.clockwise") }
+        VStack(spacing: 8) {
+            TabStrip(browser: browser)
+                .onAppear { browser.ensureTab() }
 
-                    TextField("Search or enter address", text: $browser.address)
-                        .textFieldStyle(.plain)
-                        .focused($addressFocused)
-                        .onSubmit(browser.go)
-                        .onChange(of: addressFocused) { browser.isEditingAddress = addressFocused }
+            if let tab {
+                AddressBar(queue: queue, browser: browser, tab: tab,
+                           adopted: $adopted, addressFocused: $addressFocused)
+                .padding(.horizontal, 16)
 
-                    if browser.isLoading { ProgressView().controlSize(.small) }
-
-                    Button {
-                        Task {
-                            if let host = await queue.adoptCookies(from: browser) {
-                                adopted = host
-                            }
-                        }
-                    } label: {
-                        let signedIn = adopted != nil && adopted == browser.currentURL?.host()
-                        Label(
-                            signedIn ? "Signed in" : "Use this session",
-                            systemImage: signedIn ? "person.badge.key.fill" : "person.badge.key")
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(browser.currentURL?.host() == nil)
-                    .help("Hand this site's cookies to the downloader, so it sees the same "
-                          + "signed-in session you do. Only this site's cookies, never the rest.")
-
-                    Button {
-                        if let url = browser.currentURL {
-                            queued = queue.add(text: url.absoluteString) > 0
-                        }
-                    } label: {
-                        Label(queued ? "Queued" : "Queue this",
-                              systemImage: queued ? "checkmark.circle.fill" : "arrow.down.circle.fill")
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(browser.currentURL == nil)
+                if let error = tab.lastError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 20)
                 }
-                .padding(10)
-                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
-            }
-            .padding(.horizontal, 16)
 
-            BrowserView(model: browser)
-                .clipShape(.rect(cornerRadius: 14))
+                BrowserView(tab: tab)
+                    .clipShape(.rect(cornerRadius: 14))
+                    .padding(.horizontal, 16)
+            }
+
+            // The point of this rail: start something and keep browsing. A
+            // download you have to leave the page to watch is a download you
+            // stop watching.
+            ActivityRail(queue: queue)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
-                // The queued and signed-in confirmations belong to the page
-                // they were pressed on, not to the session.
-                .onChange(of: browser.currentURL) { queued = false }
         }
-        .padding(.top, 12)
+        .padding(.top, 10)
+    }
+}
+
+/// The row of tabs.
+struct TabStrip: View {
+    @Bindable var browser: BrowserModel
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                ForEach(browser.tabs) { tab in
+                    TabChip(tab: tab,
+                            isSelected: tab.id == browser.selected?.id,
+                            canClose: browser.tabs.count > 1,
+                            select: { browser.select(tab) },
+                            close: { browser.close(tab) })
+                }
+                Button { browser.newTab() } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.glass)
+                .help("New tab")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 2)
+        }
+        .scrollIndicators(.never)
+        .frame(height: 34)
+    }
+}
+
+struct TabChip: View {
+    @Bindable var tab: BrowserTab
+    let isSelected: Bool
+    let canClose: Bool
+    let select: () -> Void
+    let close: () -> Void
+    @State private var hovering = false
+
+    /// The speaker stays put once a tab has made a sound.
+    ///
+    /// Showing it only while audio is actually playing means it appears and
+    /// disappears between tracks, and the button moves out from under the
+    /// pointer just as it is reached for. A tab that has played something
+    /// keeps its control.
+    private var showsSound: Bool { tab.isPlayingAudio || tab.isMuted }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if tab.isLoading {
+                ProgressView().controlSize(.mini).scaleEffect(0.7).frame(width: 11)
+            } else {
+                Image(systemName: "globe")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(tab.label)
+                .font(.system(size: 12))
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            // On the chip rather than in the toolbar, so a tab that starts
+            // talking can be silenced without switching to it first — which is
+            // the entire situation this is for.
+            if showsSound {
+                Button { tab.toggleMute() } label: {
+                    Image(systemName: tab.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.system(size: 9))
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(tab.isMuted ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tint))
+                .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
+            }
+
+            // The close button appears on hover or on the selected tab, so a
+            // row of tabs is a row of titles rather than a row of crosses.
+            if (hovering || isSelected) && canClose {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.borderless)
+                .help("Close tab")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(minWidth: 96, maxWidth: 200)
+        .glassEffect(isSelected ? .regular.tint(.accentColor.opacity(0.35)) : .regular,
+                     in: .rect(cornerRadius: 9))
+        .contentShape(.rect)
+        .onTapGesture(perform: select)
+        .onHover { hovering = $0 }
+    }
+}
+
+struct AddressBar: View {
+    @Bindable var queue: Queue
+    @Bindable var browser: BrowserModel
+    @Bindable var tab: BrowserTab
+    @Binding var adopted: Set<String>
+    @FocusState.Binding var addressFocused: Bool
+
+    private var signedIn: Bool {
+        if let host = tab.host { return adopted.contains(host) }
+        return false
+    }
+
+    var body: some View {
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 8) {
+                Button { tab.back() } label: { Image(systemName: "chevron.left") }
+                    .disabled(!tab.canGoBack)
+                Button { tab.forward() } label: { Image(systemName: "chevron.right") }
+                    .disabled(!tab.canGoForward)
+                // An explicit closure, not `tab.isLoading ? tab.stop : tab.reload`.
+                // A ternary between two method references gives the type checker
+                // two unbound `(BrowserTab) -> () -> Void` values to reconcile
+                // inside a ViewBuilder, and it gives up without a diagnostic.
+                Button {
+                    if tab.isLoading { tab.stop() } else { tab.reload() }
+                } label: {
+                    Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
+                }
+
+                TextField("Search, or enter an address", text: $tab.address)
+                    .textFieldStyle(.plain)
+                    .focused($addressFocused)
+                    .onSubmit(tab.go)
+                    .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
+
+                if tab.isPlayingAudio || tab.isMuted {
+                    Button { tab.toggleMute() } label: {
+                        Image(systemName: tab.isMuted
+                              ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    }
+                    .buttonStyle(.glass)
+                    .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
+                }
+
+                if queue.useTor {
+                    Image(systemName: "eye.slash.fill")
+                        .foregroundStyle(.tint)
+                        .help("This tab's traffic is going through the proxy. "
+                              + "That hides where you are connecting from — it does not "
+                              + "sign you out of anything.")
+                }
+
+                Button {
+                    Task {
+                        if let host = await queue.adoptCookies(from: tab) {
+                            adopted.insert(host)
+                        }
+                    }
+                } label: {
+                    Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
+                }
+                .buttonStyle(.glass)
+                .disabled(tab.host == nil)
+                .help("Hand this site's cookies to the downloader, so it sees the same "
+                      + "signed-in session you do. Only this site's cookies, never the rest.")
+
+                Button("Queue") {
+                    if let url = tab.currentURL { queue.add(text: url.absoluteString) }
+                }
+                .buttonStyle(.glass)
+                .disabled(tab.currentURL == nil)
+                .help("Add to the queue and download it with everything else")
+
+                Button {
+                    if let url = tab.currentURL {
+                        Task { await queue.downloadNow(url) }
+                    }
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle.fill")
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(tab.currentURL == nil)
+                .help("Start this one now, without waiting for the rest of the queue")
+            }
+            .padding(10)
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+        }
+    }
+}
+
+/// A compact strip of whatever is downloading, so the browser does not have to
+/// be left to find out how it is going.
+struct ActivityRail: View {
+    @Bindable var queue: Queue
+
+    private var active: [Download] {
+        queue.downloads.filter { !$0.state.isTerminal }
+    }
+    private var finished: Int {
+        queue.downloads.filter { if case .finished = $0.state { return true } else { return false } }
+            .count
+    }
+
+    var body: some View {
+        if active.isEmpty && finished == 0 {
+            EmptyView()
+        } else {
+            GlassEffectContainer(spacing: 10) {
+                HStack(spacing: 14) {
+                    if active.isEmpty {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text("\(finished) finished")
+                            .font(.callout)
+                    } else {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 12) {
+                                ForEach(active) { download in
+                                    ActivityChip(download: download,
+                                                 cancel: { queue.cancel(download) })
+                                }
+                            }
+                        }
+                        .scrollIndicators(.never)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    if finished > 0, !active.isEmpty {
+                        Text("\(finished) done")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            }
+        }
+    }
+}
+
+struct ActivityChip: View {
+    @Bindable var download: Download
+    let cancel: () -> Void
+
+    private var fraction: Double? {
+        if case .running(let f) = download.state, f > 0 { return f }
+        return nil
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(download.displayTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+
+                // A determinate bar when the downloader knows the total and an
+                // indeterminate one when it does not, rather than a bar that
+                // pretends: a gallery finds its files as it goes and a fake
+                // percentage on that is a lie with a progress bar around it.
+                if let fraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
+                        .frame(width: 130)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .frame(width: 130)
+                }
+
+                Text(download.stage ?? download.host)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Button(action: cancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Stop this download")
+        }
+        .frame(maxWidth: 230, alignment: .leading)
     }
 }
 

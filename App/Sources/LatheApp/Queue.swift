@@ -64,15 +64,15 @@ final class Queue {
         return directory
     }
 
-    /// Takes the browser's session for one site and remembers it for downloads
-    /// from that site.
+    /// Takes a tab's session for its site and remembers it for downloads from
+    /// that site.
     @discardableResult
-    func adoptCookies(from browser: BrowserModel) async -> String? {
-        guard let host = browser.currentURL?.host() else { return nil }
+    func adoptCookies(from tab: BrowserTab) async -> String? {
+        guard let host = tab.host else { return nil }
         do {
             let file = try cookieDirectory()
                 .appendingPathComponent("\(host).txt")
-            try await browser.exportCookies(to: file)
+            try await tab.exportCookies(to: file)
             try? FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: file.path)
             cookieFiles[host] = file
@@ -185,6 +185,9 @@ final class Queue {
     }
 
     private var proxyURL: String? { useTor ? proxy.extractorProxyURL : nil }
+
+    /// Changes when the routing does, so views can react to it.
+    var routingSignature: String { useTor ? proxy.extractorProxyURL : "direct" }
 
     init() {
         restoreDestinationBookmark()
@@ -326,6 +329,49 @@ final class Queue {
         }
     }
 
+    /// Queue something and start it immediately, without touching the rest.
+    ///
+    /// The whole-queue button waits for you to finish adding things; this is
+    /// for the other half of the time, when you are looking at the page and
+    /// want that one thing now. Running rows are unaffected — the lane
+    /// broker rations them the same way it rations a batch.
+    @discardableResult
+    func downloadNow(_ url: URL, scope: Scope? = nil) async -> Download? {
+        if useTor {
+            do { try await proxy.verify() } catch {
+                summary = Self.describe(error)
+                return nil
+            }
+        }
+        guard let folder = destination ?? defaultDestination() else {
+            summary = "Choose where downloads should go first."
+            return nil
+        }
+
+        let download: Download
+        if let existing = downloads.first(where: { $0.url == url }), !existing.state.isTerminal {
+            download = existing
+        } else {
+            download = Download(url: url)
+            download.scope = scope ?? defaultScope
+            download.tool = defaultTool
+            if let host = url.host() { download.cookieFile = cookieFiles[host] }
+            downloads.append(download)
+        }
+        if let scope { download.scope = scope }
+
+        let session = useTor ? proxy.urlSession() : URLSession.shared
+        await run(download, into: folder, session: session)
+        return download
+    }
+
+    func cancel(_ download: Download) {
+        download.cancellation.cancel()
+        if !download.state.isTerminal {
+            download.state = .failed("Cancelled.")
+        }
+    }
+
     /// One download, routed to whichever tool should handle it.
     private func run(_ download: Download, into folder: URL, session: URLSession) async {
         download.state = .inspecting
@@ -383,6 +429,33 @@ final class Queue {
         return tools.ytdlpInstalled ? .media : .direct
     }
 
+    /// A handle that drives one row's progress bar.
+    ///
+    /// All three download paths report through `ProgressHandle`, and none of
+    /// them were given one — so every row sat at an indeterminate spinner from
+    /// start to finish however long it took. The sink hops to the main actor
+    /// because it is called from whatever thread the downloader is on.
+    ///
+    /// Returning `false` is how a handle asks the work to stop, which is what
+    /// makes the cancel button on a running row work at all.
+    private nonisolated static func handle(for download: Download) -> ProgressHandle {
+        let cancellation = download.cancellation
+        return ProgressHandle(sink: ClosureProgressSink { progress in
+            let fraction = progress.fraction
+            let stage = progress.stage
+            let index = progress.unitIndex
+            let count = progress.unitCount
+            Task { @MainActor in
+                guard !download.state.isTerminal else { return }
+                download.state = .running(fraction: fraction ?? 0)
+                download.stage = count > 1
+                    ? "\(stage) — \(index + 1) of \(count)"
+                    : stage
+            }
+            return !cancellation.isCancelled
+        })
+    }
+
     // MARK: - The three paths
 
     private func downloadDirectly(
@@ -399,7 +472,7 @@ final class Queue {
         let output = Self.unique(folder.appendingPathComponent(download.url.lastPathComponent))
         download.state = .running(fraction: 0)
         try await URLSessionMediaTransport(session: session).download(
-            download.url, to: output, limits: .standard, progress: nil)
+            download.url, to: output, limits: .standard, progress: Self.handle(for: download))
         return output
     }
 
@@ -434,7 +507,7 @@ final class Queue {
         let output = Self.unique(
             folder.appendingPathComponent(name).appendingPathExtension("mp4"))
         let media = try await fetcher.download(
-            download.url, to: output)
+            download.url, to: output, progress: Self.handle(for: download))
         return media.url
     }
 
@@ -466,7 +539,8 @@ final class Queue {
                     .replacingOccurrences(of: "/", with: "-")
                 let output = Self.unique(
                     directory.appendingPathComponent(name).appendingPathExtension("mp4"))
-                _ = try await itemFetcher.download(entryURL, to: output)
+                _ = try await itemFetcher.download(
+                    entryURL, to: output, progress: Self.handle(for: download))
                 written += 1
             } catch {
                 // One dead entry in a playlist of two hundred is not a reason
@@ -494,12 +568,20 @@ final class Queue {
 
         // "Just this" on a gallery means one file, not the whole album.
         let haul = try await fetcher.download(
-            download.url, into: directory, limit: download.scope == .single ? 1 : nil)
+            download.url, into: directory,
+            limit: download.scope == .single ? 1 : nil,
+            progress: Self.handle(for: download))
 
         guard !haul.files.isEmpty else {
             try? FileManager.default.removeItem(at: directory)
+            // The tool's own complaint, when it made one. "No files" on its own
+            // is not a diagnosis — it is the same message for a page with
+            // nothing on it, a login that expired, and a site that has started
+            // refusing.
+            let why = haul.problems.first.map { ": \($0)" }
+                ?? " — it recognised the site but the page had nothing on it"
             throw LatheError.notImplemented(
-                feature: "gallery-dl recognised \(download.host) but found no files on that page")
+                feature: "gallery-dl downloaded nothing from \(download.host)\(why)")
         }
         download.fileCount = haul.files.count
         download.detail = haul.files.count == 1 ? nil : "\(haul.files.count) files"

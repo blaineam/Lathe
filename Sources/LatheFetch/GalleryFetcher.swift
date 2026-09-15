@@ -94,6 +94,13 @@ public actor GalleryFetcher {
         public let status: Int
         /// Whether the caller's limit or cancellation stopped it early.
         public let wasStoppedEarly: Bool
+
+        /// What `gallery-dl` complained about along the way.
+        ///
+        /// It reports per-item failures through the logging module and carries
+        /// on, so a run can finish with a clean status and no files. Without
+        /// these, "nothing was downloaded" is the entire diagnosis.
+        public let problems: [String]
     }
 
     public var configuration: Configuration
@@ -258,6 +265,7 @@ public actor GalleryFetcher {
             let paths: [String]
             let status: Int
             let cancelled: Bool
+            let problems: [String]?
         }
         let evaluation: PythonEvaluation
         do {
@@ -277,7 +285,8 @@ public actor GalleryFetcher {
         return Haul(
             files: raw.paths.map { URL(fileURLWithPath: $0) },
             status: raw.status,
-            wasStoppedEarly: raw.cancelled)
+            wasStoppedEarly: raw.cancelled,
+            problems: raw.problems ?? [])
     }
 
     // MARK: - Plumbing
