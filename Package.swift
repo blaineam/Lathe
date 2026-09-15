@@ -59,6 +59,10 @@ let package = Package(
         // See Sources/CLAME/VENDORING.md before depending on it.
         .library(name: "LatheMP3", targets: ["LatheMP3"]),
 
+        // Salvage, not processing, and deliberately not in the umbrella. See
+        // the target below for the argument.
+        .library(name: "LatheSWF", targets: ["LatheSWF"]),
+
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
         // the user asks for at run time. It is a separate product precisely so
@@ -134,6 +138,43 @@ let package = Package(
             name: "LatheMP3",
             dependencies: ["LatheCore", "CLAME"]
         ),
+
+        // MARK: - Salvage
+        //
+        // `LatheSWF` recovers the embedded JPEG, PNG, GIF, MP3 and PCM out of
+        // Adobe Flash `.swf` files. It is NOT in the `Lathe` umbrella, and the
+        // reason is not the licence one that keeps `LatheMP3` out, nor the
+        // network one that keeps `LatheFetch` out. It is a third reason, and it
+        // deserves its own entry in the contract:
+        //
+        // * **It is a parser for hostile input, and nothing else here is.**
+        //   Every other module in this package hands bytes to Apple's own
+        //   frameworks, which are hardened, sandboxed where it matters, and
+        //   patched by somebody else. This module walks an untrusted binary
+        //   container by hand — tag codes, declared lengths, bit-packed fields,
+        //   recursive sprites — for a format whose last security update was a
+        //   long time ago and whose surviving files come from wherever old
+        //   Flash files come from. That is real attack surface, and an
+        //   application that never opens a `.swf` should be able to prove it
+        //   links none of it by naming its products, rather than by auditing an
+        //   import graph after a version bump handed it one.
+        //
+        // * **It salvages; it does not process.** The umbrella's standing
+        //   promise is media processing: read a file, write a file, in formats
+        //   the system understands. SWF capture is archaeology — a one-way
+        //   recovery of what is left inside a container nothing can play any
+        //   more. It produces inputs *for* the media modules rather than being
+        //   one of them, and the output of an extraction is an ordinary folder
+        //   of JPEGs and MP3s that `LatheImage` and `LatheAudio` then handle
+        //   with no knowledge that Flash was ever involved.
+        //
+        // It depends on `LatheCore` alone — the error taxonomy and the logging
+        // subsystem — and deliberately not on `LatheImage`, even though it
+        // writes PNGs. It writes them through ImageIO, which is a system
+        // framework; depending on `LatheImage` to reuse one format enum would
+        // link libwebp and a full encoder into every consumer that only wanted
+        // to open a Flash file.
+        .target(name: "LatheSWF", dependencies: ["LatheCore"]),
 
         // MARK: - Network ingest
         //
@@ -301,6 +342,7 @@ let package = Package(
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
         .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
         .testTarget(name: "LatheLookupTests", dependencies: ["LatheLookup"]),
+        .testTarget(name: "LatheSWFTests", dependencies: ["LatheSWF"]),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,

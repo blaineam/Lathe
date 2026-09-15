@@ -68,6 +68,7 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheLookup`** | Online metadata: TMDb for film and television, OpenSubtitles for subtitles, each with the **user's own API key** — none ships here. Includes the filename parser that turns a release name into a searchable title and year, which needs no key at all. Separate from `LatheFetch`: this fetches a synopsis for a file you already have, not the file. |
 | **`LatheMP3`** | MP3 encoding, via vendored LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Sources/CLAME/VENDORING.md`. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
+| **`LatheSWF`** | **Not in the umbrella.** Salvage for Adobe Flash `.swf`: walks the tag stream and recovers the embedded JPEG, PNG, GIF, MP3 and PCM, with a manifest naming what was found *and what was left behind*. It does not render vector art and does not execute ActionScript, and says so. A hand-written parser for hostile input, which is why it is opt-in by product. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 
 Import the umbrella for convenience, or a single module to keep your binary
@@ -90,6 +91,7 @@ print(Lathe.capabilityReport)   // what this system can actually encode
 .product(name: "Lathe",      package: "Lathe")   // all five, via one import
 
 .product(name: "LatheFetch", package: "Lathe")   // embedded CPython — NOT in the umbrella
+.product(name: "LatheSWF",   package: "Lathe")   // Flash salvage — NOT in the umbrella
 ```
 
 The `Lathe` umbrella product is **media processing only, permanently**. Modules
@@ -116,6 +118,18 @@ list is how such an app proves it has none of it.
 still filters the whole package out of a host's logs — and on nothing else in
 this package. The dependency runs in that direction only: `import LatheCore`
 links no Python.
+
+**`LatheSWF` is the second, and it is kept out for a different reason.** Not
+licence, and not network: it is the only module in this package that walks an
+untrusted binary container **by hand**. Everything else here hands bytes to
+Apple's own frameworks, which are hardened and patched by somebody else; this
+one parses tag codes, declared lengths, bit-packed fields and recursive sprites
+belonging to a format whose last security update was a very long time ago, in
+files that come from wherever surviving Flash files come from. That is real
+attack surface, and an application that never opens a `.swf` should be able to
+prove it links none of it by naming its products. It is also not media
+*processing*: it is one-way salvage, and what it produces — a folder of JPEGs and
+MP3s — is an input to the other modules rather than an output of one.
 
 ---
 
@@ -1003,6 +1017,105 @@ Cancellation is carried on the progress callback's return value, the same
 contract `ProgressSink` already has, which makes `yt-dlp` raise its own
 `DownloadCancelled` and unwind through the paths it already has for a user
 pressing `^C`.
+
+### SWF capture, and what it honestly cannot do
+
+`SWFCapture` recovers the standard media embedded in an Adobe Flash `.swf`.
+
+```swift
+let report = try SWFCapture().extract(movie, to: outputDirectory)
+print(report.summary)
+// intro.swf: SWF 6, zlib (CWS), 550×400, 240 frames at 12.00 fps —
+// recovered 14 images, 2 sounds. 612 tag(s) were left behind; see omissions.
+
+report.verdict        // .mediaRecovered / .vectorOrScriptOnly / …
+report.omissions      // what was found and not written, and why
+report.tagCensus      // every tag code seen, named where the spec names it
+```
+
+**It does not play, render or convert a Flash movie, and no amount of further
+work on this module would get there.** That is the first thing to say, because
+it is the thing people want from a `.swf`. A SWF's animation is vector artwork
+driven by a display list: rendering one frame means shape records in four tag
+versions, morph shapes interpolated between two definitions, a depth-ordered
+display list with transforms, colour transforms, clipping, blend modes and
+filters, and a rasteriser with a non-zero winding rule. That is a renderer, and a
+renderer is a project measured in person-years — Ruffle does it, and Ruffle is
+very large. Much Flash content has no fixed timeline to render at all, because it
+is *driven by ActionScript* in one of two unrelated virtual machines; executing
+untrusted bytecode from a dead platform inside somebody's photo application is
+not a feature with a defensible risk story at any price.
+
+So this does the tractable thing, which is also most of what anybody actually
+wants out of an old SWF: **the art and the audio somebody put into it.** Those
+are stored as ordinary files inside a tag stream that can be walked without
+understanding one thing about Flash.
+
+| Tag | Result |
+|---|---|
+| `DefineBits` + `JPEGTables` | `.jpg`, reassembled from the two halves |
+| `DefineBitsJPEG2` | `.jpg`, `.png` or `.gif` — whatever it really held |
+| `DefineBitsJPEG3` / `JPEG4` | `.png`, the JPEG composed with its alpha channel |
+| `DefineBitsLossless` / `2` | `.png`, decoded from five possible pixel layouts |
+| `DefineSound` (MP3 / PCM) | `.mp3` / `.wav` |
+| `SoundStreamBlock` (MP3) | one `.mp3` **per timeline**, sprites included |
+| `DefineBinaryData` | the embedded file, named by what its bytes actually are |
+
+Each of those has a trap, and the traps are the work. `DefineBits` holds JPEG
+scan data whose Huffman tables live in a *different tag*, and the join that works
+drops the tables' `EOI` and the image's `SOI` — concatenating them gives a
+two-image stream ImageIO refuses. Flash's own authoring tool wrote a bogus
+`FFD9 FFD8` pair at the **front** of JPEG payloads, so a naive extractor produces
+`.jpg` files that will not open. `DefineBitsJPEG3` carries its transparency in a
+separate zlib block, and writing the JPEG alone yields a correct-looking
+rectangle where a cut-out sprite belongs — the worst available failure, because
+nothing about it looks broken. `PIX24` is **four** bytes per pixel, not three.
+Lossless rows are padded to a 32-bit boundary, which is invisible at widths that
+are multiples of four and shears the image at every other width. A `DefineSound`
+MP3 is preceded by two bytes; a `SoundStreamBlock` MP3 by four.
+
+**What it will not do is guess.** `ZWS` (LZMA) files are refused *by name*, with
+the reason: a SWF's LZMA body is a raw LZMA1 stream, Apple's `COMPRESSION_LZMA`
+is the xz container — a buffer it produces begins `FD 37 7A 58 5A 00` — and there
+is no way to present one to the other. Adding an LZMA library would breach the
+licence policy, and hand-writing a range decoder would add exactly the class of
+bug this module is otherwise arranged to avoid, so the error tells you to
+decompress the file elsewhere and hand back an `FWS`. Adobe ADPCM, Nellymoser and
+Speex audio, and Sorenson H.263, VP6 and Screen video, are reported with their
+codec named and not written: a hand-rolled decoder that is subtly wrong produces
+a file full of noise that still opens, which looks like success. Tag codes
+outside the published specification are reported **by number** and never given a
+name on a guess.
+
+**The verdict is the point of the report.** An empty asset list has three
+completely different meanings, and only one of them is a dead end:
+
+```swift
+switch report.verdict {
+case .mediaRecovered:             // files are in the folder
+case .mediaFoundButUnrecoverable: // it has audio; it is ADPCM
+case .vectorOrScriptOnly:         // it is a cartoon. You need a renderer.
+case .unrecognisedContent:        // tags outside the specification
+case .empty:                      // valid, and has nothing in it
+}
+```
+
+`inspect` does all of the same work and writes nothing, so a file of unknown
+provenance can be vetted before it is allowed to create anything.
+
+**Hostile input is the design assumption**, because a `.swf` is a binary file
+from a platform nobody patches any more. Every length in the file is a claim that
+is checked before it is acted on, every read is bounds-checked, the cursor cannot
+move backwards, sprite recursion is depth-bounded (stack exhaustion is not a
+catchable error in Swift — it is a crash in the host app), and `SWFLimits` caps
+every allocation the file could otherwise size: a bitmap's dimensions are two
+`UInt16`s, so a malformed tag can ask for 65535 × 65535, which is sixteen
+gigabytes. A malformed file produces a thrown `LatheError`, never a crash and
+never a loop. One distinction inside that: **broken framing is fatal and broken
+contents are not** — once a declared length does not fit, everything after it is
+noise presented as data, but a single bitmap that fails to inflate says nothing
+about the next tag, so it is recorded as a malformed omission and the file still
+gives up its other eleven images.
 
 ### The capability probe
 
