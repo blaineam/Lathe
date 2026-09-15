@@ -116,6 +116,23 @@ public enum MediaFetchError: Error, Sendable, Equatable {
 
 extension MediaFetchError {
 
+    /// Whether this failure means the chosen format stopped existing between
+    /// the extraction that offered it and the download that asked for it.
+    ///
+    /// Recognised by the extractor's own wording, which is unpleasant but is
+    /// the only signal there is: `yt-dlp` raises one error type for every
+    /// format-selection failure and distinguishes them in the message. The
+    /// alternative is treating a stale selection the same as an impossible
+    /// one, which means giving up on a download that would succeed on a second
+    /// look.
+    var indicatesStaleFormatSelection: Bool {
+        guard case let .noUsableFormat(reason) = self else { return false }
+        return reason.contains("Requested format is not available")
+    }
+}
+
+extension MediaFetchError {
+
     /// Maps a raised Python exception to a case.
     ///
     /// ## Why this matches on message text, and why that is acceptable here

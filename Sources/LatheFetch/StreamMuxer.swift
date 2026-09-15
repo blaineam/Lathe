@@ -128,7 +128,14 @@ public enum StreamMuxer {
 
         let videoFormat = try await videoTrack.load(.formatDescriptions).first
         let audioFormat = try await audioTrack.load(.formatDescriptions).first
-        let videoDuration = try await videoAsset.load(.duration)
+
+        // Check each input's sample timing against what its own container
+        // says, because for YouTube's fragmented MP4 they disagree by a factor
+        // of two. See `TimingCorrection` and `MP4MovieHeader`.
+        let videoCorrection = await TimingCorrection(for: videoTrack, file: video)
+        let audioCorrection = await TimingCorrection(for: audioTrack, file: audio)
+        let videoDuration = videoCorrection.corrected(
+            try await videoAsset.load(.duration))
 
         // The temporary file is a sibling of the destination rather than in the
         // system temporary directory: a move within one volume is atomic and a
@@ -149,6 +156,8 @@ public enum StreamMuxer {
                 audioFormat: audioFormat,
                 to: workingURL,
                 totalDuration: videoDuration,
+                videoCorrection: videoCorrection,
+                audioCorrection: audioCorrection,
                 progress: progress
             )
         } catch {
@@ -193,6 +202,8 @@ public enum StreamMuxer {
         audioFormat: CMFormatDescription?,
         to url: URL,
         totalDuration: CMTime,
+        videoCorrection: TimingCorrection,
+        audioCorrection: TimingCorrection,
         progress: ProgressHandle
     ) async throws {
 
@@ -260,10 +271,11 @@ public enum StreamMuxer {
             output: AVAssetReaderOutput,
             reader: AVAssetReader,
             input: AVAssetWriterInput,
-            isVideo: Bool
+            isVideo: Bool,
+            correction: TimingCorrection
         ) -> () throws -> Bool {
             {
-                guard let sample = output.copyNextSampleBuffer() else {
+                guard let raw = output.copyNextSampleBuffer() else {
                     // A reader that stopped for a reason other than running out
                     // of samples has to be reported, or a truncated download
                     // becomes a short file that looks fine.
@@ -273,6 +285,14 @@ public enum StreamMuxer {
                             reason: reader.error.map { ($0 as NSError).localizedDescription } ?? "the reader failed")
                     }
                     return false
+                }
+                let sample: CMSampleBuffer
+                do {
+                    sample = try correction.apply(to: raw)
+                } catch {
+                    throw MediaFetchError.muxingFailed(
+                        stage: isVideo ? "retime video" : "retime audio",
+                        reason: (error as NSError).localizedDescription)
                 }
                 guard input.append(sample) else {
                     throw MediaFetchError.muxingFailed(
@@ -320,10 +340,12 @@ public enum StreamMuxer {
         // so only the box crosses into the child tasks.
         let videoPump = WriterPump(
             input: videoInput, label: "mux.video",
-            step: makeStep(output: videoOutput, reader: videoReader, input: videoInput, isVideo: true))
+            step: makeStep(output: videoOutput, reader: videoReader, input: videoInput,
+                           isVideo: true, correction: videoCorrection))
         let audioPump = WriterPump(
             input: audioInput, label: "mux.audio",
-            step: makeStep(output: audioOutput, reader: audioReader, input: audioInput, isVideo: false))
+            step: makeStep(output: audioOutput, reader: audioReader, input: audioInput,
+                           isVideo: false, correction: audioCorrection))
 
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in

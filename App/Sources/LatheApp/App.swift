@@ -75,7 +75,7 @@ struct QueueView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            if !queue.tools.ytdlpInstalled {
+            if !queue.tools.ytdlpInstalled || !queue.tools.galleryDLInstalled {
                 OnboardingBanner(queue: queue)
                     .padding(.horizontal, 16)
             }
@@ -88,6 +88,14 @@ struct QueueView: View {
                         .textFieldStyle(.plain)
                         .lineLimit(1...4)
                         .onSubmit(add)
+                    Picker("", selection: $queue.defaultScope) {
+                        ForEach(Scope.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .help("Whether a link that names a collection means the one item or all of it")
+
                     Button("Add", action: add)
                         .buttonStyle(.glassProminent)
                         .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -169,8 +177,13 @@ struct QueueView: View {
 }
 
 struct DownloadRow: View {
-    let download: Download
+    @Bindable var download: Download
     let remove: () -> Void
+
+    private var isFailed: Bool {
+        if case .failed = download.state { return true }
+        return false
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -185,13 +198,31 @@ struct DownloadRow: View {
 
             Spacer()
 
+            if !download.state.isTerminal || isFailed {
+                Picker("", selection: Binding(
+                    get: { download.scope }, set: { download.scope = $0 })
+                ) {
+                    ForEach(Scope.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .help("Whether this link means the one item or everything it points at")
+            }
+
+            if download.cookieFile != nil {
+                Image(systemName: "person.badge.key.fill")
+                    .foregroundStyle(.tint)
+                    .help("Using the session you signed in to in Browse")
+            }
+
             if case .finished(let url) = download.state {
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 } label: { Image(systemName: "folder") }
                     .buttonStyle(.borderless)
                     .help("Show in Finder")
-            } else if !download.state.isTerminal {
+            } else {
                 Button(action: remove) { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
             }
@@ -213,8 +244,12 @@ struct DownloadRow: View {
         switch download.state {
         case .queued: return download.host
         case .inspecting: return "looking at what this is…"
-        case .running: return "downloading…"
-        case .finished(let url): return url.lastPathComponent
+        case .running:
+            let tool = download.resolvedTool.map { " with \($0.label)" } ?? ""
+            return download.detail ?? "downloading\(tool)…"
+        case .finished(let url):
+            if let detail = download.detail { return "\(url.lastPathComponent) — \(detail)" }
+            return url.lastPathComponent
         // The reason, in full. A failure a user cannot act on is one they have
         // to ask somebody else about.
         case .failed(let why): return why
@@ -243,13 +278,23 @@ struct OnboardingBanner: View {
 
             Spacer()
 
-            if queue.tools.isInstalling {
+            if queue.tools.ytdlpInstalling || queue.tools.galleryDLInstalling {
                 ProgressView().controlSize(.small)
             } else {
-                Button("Install yt-dlp") {
-                    Task { await queue.installYouTubeDL() }
+                if !queue.tools.ytdlpInstalled {
+                    Button("Install yt-dlp") {
+                        Task { await queue.installYouTubeDL() }
+                    }
+                    .buttonStyle(.glassProminent)
+                    .help("Video and audio sites")
                 }
-                .buttonStyle(.glassProminent)
+                if !queue.tools.galleryDLInstalled {
+                    Button("Install gallery-dl") {
+                        Task { await queue.installGalleryDL() }
+                    }
+                    .buttonStyle(.glass)
+                    .help("Image and gallery sites")
+                }
             }
         }
         .padding(14)
@@ -261,8 +306,16 @@ struct OnboardingBanner: View {
         if let note = queue.tools.installMessage { return note }
         // Said plainly, because it is the honest description of the product:
         // Lathe ships no extractor, and a direct link needs none.
-        return "Lathe ships no extractor. Direct links to media files already work; "
-            + "sites that need one can use yt-dlp, installed here from PyPI."
+        if !queue.tools.anyExtractor {
+            return "Lathe ships no extractor. Direct links to media files already work; "
+                + "sites that need one can use yt-dlp for video and gallery-dl for images, "
+                + "installed here from PyPI."
+        }
+        if !queue.tools.galleryDLInstalled {
+            return "yt-dlp handles video and audio. gallery-dl covers the image and gallery "
+                + "sites it does not — they are picked per link, automatically."
+        }
+        return "gallery-dl is installed. yt-dlp covers video and audio sites."
     }
 }
 
@@ -271,6 +324,9 @@ struct OnboardingBanner: View {
 struct BrowsePane: View {
     @Bindable var queue: Queue
     @Bindable var browser: BrowserModel
+    @FocusState private var addressFocused: Bool
+    @State private var adopted: String?
+    @State private var queued = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -284,16 +340,36 @@ struct BrowsePane: View {
 
                     TextField("Search or enter address", text: $browser.address)
                         .textFieldStyle(.plain)
+                        .focused($addressFocused)
                         .onSubmit(browser.go)
+                        .onChange(of: addressFocused) { browser.isEditingAddress = addressFocused }
 
                     if browser.isLoading { ProgressView().controlSize(.small) }
 
                     Button {
-                        if let url = browser.currentURL {
-                            queue.add(text: url.absoluteString)
+                        Task {
+                            if let host = await queue.adoptCookies(from: browser) {
+                                adopted = host
+                            }
                         }
                     } label: {
-                        Label("Queue this", systemImage: "arrow.down.circle.fill")
+                        let signedIn = adopted != nil && adopted == browser.currentURL?.host()
+                        Label(
+                            signedIn ? "Signed in" : "Use this session",
+                            systemImage: signedIn ? "person.badge.key.fill" : "person.badge.key")
+                    }
+                    .buttonStyle(.glass)
+                    .disabled(browser.currentURL?.host() == nil)
+                    .help("Hand this site's cookies to the downloader, so it sees the same "
+                          + "signed-in session you do. Only this site's cookies, never the rest.")
+
+                    Button {
+                        if let url = browser.currentURL {
+                            queued = queue.add(text: url.absoluteString) > 0
+                        }
+                    } label: {
+                        Label(queued ? "Queued" : "Queue this",
+                              systemImage: queued ? "checkmark.circle.fill" : "arrow.down.circle.fill")
                     }
                     .buttonStyle(.glassProminent)
                     .disabled(browser.currentURL == nil)
@@ -307,6 +383,9 @@ struct BrowsePane: View {
                 .clipShape(.rect(cornerRadius: 14))
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
+                // The queued and signed-in confirmations belong to the page
+                // they were pressed on, not to the session.
+                .onChange(of: browser.currentURL) { queued = false }
         }
         .padding(.top, 12)
     }
@@ -327,11 +406,35 @@ struct SettingsView: View {
             }
 
             Section("Privacy") {
-                Toggle("Route through Tor", isOn: $queue.useTor)
-                Text("Not implemented yet. Turning it on refuses to download rather than "
-                     + "quietly sending traffic in the clear.")
+                Toggle("Route through a SOCKS proxy", isOn: Binding(
+                    get: { queue.useTor },
+                    set: { queue.setTorRouting($0) }))
+                HStack {
+                    TextField("Host", text: $queue.proxy.host)
+                    TextField("Port", value: $queue.proxy.port, format: .number.grouping(.never))
+                        .frame(width: 70)
+                }
+                .disabled(!queue.useTor)
+                Text("Checked with a real SOCKS5 handshake before anything downloads. If the "
+                     + "proxy is not there the download fails rather than quietly going out "
+                     + "in the clear. 9050 is Tor's default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if !queue.cookieHosts.isEmpty {
+                Section("Signed-in sites") {
+                    ForEach(queue.cookieHosts, id: \.self) { host in
+                        LabeledContent(host) {
+                            Button("Forget") { queue.forgetCookies(for: host) }
+                                .buttonStyle(.link)
+                        }
+                    }
+                    Text("Sessions you handed to the downloader from Browse. Each site's "
+                         + "cookies are kept separately and only sent to that site.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Sami") {

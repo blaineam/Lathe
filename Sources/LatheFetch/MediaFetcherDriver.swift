@@ -29,6 +29,7 @@ enum MediaFetcherDriver {
     static let registerProviderFunction = "_lathe_ytdlp_register_provider"
     static let extractFunction = "_lathe_ytdlp_extract"
     static let entriesFunction = "_lathe_ytdlp_entries"
+    static let extractorFunction = "_lathe_ytdlp_extractor"
     static let downloadFunction = "_lathe_ytdlp_download"
     static let readinessFunction = "_lathe_ytdlp_readiness"
 
@@ -271,6 +272,16 @@ enum MediaFetcherDriver {
                 options["http_headers"] = {"User-Agent": request["user_agent"]}
             if request.get("extractor_args"):
                 options["extractor_args"] = request["extractor_args"]
+            # A watch URL that carries a `list` parameter is still a watch
+            # URL. YouTube appends an autoplay mix to almost every link it
+            # hands out, so without this the ordinary act of copying a link
+            # from the address bar and pasting it in resolves to a playlist
+            # of fifty related videos and refuses to download anything.
+            #
+            # Defaulted on: a caller that genuinely wants the playlist asks
+            # for it, because that is the rarer intent and the more surprising
+            # outcome to arrive at by accident.
+            options["noplaylist"] = bool(request.get("no_playlist", True))
             if request.get("cookie_file"):
                 options["cookiefile"] = request["cookie_file"]
             if request.get("proxy"):
@@ -314,6 +325,36 @@ enum MediaFetcherDriver {
             return json.dumps({"kind": "media", "info": sanitised}, default=str)
 
 
+        def _lathe_ytdlp_extractor():
+            """Which extractor claims this URL, ignoring the generic one.
+
+            yt-dlp's generic extractor is suitable for every URL ever written,
+            which makes "does yt-dlp support this" a question with only one
+            answer. Skipping it turns the question into a useful one: a named
+            extractor means yt-dlp knows the site, and nothing but the generic
+            extractor means it will be guessing from whatever the page
+            happens to contain.
+
+            That distinction is what lets a caller route a URL between this
+            and gallery-dl instead of always picking the same one.
+            """
+            import yt_dlp
+
+            url = lathe_arguments["url"]
+            for candidate in yt_dlp.extractor.gen_extractor_classes():
+                key = candidate.ie_key()
+                if key == "Generic":
+                    continue
+                try:
+                    if candidate.suitable(url):
+                        return json.dumps({"extractor": key})
+                except Exception:
+                    # A broken `suitable` in one extractor must not decide the
+                    # answer for the other two thousand.
+                    continue
+            return json.dumps({"extractor": None})
+
+
         def _lathe_ytdlp_entries():
             """The items inside a playlist, without extracting any of them.
 
@@ -336,6 +377,9 @@ enum MediaFetcherDriver {
             options["skip_download"] = True
             options["format"] = "all"
             options["extract_flat"] = "in_playlist"
+            # The one place that does want the playlist: this function's whole
+            # job is to enumerate it.
+            options["noplaylist"] = False
             limit = int(request.get("limit") or 500)
 
             with yt_dlp.YoutubeDL(options) as ydl:

@@ -96,6 +96,21 @@ public actor MediaFetcher {
         /// An HTTP proxy URL.
         public var proxy: String?
 
+        /// Whether a URL that names both an item and a collection means the
+        /// item.
+        ///
+        /// `true`, the default, is `yt-dlp`'s `--no-playlist`. It matters more
+        /// than it sounds: YouTube appends an autoplay mix to nearly every
+        /// link it produces, so `watch?v=…&list=RD…` is what copying a link
+        /// out of the address bar actually gives you. Treating that as a
+        /// collection means the ordinary paste resolves to fifty related
+        /// videos and downloads none of them.
+        ///
+        /// Set it to `false` to take the collection instead — see also
+        /// ``MediaFetcher/entries(of:limit:)``, which enumerates one without
+        /// downloading anything.
+        public var ignoresPlaylists = true
+
         /// `yt-dlp`'s `--extractor-args`, as `extractor → key → values`.
         ///
         /// The escape hatch for behaviour this API does not model. The one most
@@ -426,6 +441,27 @@ public actor MediaFetcher {
         return listing
     }
 
+    /// The name of the extractor that claims this URL, if a named one does.
+    ///
+    /// `nil` means only the generic extractor matched — yt-dlp will still try,
+    /// by fetching the page and looking for something media-shaped in it, but
+    /// it does not know the site. That is the distinction worth routing on: a
+    /// named extractor is a reason to prefer this tool, and its absence is a
+    /// reason to ask whether another tool knows the site better.
+    ///
+    /// Cheap enough to call before every download — it matches patterns
+    /// against a list already in memory and fetches nothing.
+    public func extractorName(for url: URL) async throws -> String? {
+        try await installDriverIfNeeded()
+        struct Raw: Decodable { let extractor: String? }
+        let evaluation = try await runtime.evaluateDetached(
+            "\(MediaFetcherDriver.extractorFunction)()", arguments: ["url": url.absoluteString])
+        guard let json = evaluation.value.string, let data = json.data(using: .utf8),
+            let raw = try? JSONDecoder().decode(Raw.self, from: data)
+        else { return nil }
+        return raw.extractor
+    }
+
     /// What is inside a playlist, channel or gallery page.
     ///
     /// ``listing(for:)`` refuses a playlist, because there is no single set of
@@ -472,6 +508,37 @@ public actor MediaFetcher {
         policy: FormatPolicy = .best,
         to destination: URL,
         progress: ProgressHandle = .ignoring()
+    ) async throws -> FetchedMedia {
+        do {
+            return try await extractSelectAndDownload(
+                url, policy: policy, to: destination, progress: progress)
+        } catch let error as MediaFetchError where error.indicatesStaleFormatSelection {
+            // The format that was chosen a moment ago is not on offer now.
+            //
+            // This happens intermittently on YouTube and is not a bug in the
+            // selection: extraction and downloading are two separate
+            // extractions, YouTube answers them with different player clients,
+            // and the clients do not all publish the same format ids. The
+            // selection was correct against the listing it was made from; that
+            // listing simply stopped being true.
+            //
+            // Extracting again and re-selecting is the whole fix, and it is
+            // done once rather than in a loop: if a second fresh listing
+            // cannot produce a format that survives to the download, the
+            // problem is not staleness and retrying will not find out what it
+            // is.
+            LatheFetchLog.packages.notice(
+                "Format selection went stale between extraction and download; re-extracting once")
+            return try await extractSelectAndDownload(
+                url, policy: policy, to: destination, progress: progress)
+        }
+    }
+
+    private func extractSelectAndDownload(
+        _ url: URL,
+        policy: FormatPolicy,
+        to destination: URL,
+        progress: ProgressHandle
     ) async throws -> FetchedMedia {
         let listing = try await listing(for: url)
         let selection = try FormatSelector.select(from: listing, policy: policy)
@@ -610,6 +677,8 @@ public actor MediaFetcher {
             "part": part,
             "part_count": partCount,
         ])
+        LatheFetchLog.packages.debug(
+            "Download request: \(request, privacy: .private)")
         do {
             _ = try await runtime.evaluateDetached(
                 "\(MediaFetcherDriver.downloadFunction)()", arguments: ["request": request])
@@ -649,6 +718,7 @@ public actor MediaFetcher {
         if let agent = configuration.userAgent { payload["user_agent"] = agent }
         if let cookies = configuration.cookieFile { payload["cookie_file"] = cookies.path }
         if let proxy = configuration.proxy { payload["proxy"] = proxy }
+        payload["no_playlist"] = configuration.ignoresPlaylists
         if !configuration.extractorArguments.isEmpty {
             payload["extractor_args"] = configuration.extractorArguments
         }

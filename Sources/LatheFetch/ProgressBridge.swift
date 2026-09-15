@@ -76,6 +76,26 @@ enum ProgressBridge {
         return token
     }
 
+    /// Registers a handle for a job whose parts are not known in advance.
+    ///
+    /// The gallery case: `gallery-dl` finds files as it goes, so there is no
+    /// list of sizes to weight by and often no count until the end. Equal
+    /// weights over an estimate, or a single unit when even that is unknown —
+    /// an honest "n of many" beats a bar computed from a total that does not
+    /// exist yet.
+    static func register(handle: ProgressHandle, parts: Int, scale: Double = 1.0) -> Int {
+        let count = max(1, parts)
+        lock.lock()
+        defer { lock.unlock() }
+        let token = nextToken
+        nextToken += 1
+        entries[token] = Entry(
+            handle: handle,
+            weights: Array(repeating: 1 / Double(count), count: count),
+            scale: scale)
+        return token
+    }
+
     static func unregister(_ token: Int) {
         lock.lock()
         entries.removeValue(forKey: token)

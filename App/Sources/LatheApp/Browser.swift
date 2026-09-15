@@ -21,6 +21,13 @@ final class BrowserModel {
     var canGoBack = false
     var canGoForward = false
     var isLoading = false
+    var lastError: String?
+
+    /// Whether the address field has focus.
+    ///
+    /// Set by the view so that a page navigating in the background does not
+    /// overwrite a half-typed address.
+    var isEditingAddress = false
 
     /// Set by the view once its WKWebView exists.
     weak var webView: WKWebView?
@@ -74,6 +81,7 @@ struct BrowserView: NSViewRepresentable {
         view.navigationDelegate = context.coordinator
         view.allowsBackForwardNavigationGestures = true
         model.webView = view
+        context.coordinator.observe(view)
         return view
     }
 
@@ -81,26 +89,76 @@ struct BrowserView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
+    static func dismantleNSView(_ view: WKWebView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+    }
+
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         let model: BrowserModel
+        private var observations: [NSKeyValueObservation] = []
+
         init(model: BrowserModel) { self.model = model }
 
-        func webView(_ webView: WKWebView, didStartProvisionalNavigation: WKNavigation!) {
-            model.isLoading = true
+        /// Follow the web view's own properties rather than its navigations.
+        ///
+        /// The navigation delegate is not enough on its own. Every large site
+        /// is a single-page application now: YouTube, Reddit and the rest move
+        /// between pages with `history.pushState`, which changes the URL and
+        /// the document without starting a navigation, so `didFinish` never
+        /// fires and an address bar updated only from there sits on whatever
+        /// page the user first landed on while they browse away from it.
+        ///
+        /// `url` and `title` are KVO-compliant precisely for this, and
+        /// observing them catches both kinds of change with one code path.
+        func observe(_ view: WKWebView) {
+            observations = [
+                view.observe(\.url, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.sync(view) }
+                },
+                view.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.model.title = view.title }
+                },
+                view.observe(\.canGoBack, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.model.canGoBack = view.canGoBack }
+                },
+                view.observe(\.canGoForward, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.model.canGoForward = view.canGoForward }
+                },
+                view.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.model.isLoading = view.isLoading }
+                },
+            ]
         }
 
-        func webView(_ webView: WKWebView, didFinish: WKNavigation!) {
-            model.isLoading = false
-            model.currentURL = webView.url
-            model.title = webView.title
-            model.address = webView.url?.absoluteString ?? model.address
-            model.canGoBack = webView.canGoBack
-            model.canGoForward = webView.canGoForward
+        func stopObserving() { observations.removeAll() }
+
+        private func sync(_ view: WKWebView) {
+            model.currentURL = view.url
+            // Not while the field has focus: overwriting what somebody is
+            // halfway through typing because a background frame navigated is
+            // the single most irritating thing an address bar can do.
+            if !model.isEditingAddress {
+                model.address = view.url?.absoluteString ?? model.address
+            }
         }
 
-        func webView(_ webView: WKWebView, didFail: WKNavigation!, withError: any Error) {
+        func webView(_ webView: WKWebView, didFail: WKNavigation!, withError error: any Error) {
             model.isLoading = false
+            model.lastError = (error as NSError).localizedDescription
+        }
+
+        func webView(
+            _ webView: WKWebView, didFailProvisionalNavigation: WKNavigation!, withError error: any Error
+        ) {
+            model.isLoading = false
+            // -999 is "cancelled", which is what a redirect or a user clicking
+            // again looks like. Reporting it as a failure would mean the bar
+            // shows an error every time a site bounces through a redirect.
+            let failure = error as NSError
+            if failure.code != NSURLErrorCancelled {
+                model.lastError = failure.localizedDescription
+            }
         }
     }
 }
