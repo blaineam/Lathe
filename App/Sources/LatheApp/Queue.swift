@@ -33,7 +33,7 @@ final class Queue {
     var samiInstalled: Bool {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.samiBundleID) != nil
     }
-    private static let samiBundleID = "com.wemiller.sami"
+    private static let samiBundleID = "com.blainemiller.Sami"
 
     private let pool = ResourcePool.automatic
 

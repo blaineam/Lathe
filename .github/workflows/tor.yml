@@ -1,0 +1,75 @@
+name: Tor framework
+
+# Publishes the slimmed Tor xcframework that the Mac app's embedded client
+# links against.
+#
+# It is a release asset rather than a file in the repository because it is a
+# 15 MB binary, and a public repository should not carry one — SwiftPM's
+# `binaryTarget(url:checksum:)` exists for exactly this. It is a *slimmed*
+# artifact rather than the upstream one because upstream ships every slice and
+# full debug information, which is 335 MB; see `App/Vendor/Tor/slim-tor.sh` for
+# the numbers.
+#
+# Tagged separately from the app (`tor-v409.11.1`) because it changes on
+# upstream's schedule, not on Lathe's, and rebuilding it for every app release
+# would be 15 MB of identical bytes per tag.
+
+on:
+  push:
+    tags:
+      - 'tor-v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Slim and publish
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Slim the framework
+        run: |
+          mkdir -p dist
+          App/Vendor/Tor/slim-tor.sh "$PWD/dist"
+
+      - name: Record the checksum
+        id: checksum
+        run: |
+          # This is the value that goes in Package.swift. Printing it in the
+          # release body means updating the manifest is a copy rather than a
+          # local rebuild somebody has to remember to do.
+          SUM=$(swift package compute-checksum dist/tor.xcframework.zip)
+          echo "sum=$SUM" >> "$GITHUB_OUTPUT"
+          echo "### SwiftPM checksum" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$SUM" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Tor framework ${{ github.ref_name }}
+          body: |
+            Slimmed [Tor.framework](https://github.com/iCepa/Tor.framework)
+            for the Lathe Mac app's embedded Tor client: arm64 only, debug
+            information removed, simulator slice dropped.
+
+            Upstream ships 335 MB across every slice. This is the same object
+            code at roughly 15 MB, with `tor_run_main`,
+            `tor_main_configuration_new` and
+            `tor_main_configuration_setup_control_socket` verified present
+            after stripping.
+
+            ### Package.swift
+
+            ```swift
+            .binaryTarget(
+                name: "CTor",
+                url: "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/tor.xcframework.zip",
+                checksum: "${{ steps.checksum.outputs.sum }}"
+            )
+            ```
+          files: dist/tor.xcframework.zip
+          draft: false

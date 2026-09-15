@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac app — Lathe</title>
+<meta name="description" content="A downloader for macOS: paste one link or a hundred, browse signed-in, and hand finished media to Sami. Built on the Lathe engine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="lathe.css">
+</head>
+<body>
+<nav class="nav bleed">
+  <div class="wrap">
+    <a class="brand" href="index.html">L<em>a</em>the</a>
+    <ul><li><a href="index.html">Overview</a></li><li><a href="documentation.html">Documentation</a></li><li><a href="benchmarks.html">Benchmarks</a></li><li><a href="mac.html" aria-current="page">Mac app</a></li><li><a href="sami.html">Sami</a></li></ul>
+    <span class="spacer"></span>
+    <a href="https://github.com/blaineam/Lathe">GitHub</a>
+  </div>
+</nav>
+
+<header class="pagehead bleed">
+  <div class="wrap">
+    <div class="label">macOS 26 &middot; free &middot; Apache-2.0</div>
+    <h1>The Mac app</h1>
+    <p class="lede">Paste one link or a hundred. Or browse to the page, signed in
+    as yourself, and take what is on it. <b>Lathe works through them in the
+    background</b> and hands the results to Sami if you want them smaller.</p>
+  </div>
+  <div class="rule-band"><i></i><i></i><i></i></div>
+</header>
+
+<div class="facts bleed">
+  <div class="fact"><div class="k">Extractors</div><div class="v"><em>Yours</em></div></div>
+  <div class="fact"><div class="k">Bundled</div><div class="v"><em>None</em></div></div>
+  <div class="fact"><div class="k">Interface</div><div class="v">Liquid <em>Glass</em></div></div>
+  <div class="fact"><div class="k">Price</div><div class="v"><em>Free</em></div></div>
+</div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">01 — What it is</div>
+    <h2>A queue, a browser, and somewhere for it all to&nbsp;land</h2>
+  </div>
+  <div class="prose">
+    <p>The field at the top takes URLs separated by spaces or newlines, so pasting
+    a column out of a spreadsheet works without editing it first. Each becomes a
+    row that reports its own state, and the rows run concurrently under a network
+    lane &mdash; the same machinery the library uses everywhere else.</p>
+    <p class="pull">A direct link to a media file needs nothing installed at all.</p>
+  </div>
+
+  <div class="caps" style="margin-top:34px">
+    <div class="cap">
+      <h3>Browse signed in</h3>
+      <p>A real web view with a persistent store, so signing in to a site once
+      sticks. &ldquo;Use this session&rdquo; hands that site&rsquo;s cookies to
+      the extractor &mdash; <b>only that site&rsquo;s</b>, never the whole jar.</p>
+      <span class="mono">WKWebView · Netscape cookie export</span>
+    </div>
+    <div class="cap">
+      <h3>Two extractors, routed</h3>
+      <p>yt-dlp for video and audio, gallery-dl for images. Which one handles a
+      link is decided per link: a <em>named</em> yt-dlp extractor wins, because
+      its generic one claims every URL ever written.</p>
+      <span class="mono">yt-dlp · gallery-dl</span>
+    </div>
+    <div class="cap">
+      <h3>Just this, or everything</h3>
+      <p>A link that names both an item and a collection means the item, which is
+      what copying a YouTube link actually gives you. Switch the row to
+      &ldquo;Everything&rdquo; to take the whole playlist or gallery.</p>
+      <span class="mono">Per-row scope</span>
+    </div>
+    <div class="cap">
+      <h3>Hand off to Sami</h3>
+      <p>If Sami is installed, finished downloads go straight to it for conversion
+      or compression under whatever preset you have set there. If it is not, the
+      file simply lands in your folder.</p>
+      <span class="mono">Optional · security-scoped</span>
+    </div>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">02 — Onboarding</div>
+    <h2>Lathe ships no extractor, and says so</h2>
+  </div>
+  <div class="prose">
+    <p>Nothing is bundled. On first run a banner offers to install yt-dlp and
+    gallery-dl from PyPI into an <b>app-private Python environment</b> &mdash;
+    nothing is written outside the app&rsquo;s own container, and no system
+    Python is touched.</p>
+    <p>That is not a limitation dressed up as a feature. It is what keeps this a
+    downloader you assembled rather than one that arrives with a thousand sites
+    baked into it, and it is the difference between a tool and a liability.</p>
+  </div>
+  <div class="callout" style="margin-top:24px">
+    <h4>The installer is pure Swift</h4>
+    <p>There is no <code>pip</code> here. Wheels are resolved from PyPI metadata,
+    verified by hash, and unpacked by the interpreter&rsquo;s own
+    <code>zipfile</code>. Dependency resolution honours PEP&nbsp;508 markers and
+    extras, so installing gallery-dl installs what gallery-dl needs and nothing
+    that only its extras need.</p>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">03 — Privacy</div>
+    <h2>Fail closed, or do not offer it</h2>
+  </div>
+  <div class="prose">
+    <p>Proxy routing is checked with a <b>real SOCKS5 handshake</b> before
+    anything downloads &mdash; not just a connection, because anything at all can
+    be listening on a port and a stale tunnel that passes a connection test would
+    fail much later with an error about the response not being media.</p>
+    <p>If the proxy is not there, the download <b>fails</b>. A downloader that
+    quietly abandons the proxy it was told to use is worse than one that has no
+    proxy option at all: you would believe something about your traffic that is
+    not true, and nothing in the interface would contradict you.</p>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">04 — Building it</div>
+    <h2>One script, no project file</h2>
+  </div>
+  <pre><span class="c"># Builds build/Lathe.app</span>
+./App/make-app.sh</pre>
+  <div class="prose" style="margin-top:18px">
+    <p>A hand-assembled bundle rather than an Xcode project, on purpose: the whole
+    repository builds with <code>swift build</code>, and a <code>.xcodeproj</code>
+    would be a second source of truth to keep in step by hand.</p>
+    <p>The bundle is <b>not signed</b>, so the first launch needs right-click
+    &rarr; Open. The icon is a layered Icon Composer document compiled by
+    <code>actool</code>, so macOS draws the squircle, the glass and the tinted
+    appearances itself.</p>
+  </div>
+</section>
+
+<footer class="bleed">
+  <div class="wrap">
+    Apache-2.0 &middot; <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a><br>
+    Requires iOS 17 / macOS 14. No third-party runtime dependencies.<br>
+    Powering <a href="sami.html">Sami</a>.
+  </div>
+</footer>
+</body>
+</html>

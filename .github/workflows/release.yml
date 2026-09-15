@@ -1,49 +1,103 @@
 name: Release
 
-# Cuts a signed, notarized DMG and attaches it to a GitHub Release.
+# Cuts a macOS release from a `v*` tag: runs the tests, builds the app bundle,
+# signs and notarizes it when the credentials are configured, and attaches a
+# DMG to a GitHub Release.
 #
-# The app target does not exist yet — the library comes first. This workflow is
-# here, complete and inert, so that the signing and notarization path is
-# reviewable and fixable independently of the app, rather than being written
-# under pressure on the day there is something to ship. The preflight step below
-# fails with a clear message instead of a confusing xcodebuild error if it runs
-# before then.
+# ## Signing is optional on purpose
+#
+# Every signing step is guarded on the secrets being present, and the workflow
+# produces a working release either way — signed and notarized if it can,
+# plainly labelled as unsigned if it cannot. A workflow that goes red because
+# an optional secret is missing teaches everyone to ignore it, and a release
+# pipeline nobody reads is worse than no pipeline.
+#
+# ## A tag with no app is not a failure
+#
+# This is a library first. Tagging `v1.2.0` to publish a SwiftPM version is
+# normal and expected, and the app is a second product that happens to live in
+# the same repository. If the app cannot be built the library release still
+# succeeds.
 
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (defaults to the current ref)'
+        required: false
 
 permissions:
   contents: write
 
 env:
   APP_NAME: Lathe
+  # Keep SwiftPM's scratch directory off any synced or network-backed path:
+  # codesigning fails with "resource fork, Finder information, or similar
+  # detritus not allowed" when extended attributes come along for the ride.
+  SCRATCH_PATH: ${{ github.workspace }}/.release-build
 
 jobs:
-  release:
-    name: Build, sign, notarize
+  test:
+    name: Tests
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app
+      - name: Run the suite
+        run: swift test --scratch-path "$SCRATCH_PATH"
 
-      # A tag on a library-only repository is legitimate and expected —
-      # SwiftPM consumers resolve versions from tags. So this SKIPS rather than
-      # fails: a red run on every library release would train everyone to
-      # ignore this workflow, which is worse than it doing nothing.
-      - name: Preflight — is there an app to ship?
-        id: preflight
+  app:
+    name: Mac app
+    needs: test
+    runs-on: macos-26
+    outputs:
+      artifact: ${{ steps.package.outputs.artifact }}
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app
+
+      - name: Build the bundle
         run: |
-          if grep -rq "\.executableTarget\|${APP_NAME}App" Package.swift Sources 2>/dev/null; then
-            echo "app=yes" >> "$GITHUB_OUTPUT"
+          # The same script a contributor runs. There is deliberately no
+          # .xcodeproj: the whole repository builds with `swift build`, and a
+          # project file would be a second source of truth to keep in step.
+          ./App/make-app.sh "${GITHUB_REF_NAME#v}"
+          test -d "App/build/$APP_NAME.app" || { echo "::error::The bundle was not produced."; exit 1; }
+
+      - name: Verify the icon actually compiled
+        run: |
+          # actool reports failures in its partial plist rather than in its exit
+          # status, so a broken icon ships silently as no icon at all. The build
+          # script checks this too; checking again here means a release never
+          # goes out with a blank tile in the Dock.
+          test -f "App/build/$APP_NAME.app/Contents/Resources/Assets.car" \
+            || { echo "::error::No compiled asset catalog — the icon did not build."; exit 1; }
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIconName" \
+            "App/build/$APP_NAME.app/Contents/Info.plist" \
+            || { echo "::error::CFBundleIconName is missing; macOS would show a generic icon."; exit 1; }
+
+      - name: Are signing credentials configured?
+        id: creds
+        env:
+          CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          if [ -n "$CERTIFICATE_P12" ] && [ -n "$APPLE_ID" ]; then
+            echo "available=yes" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No application target yet — this tag ships a library only, so there is nothing to package."
-            echo "app=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No Developer ID secrets configured — shipping an unsigned build. See DISTRIBUTION.md."
+            echo "available=no" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Import signing certificate
-        if: steps.preflight.outputs.app == 'yes'
+        if: steps.creds.outputs.available == 'yes'
         env:
           CERTIFICATE_P12: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -62,9 +116,9 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
           rm -f "$CERT_PATH"
 
-      - name: Resolve signing identity
-        if: steps.preflight.outputs.app == 'yes'
-        id: identity
+      - name: Sign
+        id: sign
+        if: steps.creds.outputs.available == 'yes'
         run: |
           IDENTITY=$(security find-identity -v -p codesigning "$RUNNER_TEMP/build.keychain-db" \
             | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
@@ -75,60 +129,91 @@ jobs:
           # Masked: the identity string contains the Team ID, and this is a
           # public repository whose build logs anyone can read.
           echo "::add-mask::$IDENTITY"
-          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
 
-      - name: Build release
-        if: steps.preflight.outputs.app == 'yes'
-        run: |
-          xcodebuild -scheme "$APP_NAME" \
-            -configuration Release \
-            -destination 'generic/platform=macOS' \
-            -derivedDataPath build/DerivedData \
-            CODE_SIGN_IDENTITY="${{ steps.identity.outputs.identity }}" \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
-            ENABLE_HARDENED_RUNTIME=YES \
-            OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime" \
-            CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-            build
+          # Hardened runtime, because notarization requires it. The entitlement
+          # is what lets the bundled CPython map its own pages; without it the
+          # interpreter cannot start under the hardened runtime and every
+          # extractor silently becomes unavailable.
+          codesign --force --deep --timestamp --options runtime \
+            --entitlements App/Lathe.entitlements \
+            --sign "$IDENTITY" "App/build/$APP_NAME.app"
 
-      - name: Verify the signature before packaging
-        if: steps.preflight.outputs.app == 'yes'
-        run: |
-          APP_PATH=$(find build/DerivedData -name "$APP_NAME.app" -type d | head -1)
-          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
-          # Catch a signing problem here rather than after notarization has
-          # already spent several minutes rejecting it.
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          codesign -dvv "$APP_PATH" 2>&1 | grep -q "flags=.*runtime" \
+          codesign --verify --deep --strict --verbose=2 "App/build/$APP_NAME.app"
+          codesign -dvv "App/build/$APP_NAME.app" 2>&1 | grep -q "flags=.*runtime" \
             || { echo "::error::Hardened runtime is not enabled; notarization will reject this."; exit 1; }
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "signed=yes" >> "$GITHUB_OUTPUT"
 
       - name: Package DMG
-        if: steps.preflight.outputs.app == 'yes'
-        run: Scripts/build-dmg.sh "$APP_PATH" "dist/$APP_NAME.dmg" "${{ steps.identity.outputs.identity }}"
+        id: package
+        run: |
+          mkdir -p dist
+          Scripts/build-dmg.sh "App/build/$APP_NAME.app" "dist/$APP_NAME.dmg" \
+            "${{ steps.sign.outputs.identity }}"
+          echo "artifact=dist/$APP_NAME.dmg" >> "$GITHUB_OUTPUT"
 
       - name: Notarize
-        if: steps.preflight.outputs.app == 'yes'
+        if: steps.creds.outputs.available == 'yes'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: Scripts/notarize.sh "dist/$APP_NAME.dmg"
 
-      - name: Create GitHub Release
-        if: steps.preflight.outputs.app == 'yes'
-        uses: softprops/action-gh-release@v2
+      - name: Checksum
+        run: shasum -a 256 "dist/$APP_NAME.dmg" | tee dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APP_NAME }} ${{ github.ref_name }}
-          body: |
-            ## ${{ env.APP_NAME }} ${{ github.ref_name }}
+          name: macos-app
+          path: dist/
 
-            ### Install
-            1. Download `${{ env.APP_NAME }}.dmg` below
-            2. Open it and drag the app to Applications
+  publish:
+    name: Publish
+    needs: app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: dist
 
-            **Signed and notarized by Apple** — no Gatekeeper warning, and no
-            need to right-click-open or clear a quarantine attribute.
-          files: dist/${{ env.APP_NAME }}.dmg
+      - name: Release notes
+        id: notes
+        run: |
+          {
+            echo 'body<<LATHE_EOF'
+            echo "## Lathe ${GITHUB_REF_NAME}"
+            echo
+            echo '### Swift package'
+            echo
+            echo '```swift'
+            echo ".package(url: \"https://github.com/${GITHUB_REPOSITORY}.git\", from: \"${GITHUB_REF_NAME#v}\")"
+            echo '```'
+            echo
+            echo '### Mac app'
+            echo
+            if [ "${{ needs.app.outputs.signed }}" = "yes" ]; then
+              echo 'Download `Lathe.dmg`, open it, and drag the app to Applications.'
+              echo 'Signed and notarized by Apple, so there is no Gatekeeper warning.'
+            else
+              echo 'Download `Lathe.dmg`, open it, and drag the app to Applications.'
+              echo
+              echo '**This build is not signed.** The first launch needs right-click → Open;'
+              echo 'after that it opens normally. Verify it against `SHA256SUMS` below.'
+            fi
+            echo
+            echo 'Requires macOS 26.'
+            echo 'LATHE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Lathe ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: |
+            dist/Lathe.dmg
+            dist/SHA256SUMS
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-rc') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sami — media compression, powered by Lathe</title>
+<meta name="description" content="A paid iOS and macOS app for compressing and converting media, with metadata editing, subtitle muxing and document tools. Built on the Lathe engine.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="lathe.css">
+</head>
+<body>
+<nav class="nav bleed">
+  <div class="wrap">
+    <a class="brand" href="index.html">L<em>a</em>the</a>
+    <ul><li><a href="index.html">Overview</a></li><li><a href="documentation.html">Documentation</a></li><li><a href="benchmarks.html">Benchmarks</a></li><li><a href="mac.html">Mac app</a></li><li><a href="sami.html" aria-current="page">Sami</a></li></ul>
+    <span class="spacer"></span>
+    <a href="https://github.com/blaineam/Lathe">GitHub</a>
+  </div>
+</nav>
+
+<header class="pagehead bleed">
+  <div class="wrap">
+    <div class="label">iOS &amp; macOS &middot; App Store &middot; paid</div>
+    <h1>Sami</h1>
+    <p class="lede">The engine on this site, with an interface on it.
+    <b>Compression and conversion that runs on your device</b> &mdash; nothing
+    uploaded, nothing queued on somebody else&rsquo;s server, no watermark on the
+    way out.</p>
+  </div>
+  <div class="rule-band"><i></i><i></i><i></i></div>
+</header>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">01 — Why it costs money</div>
+    <h2>Because the alternative is your&nbsp;files on somebody&nbsp;else&rsquo;s&nbsp;computer</h2>
+  </div>
+  <div class="prose">
+    <p>Every free online compressor is paid for by something. Usually it is your
+    media sitting on a server you cannot inspect, for a retention period you did
+    not agree to, processed by a queue you are last in.</p>
+    <p>Sami runs the encoders <b>on the device you are holding</b>, using the
+    hardware that is already in it. There is no upload step because there is
+    nowhere to upload to.</p>
+    <p class="pull">Lathe is the engine, and it is free. Sami is the product.</p>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">02 — Version 2</div>
+    <h2>What is coming</h2>
+  </div>
+  <div class="prose">
+    <p>The engine grew a long way past compression. Version&nbsp;2 is that work
+    reaching the interface.</p>
+  </div>
+  <div class="caps" style="margin-top:32px">
+    <div class="cap">
+      <h3>Metadata, properly</h3>
+      <p>Cover artwork and episode data pulled from TMDb with <b>your own API
+      key</b>, written into the fields Apple players actually read &mdash;
+      <code>stik</code> is what decides Movies from TV Shows, and EXIF is not
+      used by video at all.</p>
+      <span class="mono">LatheMeta · LatheLookup</span>
+    </div>
+    <div class="cap">
+      <h3>Fix a mismatch</h3>
+      <p>Filename parsing gets it right most of the time and wrong some of the
+      time. A search box and a list of candidates is the difference between a
+      tool you trust and one you check afterwards.</p>
+      <span class="mono">MediaTitleParser</span>
+    </div>
+    <div class="cap">
+      <h3>Subtitles, muxed in</h3>
+      <p>Fetched from OpenSubtitles and written as a real subtitle track rather
+      than burned into the picture, so they can still be turned off.</p>
+      <span class="mono">tx3g · OpenSubtitlesProvider</span>
+    </div>
+    <div class="cap">
+      <h3>Audio and chapters</h3>
+      <p>AAC, ALAC, Opus, FLAC and MP3, with loudness probing and channel policy.
+      <b>Chapters survive</b> a transcode, in video and audio both, which is
+      rarer than it should be.</p>
+      <span class="mono">LatheAudio · LatheMP3</span>
+    </div>
+    <div class="cap">
+      <h3>PDFs and comics</h3>
+      <p>Reorder, insert, remove and merge pages across PDF and CBZ. Reordering a
+      comic renames its pages zero-padded, because its readers sort by filename
+      and a reshuffle nobody can see is not a reorder.</p>
+      <span class="mono">LatheDoc</span>
+    </div>
+    <div class="cap">
+      <h3>Metadata-only mode</h3>
+      <p>Change the tags and leave the bytes alone. No re-encode, no generation
+      loss, no waiting &mdash; for the very common case where the file is fine and
+      only its labels are wrong.</p>
+      <span class="mono">MetadataWriter</span>
+    </div>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="sami bleed">
+  <div class="wrap">
+    <div class="label">03 — Together</div>
+    <h2>Lathe downloads it. Sami makes it&nbsp;smaller.</h2>
+    <div class="sami-grid" style="margin-top:30px">
+      <div class="prose">
+        <p>The free Mac app is a downloader. Turn on the hand-off and anything it
+        finishes goes straight to Sami for conversion or compression under
+        whatever preset you set, into a destination you chose.</p>
+        <p>Neither app needs the other. Together they are a pipeline that never
+        touches a server.</p>
+      </div>
+      <div class="sami-card">
+        <h3>The hand-off</h3>
+        <ul>
+          <li>Pick a download folder once</li>
+          <li>Lathe holds a security-scoped grant to it</li>
+          <li>Finished media opens in Sami automatically</li>
+          <li>Your preset decides the rest</li>
+        </ul>
+        <a class="cta ghost" href="mac.html">About the Mac app</a>
+      </div>
+    </div>
+    <p class="note" style="margin-top:26px">
+      Version&nbsp;2 is in development. This page describes what is being built,
+      not what has shipped.
+    </p>
+  </div>
+</section>
+
+<footer class="bleed">
+  <div class="wrap">
+    Apache-2.0 &middot; <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a><br>
+    Requires iOS 17 / macOS 14. No third-party runtime dependencies.<br>
+    Powering <a href="sami.html">Sami</a>.
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation — Lathe</title>
+<meta name="description" content="How Lathe is put together: ten modules over the system frameworks, what each one does, and the rules the whole package follows.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="lathe.css">
+</head>
+<body>
+<nav class="nav bleed">
+  <div class="wrap">
+    <a class="brand" href="index.html">L<em>a</em>the</a>
+    <ul><li><a href="index.html">Overview</a></li><li><a href="documentation.html" aria-current="page">Documentation</a></li><li><a href="benchmarks.html">Benchmarks</a></li><li><a href="mac.html">Mac app</a></li><li><a href="sami.html">Sami</a></li></ul>
+    <span class="spacer"></span>
+    <a href="https://github.com/blaineam/Lathe">GitHub</a>
+  </div>
+</nav>
+
+<header class="pagehead bleed">
+  <div class="wrap">
+    <div class="label">Swift package &middot; iOS 17+ &middot; macOS 14+</div>
+    <h1>Documentation</h1>
+    <p class="lede">Ten modules over the system frameworks. Depend on the ones you
+    need — <b>they are separate products for a reason</b>, and one of those
+    reasons is licensing.</p>
+  </div>
+  <div class="rule-band"><i></i><i></i><i></i></div>
+</header>
+
+<section class="wrap">
+  <div class="docs">
+    <aside class="toc"><div class="grp">Start</div><a href="#install">Installation</a><a href="#shape">The shape of it</a><div class="grp">Modules</div><a href="#lathecore">LatheCore</a><a href="#lathevideo">LatheVideo</a><a href="#latheimage">LatheImage</a><a href="#latheaudio">LatheAudio</a><a href="#lathemp3">LatheMP3</a><a href="#lathemeta">LatheMeta</a><a href="#lathedoc">LatheDoc</a><a href="#lathelookup">LatheLookup</a><a href="#lathefetch">LatheFetch</a><div class="grp">Rules</div><a href="#licensing">Licensing</a><a href="#platforms">Platforms</a></aside>
+    <div>
+
+      <div class="sec-head" id="install">
+        <div class="label">Start</div>
+        <h2>Installation</h2>
+      </div>
+      <pre><span class="c">// Package.swift</span>
+dependencies: [
+    .package(url: <span class="k">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="k">"1.0.0"</span>)
+],
+targets: [
+    .target(name: <span class="k">"YourApp"</span>, dependencies: [
+        .product(name: <span class="k">"LatheVideo"</span>, package: <span class="k">"Lathe"</span>),
+        .product(name: <span class="k">"LatheMeta"</span>,  package: <span class="k">"Lathe"</span>),
+    ])
+]</pre>
+      <div class="prose" style="margin-top:18px">
+        <p>Or take the <code>Lathe</code> umbrella product, which re-exports
+        everything except the two that carry conditions — see
+        <a href="#licensing">Licensing</a>.</p>
+      </div>
+
+      <div class="sec-head" id="shape" style="margin-top:56px">
+        <div class="label">Start</div>
+        <h2>The shape of it</h2>
+      </div>
+      <div class="prose">
+        <p>Four ideas run through every module, and knowing them makes the rest
+        predictable.</p>
+      </div>
+      <div class="steps" style="margin-top:22px">
+        <div class="step"><div>
+          <h4>A request goes in, a result comes out</h4>
+          <p>Every operation is a value you build and a value you get back.
+          Nothing is configured by mutating a shared object, so two concurrent
+          jobs cannot change each other&rsquo;s settings.</p>
+        </div></div>
+        <div class="step"><div>
+          <h4>Capability is asked, never assumed</h4>
+          <p>Whether this device can encode AVIF is a question for the device.
+          An <code>#available</code> check is a guess dressed up as a fact, and
+          it is wrong on the machines that matter.</p>
+        </div></div>
+        <div class="step"><div>
+          <h4>Progress and cancellation are the same channel</h4>
+          <p>A <code>ProgressHandle</code> reports and answers &ldquo;keep
+          going?&rdquo;. Returning false unwinds through the same path a
+          cancelled task does, and partial files are removed.</p>
+        </div></div>
+        <div class="step"><div>
+          <h4>Nothing is overwritten until it has succeeded</h4>
+          <p>Work happens in a directory beside the destination, and the
+          destination is written once, at the end, by a move. A crash leaves the
+          old file intact rather than truncated.</p>
+        </div></div>
+      </div>
+
+      <div class="sec-head" style="margin-top:56px">
+        <div class="label">Modules</div>
+        <h2>What each one does</h2>
+      </div>
+      <div class="module" id="lathecore">
+    <h3>LatheCore</h3>
+    <p class="sub"><b>The vocabulary.</b> Everything the other modules agree on: where media comes
+   from, how work is described, how progress and cancellation travel, and how
+   concurrent work is rationed. Nothing here encodes anything.</p>
+    <div class="types"><span>MediaSource</span><span>MediaDataTransport</span><span>URLSessionMediaTransport</span><span>ProgressHandle</span><span>LatheError</span><span>BulkRun</span><span>ResourcePool</span><span>Workload</span><span>Chapter</span><span>ChapterTrack</span><span>QualityTarget</span><span>ResizeTarget</span><span>MetadataPolicy</span><span>ContentFingerprint</span></div>
+    <pre><span class="c">// A local file, or a URL streamed in place — callers do not</span>
+<span class="c">// have to download media before handing it to Lathe.</span>
+<span class="k">let</span> source = <span class="k">try</span> MediaSource(URL(string: <span class="k">"https://example.com/clip.mp4"</span>)!)
+
+<span class="c">// Concurrency is rationed per workload, not globally: video contends</span>
+<span class="c">// for a fixed number of hardware encoders, recognition for one Neural</span>
+<span class="c">// Engine, network for nothing local at all.</span>
+<span class="k">let</span> results = <span class="k">await</span> BulkRun(pool: .automatic).run(
+    urls.map { BulkRun.Item($0, workload: .video) }
+) { item <span class="k">in</span> <span class="k">try await</span> transcode(item) }</pre>
+  </div><div class="module" id="lathevideo">
+    <h3>LatheVideo</h3>
+    <p class="sub"><b>Probing, frames and transcoding.</b> Container inspection without decoding,
+   frame extraction, and VideoToolbox transcoding with constant-quality control.
+   Chapters survive.</p>
+    <div class="types"><span>MediaProbe</span><span>MediaInfo</span><span>MediaTrackInfo</span><span>VideoTranscoder</span><span>VideoTranscodeRequest</span><span>VideoCodec</span><span>RateControl</span><span>BFramePolicy</span><span>FrameExtractor</span><span>FrameAccuracy</span><span>AudioDisposition</span><span>FFProbeReport</span></div>
+    <pre><span class="c">// Reads container headers only, so a four-hour film costs what a</span>
+<span class="c">// four-second clip costs.</span>
+<span class="k">let</span> info = <span class="k">try await</span> MediaProbe().inspect(source)
+print(info.duration, info.tracks.map(\.codec))
+
+<span class="k">var</span> request = VideoTranscodeRequest(source: source, destination: out)
+request.codec = .hevc
+request.rateControl = .quality(<span class="k">0.65</span>)   <span class="c">// constant quality, not bitrate</span>
+<span class="k">let</span> result = <span class="k">try await</span> VideoTranscoder().run(request)</pre>
+  </div><div class="module" id="latheimage">
+    <h3>LatheImage</h3>
+    <p class="sub"><b>Stills and animations.</b> ImageIO for HEIC, AVIF, JPEG, PNG, GIF, TIFF and
+   JPEG&nbsp;2000, plus vendored libwebp for WebP. Resizing, re-encoding, and
+   metadata rewriting that does not re-encode.</p>
+    <div class="types"><span>ImageEncoder</span><span>ImageEncodeRequest</span><span>ImageFormat</span><span>ImageInspector</span><span>ImageResizer</span><span>ImageMetadataRewriter</span><span>AnimationRecompressor</span><span>OrientationStrategy</span><span>EncodeSupport</span><span>DecodeSupport</span></div>
+    <pre><span class="c">// What this device can actually encode, asked of the device</span>
+<span class="c">// rather than guessed from an OS version.</span>
+<span class="k">let</span> support = ImageEncoder.support(for: .avif)
+
+<span class="k">var</span> request = ImageEncodeRequest(source: source, destination: out, format: .heic)
+request.quality = .init(<span class="k">0.8</span>)
+request.resize = .longestSide(<span class="k">2048</span>)
+<span class="k">let</span> result = <span class="k">try await</span> ImageEncoder().run(request)</pre>
+  </div><div class="module" id="latheaudio">
+    <h3>LatheAudio</h3>
+    <p class="sub"><b>Encoding and loudness.</b> AudioToolbox for AAC, ALAC, Opus and FLAC, with
+   loudness probing and channel policy. Chapters survive here too.</p>
+    <div class="types"><span>AudioTranscoder</span><span>AudioTranscodeRequest</span><span>AudioCodec</span><span>AudioContainer</span><span>AudioInspector</span><span>AudioFileInfo</span><span>LoudnessProbe</span><span>MeanVolume</span><span>ChannelPolicy</span><span>LossySourceRule</span><span>AudioSkipReason</span></div>
+    <pre><span class="c">// Re-encoding something already lossy is usually a mistake, so it</span>
+<span class="c">// has to be asked for by name.</span>
+<span class="k">var</span> request = AudioTranscodeRequest(source: source, destination: out)
+request.codec = .aac
+request.lossySources = .skip        <span class="c">// .allow to override</span>
+
+<span class="k">let</span> outcome = <span class="k">try await</span> AudioTranscoder().run(request)
+<span class="k">if case let</span> .skipped(reason) = outcome { print(reason) }</pre>
+  </div><div class="module" id="lathemp3">
+    <h3>LatheMP3</h3>
+    <p class="sub"><b>MP3, because the system will not.</b> CoreAudio decodes MP3 and refuses to encode
+   it. LAME is vendored behind its own product boundary so the LGPL stays
+   quarantined — link it only if you want it. mpglib is GPL and is excluded.</p>
+    <div class="types"><span>MP3Encoder</span><span>MP3Mode</span></div>
+    <pre><span class="c">// A separate product. Nothing else in Lathe links LAME, so an app</span>
+<span class="c">// that does not want the LGPL simply does not depend on this.</span>
+<span class="k">let</span> encoder = MP3Encoder()
+<span class="k">let</span> result = <span class="k">try await</span> encoder.encode(
+    source, to: out, mode: .joint, quality: <span class="k">0.6</span>)</pre>
+  </div><div class="module" id="lathemeta">
+    <h3>LatheMeta</h3>
+    <p class="sub"><b>Reading and writing metadata.</b> One model over four very different backends:
+   iTunes-style <code>ilst</code> atoms for video, ImageIO dictionaries for stills,
+   PDF document attributes, and a hand-written ID3 reader and writer for MP3 —
+   which has no container for AVFoundation to work with.</p>
+    <div class="types"><span>MediaMetadata</span><span>MetadataReader</span><span>MetadataWriter</span><span>MetadataStore</span><span>Artwork</span><span>ArtworkRole</span><span>ShowInfo</span><span>TrackInfo</span><span>MediaKind</span><span>MetadataDates</span></div>
+    <pre><span class="c">// `stik` is what decides Movies vs TV Shows in Apple players;</span>
+<span class="c">// EXIF is not used by video at all, which surprises people.</span>
+<span class="k">var</span> metadata = <span class="k">try await</span> MetadataReader().read(source)
+metadata.kind = .tvEpisode
+metadata.show = ShowInfo(name: <span class="k">"Example"</span>, season: <span class="k">2</span>, episode: <span class="k">4</span>)
+metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
+<span class="k">try await</span> MetadataWriter().write(metadata, to: file)</pre>
+  </div><div class="module" id="lathedoc">
+    <h3>LatheDoc</h3>
+    <p class="sub"><b>PDFs and comic archives.</b> Page reordering, insertion, removal and merging for
+   PDF and CBZ, recompression, and a Vision-backed text layer. Remote archives
+   can be counted with two range requests instead of a download.</p>
+    <div class="types"><span>DocumentEditor</span><span>DocumentInspector</span><span>DocumentKind</span><span>PDFRecompressor</span><span>PDFMetadataEditor</span><span>PDFTextLayerWriter</span><span>ComicArchiveRecompressor</span><span>PageReference</span><span>TextRecognitionAccuracy</span></div>
+    <pre><span class="c">// A CBZ is a ZIP, and its readers sort by filename — so reordering</span>
+<span class="c">// pages means renaming them, zero-padded, not just reshuffling.</span>
+<span class="k">let</span> editor = DocumentEditor()
+<span class="k">try await</span> editor.reorder(pages, in: comic, to: out)
+
+<span class="c">// The central directory is at the end of a ZIP, so counting the</span>
+<span class="c">// pages in a remote CBZ is two range requests, not a download.</span>
+<span class="k">let</span> count = <span class="k">try await</span> DocumentInspector().pageCount(at: remoteURL)</pre>
+  </div><div class="module" id="lathelookup">
+    <h3>LatheLookup</h3>
+    <p class="sub"><b>Artwork and subtitles.</b> Providers for TMDb and OpenSubtitles behind one
+   protocol, with a filename parser that turns release names into a query. You
+   supply the API key; Lathe ships none.</p>
+    <div class="types"><span>MetadataProvider</span><span>TMDbProvider</span><span>OpenSubtitlesProvider</span><span>MediaTitleParser</span><span>LookupQuery</span><span>MetadataMatch</span><span>SubtitleCandidate</span><span>SubtitleDocument</span><span>ProviderCredentials</span><span>HTTPTransport</span></div>
+    <pre><span class="c">// The key is the caller's. A library that ships its own key ships</span>
+<span class="c">// one rate limit shared by every application that uses it.</span>
+<span class="k">let</span> provider = TMDbProvider(credentials: .init(apiKey: key))
+<span class="k">let</span> query = MediaTitleParser().parse(<span class="k">"Example.S02E04.1080p.WEB-DL.mkv"</span>)
+<span class="k">let</span> matches = <span class="k">try await</span> provider.search(query)</pre>
+  </div><div class="module" id="lathefetch">
+    <h3>LatheFetch</h3>
+    <p class="sub"><b>Extractors, on their own terms.</b> A CPython runtime, a pure-Swift wheel
+   installer, and drivers for <code>yt-dlp</code> and <code>gallery-dl</code>.
+   Neither tool is vendored or shipped — both are fetched at run time, by a
+   user who asked for them, into a directory the application owns.</p>
+    <div class="types"><span>MediaFetcher</span><span>GalleryFetcher</span><span>MediaListing</span><span>MediaFormat</span><span>FormatSelector</span><span>FormatPolicy</span><span>Playlist</span><span>StreamMuxer</span><span>PythonRuntime</span><span>PythonPackageInstaller</span><span>JavaScriptEngine</span><span>MediaFetchError</span></div>
+    <pre><span class="c">// yt-dlp shells out to ffmpeg to join video and audio, and iOS has</span>
+<span class="c">// no subprocesses — so Lathe never asks for a compound format and</span>
+<span class="c">// joins the two streams itself with AVAssetWriter.</span>
+<span class="k">let</span> listing = <span class="k">try await</span> fetcher.listing(for: url)
+<span class="k">let</span> media = <span class="k">try await</span> fetcher.download(url, to: destination)
+
+<span class="c">// gallery-dl answers a different question: what files are on this</span>
+<span class="c">// page. So it returns a list of paths rather than one.</span>
+<span class="k">let</span> haul = <span class="k">try await</span> gallery.download(url, into: folder, limit: <span class="k">50</span>)</pre>
+  </div>
+
+      <div class="sec-head" id="licensing" style="margin-top:56px">
+        <div class="label">Rules</div>
+        <h2>Licensing, kept at the product boundary</h2>
+      </div>
+      <div class="prose">
+        <p>Lathe is Apache-2.0. Two modules carry conditions, and rather than
+        explain them in a README they are <b>separate products</b>, so the
+        boundary is enforced by the build rather than by a note.</p>
+      </div>
+      <div class="tablewrap" style="margin-top:22px">
+        <table>
+          <thead><tr><th>Product</th><th>Carries</th><th>Licence</th><th>In the umbrella?</th></tr></thead>
+          <tbody>
+            <tr><td class="mod">LatheCore, LatheVideo, LatheImage, LatheAudio, LatheDoc, LatheMeta, LatheLookup</td>
+                <td>System frameworks, libwebp</td><td>Apache-2.0 / BSD</td>
+                <td><span class="pill ok">Yes</span></td></tr>
+            <tr><td class="mod">LatheMP3</td><td>LAME</td><td>LGPL-2.1</td>
+                <td><span class="pill no">Opt in</span></td></tr>
+            <tr><td class="mod">LatheFetch</td><td>CPython; fetches yt-dlp / gallery-dl at run time</td>
+                <td>PSF; tools not shipped</td><td><span class="pill no">Opt in</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout" style="margin-top:22px">
+        <h4>What &ldquo;not shipped&rdquo; means</h4>
+        <p><code>yt-dlp</code> is Unlicense and <code>gallery-dl</code> is GPL-2.0.
+        Neither is vendored, linked, or included in any build product. They are
+        fetched from PyPI at run time, into a directory the application owns, by
+        a user who asked for them &mdash; the same arrangement anyone running
+        <code>pip install</code> arrives at. LAME&rsquo;s mpglib is GPL and is
+        excluded from the vendored source entirely.</p>
+      </div>
+
+      <div class="sec-head" id="platforms" style="margin-top:56px">
+        <div class="label">Rules</div>
+        <h2>Platforms, and the one that shapes everything</h2>
+      </div>
+      <div class="prose">
+        <p>iOS 17 and macOS 14, arm64. The iOS floor is the constraint that
+        decided the whole design: <b>PEP&nbsp;730 removes process spawning</b>,
+        and <code>fork</code>/<code>exec</code> was never available there
+        anyway. Every tool that works by launching a binary is therefore not an
+        option, and that is why this exists at all.</p>
+        <p>The macOS build makes no use of the difference. Anything that works
+        on the Mac works on the phone, which is the only way to be sure the
+        phone is not an afterthought.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<footer class="bleed">
+  <div class="wrap">
+    Apache-2.0 &middot; <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a><br>
+    Requires iOS 17 / macOS 14. No third-party runtime dependencies.<br>
+    Powering <a href="sami.html">Sami</a>.
+  </div>
+</footer>
+</body>
+</html>

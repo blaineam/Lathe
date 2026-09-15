@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmarks — Lathe</title>
+<meta name="description" content="Lathe measured against ffmpeg, cwebp, cjpeg, avifenc, lame and exiftool, with the framing that makes the numbers mean something.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Public+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="lathe.css">
+</head>
+<body>
+<nav class="nav bleed">
+  <div class="wrap">
+    <a class="brand" href="index.html">L<em>a</em>the</a>
+    <ul><li><a href="index.html">Overview</a></li><li><a href="documentation.html">Documentation</a></li><li><a href="benchmarks.html" aria-current="page">Benchmarks</a></li><li><a href="mac.html">Mac app</a></li><li><a href="sami.html">Sami</a></li></ul>
+    <span class="spacer"></span>
+    <a href="https://github.com/blaineam/Lathe">GitHub</a>
+  </div>
+</nav>
+
+<header class="pagehead bleed">
+  <div class="wrap">
+    <div class="label">Measured, not claimed</div>
+    <h1>Benchmarks</h1>
+    <p class="lede">Every figure here is produced by a suite in this repository and
+    regenerated on release. Three claims are being made, and only three:
+    <b>in-process beats a process launch</b>, <b>hardware beats software on watts
+    and wall-clock</b>, and <b>software encoders still win on bits</b>.</p>
+  </div>
+  <div class="rule-band"><i></i><i></i><i></i></div>
+</header>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">01 — How to read this</div>
+    <h2>The size column is where the honesty is</h2>
+  </div>
+  <div class="prose">
+    <p>A benchmark table that shows only wall-clock time from a hardware encoder is
+    an advertisement. Hardware encoders are faster and they spend more bits;
+    both halves are true and a table that shows one is not a measurement.</p>
+    <p>So every row carries four columns — <b>time</b>, <b>CPU</b>, <b>size</b> and
+    <b>quality</b> — and any row where the two sides did not reach the same
+    quality declines to claim a size difference at all.</p>
+    <p class="pull">If a row makes Lathe look bad, it is still in the table.</p>
+  </div>
+
+  <div style="margin-top:34px"><div class="tablewrap">
+    <table class="bench">
+      <thead><tr><th>Task</th><th>Compared with</th><th>Lathe</th><th>Tool</th><th>Speed</th><th>CPU</th><th>Size</th><th>Quality</th></tr></thead>
+      <tbody><tr><td class="">WebP encode, 1920×1080, q80</td><td class=""><code>cwebp</code></td><td class="num">134.5 ms</td><td class="num">129.7 ms</td><td class="num">1.0× slower</td><td class="num">0.13 vs 0.13 s</td><td class="num">173 vs 173 KiB (0.0%)</td><td class="num">0.95 vs 0.95 SSIM</td></tr><tr><td class="">JPEG encode, 1920×1080, q80</td><td class=""><code>cjpeg (mozjpeg)</code></td><td class="num">26.2 ms</td><td class="num">12.1 ms</td><td class="num">2.2× slower</td><td class="num">0.03 vs 0.01 s</td><td class="num">578 vs 257 KiB — <em>not matched</em></td><td class="num">0.99 vs 0.95 SSIM <span class="warn">⚠︎</span></td></tr><tr><td class="">AVIF encode, 1920×1080, q80</td><td class=""><code>avifenc (libaom)</code></td><td class="num">59.0 ms</td><td class="num">113.6 ms</td><td class="num"><span class="win">1.9× faster</span></td><td class="num">0.28 vs 0.60 s (<span class="win">2× less</span>)</td><td class="num">398 vs 389 KiB (+2.3%)</td><td class="num">—</td></tr><tr><td class="">HEVC transcode, 1080p30, 5 s</td><td class=""><code>ffmpeg −c:v libx265 −preset medium</code></td><td class="num">697.9 ms</td><td class="num">2.87 s</td><td class="num"><span class="win">4.1× faster</span></td><td class="num">0.09 vs 26.38 s (<span class="win">295× less</span>)</td><td class="num">4508 vs 2761 KiB — <em>not matched</em></td><td class="num">92.16 vs 88.15 VMAF <span class="warn">⚠︎</span></td></tr><tr><td class="">HEVC transcode, 1080p30, 5 s</td><td class=""><code>ffmpeg −c:v hevc_videotoolbox</code></td><td class="num">684.6 ms</td><td class="num">1.02 s</td><td class="num"><span class="win">1.5× faster</span></td><td class="num">0.10 vs 3.02 s (<span class="win">32× less</span>)</td><td class="num">4508 vs 3607 KiB — <em>not matched</em></td><td class="num">92.16 vs 86.24 VMAF <span class="warn">⚠︎</span></td></tr><tr><td class="">1080p30 5 s → AV1</td><td class=""><code>ffmpeg −c:v libsvtav1</code></td><td class="num">682.1 ms</td><td class="num">1.41 s</td><td class="num"><span class="win">2.1× faster</span></td><td class="num">0.08 vs 11.81 s (<span class="win">146× less</span>)</td><td class="num">4508 vs 3152 KiB — <em>not matched</em></td><td class="num">92.16 vs 89.95 VMAF <span class="warn">⚠︎</span></td></tr><tr><td class="">1080p30 5 s → VP9</td><td class=""><code>ffmpeg −c:v libvpx-vp9</code></td><td class="num">685.3 ms</td><td class="num">4.05 s</td><td class="num"><span class="win">5.9× faster</span></td><td class="num">0.12 vs 32.50 s (<span class="win">274× less</span>)</td><td class="num">4508 vs 4733 KiB (-4.8%)</td><td class="num">92.16 vs 92.13 VMAF</td></tr><tr><td class="">AAC encode, 10 s stereo 44.1 kHz</td><td class=""><code>ffmpeg −c:a aac</code></td><td class="num">43.4 ms</td><td class="num">139.1 ms</td><td class="num"><span class="win">3.2× faster</span></td><td class="num">0.05 vs 0.14 s (<span class="win">3× less</span>)</td><td class="num">171 vs 159 KiB (+7.6%)</td><td class="num">—</td></tr><tr><td class="">MP3 encode, 10 s stereo 44.1 kHz</td><td class=""><code>lame −V4</code></td><td class="num">57.8 ms</td><td class="num">57.1 ms</td><td class="num">1.0× slower</td><td class="num">0.06 vs 0.06 s</td><td class="num">206 vs 176 KiB (+17.0%)</td><td class="num">—</td></tr><tr><td class="">Probe a 1080p file (duration, tracks, codecs)</td><td class=""><code>ffprobe</code></td><td class="num">540 µs</td><td class="num">58.7 ms</td><td class="num"><span class="win">108.7× faster</span></td><td class="num">0.00 vs 0.06 s</td><td class="num">—</td><td class="num">—</td></tr><tr><td class="">Write title and author into a JPEG</td><td class=""><code>exiftool</code></td><td class="num">17.3 ms</td><td class="num">123.3 ms</td><td class="num"><span class="win">7.1× faster</span></td><td class="num">0.02 vs 0.12 s (<span class="win">7× less</span>)</td><td class="num">620 vs 710 KiB (-12.7%)</td><td class="num">—</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="prose" style="margin-top:26px">
+    <p><span class="warn">⚠︎</span> marks a row where the two sides did <b>not</b>
+    land at the same quality, so the byte counts are not comparable and no
+    percentage is claimed for them. Two encoders&rsquo; &ldquo;q80&rdquo; are not
+    the same q80, and a size column that ignores that misleads in whichever
+    direction the settings happened to fall.</p>
+  </div>
+
+  <div class="sec-head" style="margin-top:52px">
+    <div class="label">What each row is showing</div>
+  </div>
+  <div class="prose"><ul style="padding-left:20px;line-height:1.8"><li><b>WebP encode, 1920×1080, q80</b> — Same library. Parity is the expected result and the point.</li><li><b>JPEG encode, 1920×1080, q80</b> — ImageIO against a better JPEG encoder. Read the size column, not the clock.</li><li><b>AVIF encode, 1920×1080, q80</b> — Apple's AVIF encoder against libaom's.</li><li><b>HEVC transcode, 1080p30, 5 s</b> — Same silicon both sides. What is left is process launch and muxing.</li><li><b>1080p30 5 s → AV1</b> — Lathe ships HEVC, not AV1. This is what reaching for AV1 costs today.</li><li><b>1080p30 5 s → VP9</b> — Lathe ships HEVC, not VP9. This is what reaching for VP9 costs today.</li><li><b>AAC encode, 10 s stereo 44.1 kHz</b> — AudioToolbox against ffmpeg's built-in AAC. Not rate-matched, so read the clock rather than the bytes.</li><li><b>MP3 encode, 10 s stereo 44.1 kHz</b> — Same encoder — Lathe vendors LAME — but <code>-V4</code> and quality(0.6) are not the same target, so the byte counts are not comparable.</li><li><b>Probe a 1080p file (duration, tracks, codecs)</b> — Small work, so the process launch dominates. This is the in-process case.</li><li><b>Write title and author into a JPEG</b> — Neither re-encodes. exiftool also pays a Perl interpreter's start-up.</li></ul></div>
+
+  <div class="sec-head" style="margin-top:52px">
+    <div class="label">Measured on</div>
+  </div>
+  <div class="prose"><ul style="padding-left:20px;line-height:1.8"><li>Lathe 0.2.0-dev</li><li>ffmpeg ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers</li><li>cwebp 1.6.0</li><li>cjpeg libjpeg-turbo version 3.2.0 (build 20260630)</li><li>avifenc Version: 1.4.2 (dav1d [dec]:1.5.3, aom [enc/dec]:3.14.1)</li><li>exiftool 13.55</li><li>lame LAME 64bits version 3.100 (http://lame.sf.net)</li><li>Apple M4 Pro, 14 cores, macOS Version 27.0 (Build 26A428)</li></ul></div></div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">02 — On energy</div>
+    <h2>The number people actually want, and why it is not here</h2>
+  </div>
+  <div class="prose">
+    <p>The interesting claim about hardware encoding is <b>watts</b>, not seconds.
+    It is not in the table, and not for want of trying: <code>powermetrics</code>
+    needs root, and a measurement taken on a machine that was not idle is worse
+    than no measurement.</p>
+    <p>The CPU column is the closest honest proxy and it is <b>not</b> energy. It
+    understates what hardware costs, because a fixed-function encoder does its
+    work in a block that never appears as CPU time at all. A row showing Lathe
+    using a fraction of the CPU is showing where the work <em>moved</em>, not
+    that the work became free.</p>
+  </div>
+</section>
+
+<footer class="bleed">
+  <div class="wrap">
+    Apache-2.0 &middot; <a href="https://github.com/blaineam/Lathe">github.com/blaineam/Lathe</a><br>
+    Requires iOS 17 / macOS 14. No third-party runtime dependencies.<br>
+    Powering <a href="sami.html">Sami</a>.
+  </div>
+</footer>
+</body>
+</html>

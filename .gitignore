@@ -41,3 +41,9 @@ TestResults/
 .AppleDouble
 .LSOverride
 ._*
+
+# The Tor framework is a release asset, not a repository file — it is 15 MB
+# slimmed and 335 MB upstream. `App/Vendor/Tor/slim-tor.sh` produces it.
+App/Vendor/Tor/tor.xcframework/
+App/Vendor/Tor/*.zip
+docs/__pycache__/
