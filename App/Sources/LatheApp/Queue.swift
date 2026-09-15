@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import LatheCore
 import LatheFetch
+import SwiftUI
 
 /// The download queue.
 @MainActor
@@ -27,6 +28,29 @@ final class Queue {
     /// Route traffic through a local SOCKS proxy — Tor, usually.
     var useTor = false
     var proxy = SOCKSProxy()
+
+    /// Where the proxy comes from.
+    var torMode: TorMode = TorController.isAvailable ? .embedded : .external
+
+    let tor = TorController()
+
+    var torStatus: String {
+        guard useTor else { return "Off" }
+        return torMode == .embedded ? tor.state.label : "Using \(proxy.host):\(proxy.port)"
+    }
+
+    var torStatusColor: Color {
+        guard useTor else { return .secondary }
+        if torMode == .external { return .yellow }
+        switch tor.state {
+        case .running: return .green
+        case .failed, .unavailable: return .red
+        default: return .yellow
+        }
+    }
+
+    /// The endpoint in use, which for the embedded client is its own port.
+    var activeProxy: SOCKSProxy { torMode == .embedded ? tor.endpoint : proxy }
 
     /// Hand finished media to Sami, if it is installed.
     var handOffToSami = false
@@ -184,20 +208,40 @@ final class Queue {
         galleryFetchers.removeAll()
     }
 
-    private var proxyURL: String? { useTor ? proxy.extractorProxyURL : nil }
+    private var proxyURL: String? { useTor ? activeProxy.extractorProxyURL : nil }
 
     /// Changes when the routing does, so views can react to it.
-    var routingSignature: String { useTor ? proxy.extractorProxyURL : "direct" }
+    var routingSignature: String { useTor ? activeProxy.extractorProxyURL : "direct" }
+
+    /// Links dropped in by Shortcuts, scripts, or the phone.
+    private let inbox = Inbox()
+    private(set) var watchesInbox = UserDefaults.standard.object(forKey: "watchesInbox") as? Bool ?? true
 
     init() {
         restoreDestinationBookmark()
+        inbox.onURL = { [weak self] url in
+            guard let self else { return }
+            // Queued rather than started. Something arriving from a phone is
+            // not a reason to saturate the connection without being asked, and
+            // the row is visible the moment it lands.
+            add(text: url.absoluteString)
+        }
+        if watchesInbox { inbox.start() }
     }
+
+    func setInboxWatching(_ enabled: Bool) {
+        watchesInbox = enabled
+        UserDefaults.standard.set(enabled, forKey: "watchesInbox")
+        if enabled { inbox.start() } else { inbox.stop() }
+    }
+
+    func drainInbox() { inbox.drain() }
 
     // MARK: - Adding
 
     /// Accepts anything paste-shaped: one URL, many, newline or space separated.
     @discardableResult
-    func add(text: String) -> Int {
+    func add(text: String, scope: Scope? = nil) -> Int {
         let candidates = text
             .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
             .map(String.init)
@@ -207,7 +251,7 @@ final class Queue {
                   !downloads.contains(where: { $0.url == url })
             else { continue }
             let download = Download(url: url)
-            download.scope = defaultScope
+            download.scope = scope ?? defaultScope
             download.tool = defaultTool
             if let host = url.host() { download.cookieFile = cookieFiles[host] }
             downloads.append(download)
@@ -268,6 +312,51 @@ final class Queue {
         }
     }
 
+    /// Brings a tool up to the newest release.
+    ///
+    /// The same call as installing: the resolver re-reads the index and
+    /// replaces what has moved on. That is the whole reason these are fetched
+    /// rather than bundled — a downloader that cannot be updated without
+    /// shipping a new app is a downloader that is broken every time a site
+    /// changes, which is weekly.
+    func update(_ tool: Tool) async {
+        switch tool {
+        case .media: await installYouTubeDL()
+        case .gallery: await installGalleryDL()
+        default: break
+        }
+    }
+
+    /// Removes a tool and everything installed for it.
+    func remove(_ tool: Tool) async {
+        let requirements: [String]
+        switch tool {
+        case .media: requirements = MediaFetcher.requirements
+        case .gallery: requirements = GalleryFetcher.requirements
+        default: return
+        }
+        do {
+            let installer = PythonPackageInstaller(runtime: try runtime(), root: try pythonRoot())
+            for name in requirements {
+                try? await installer.remove(name)
+            }
+            // The fetchers hold an interpreter that still has the module
+            // imported, so they have to go too or readiness keeps reporting it
+            // as present until the app is relaunched.
+            invalidateFetchers()
+            await refreshTools()
+        } catch {
+            tools.lastError = Self.describe(error)
+        }
+    }
+
+    /// What is installed, for the manager to list.
+    func installedPackages() async -> [PythonPackageInstaller.InstalledPackage] {
+        guard let root = try? pythonRoot(), let runtime = try? runtime() else { return [] }
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+        return (try? await installer.installed()) ?? []
+    }
+
     func installGalleryDL() async {
         tools.galleryDLInstalling = true
         tools.lastError = nil
@@ -290,7 +379,7 @@ final class Queue {
         // worse than one that has no proxy option at all.
         if useTor {
             do {
-                try await proxy.verify()
+                try await readyProxy()
             } catch {
                 summary = Self.describe(error)
                 return
@@ -308,7 +397,7 @@ final class Queue {
 
         let pending = downloads.filter { !$0.state.isTerminal }
         let items = pending.map { BulkRun.Item($0, workload: .network) }
-        let session = useTor ? proxy.urlSession() : URLSession.shared
+        let session = useTor ? activeProxy.urlSession() : URLSession.shared
 
         _ = await BulkRun(pool: pool).run(items) { download in
             await self.run(download, into: folder, session: session)
@@ -338,7 +427,7 @@ final class Queue {
     @discardableResult
     func downloadNow(_ url: URL, scope: Scope? = nil) async -> Download? {
         if useTor {
-            do { try await proxy.verify() } catch {
+            do { try await readyProxy() } catch {
                 summary = Self.describe(error)
                 return nil
             }
@@ -360,7 +449,7 @@ final class Queue {
         }
         if let scope { download.scope = scope }
 
-        let session = useTor ? proxy.urlSession() : URLSession.shared
+        let session = useTor ? activeProxy.urlSession() : URLSession.shared
         await run(download, into: folder, session: session)
         return download
     }
@@ -370,6 +459,15 @@ final class Queue {
         if !download.state.isTerminal {
             download.state = .failed("Cancelled.")
         }
+    }
+
+    /// Makes sure the proxy is actually there before anything is sent through
+    /// it, starting the embedded client if that is the one in use.
+    private func readyProxy() async throws {
+        if torMode == .embedded, !tor.state.isUsable {
+            await tor.start()
+        }
+        try await activeProxy.verify()
     }
 
     /// One download, routed to whichever tool should handle it.
@@ -464,10 +562,7 @@ final class Queue {
         guard let source = try? MediaSource(download.url), source.isRemote,
               Self.looksLikeMediaFile(download.url)
         else {
-            throw LatheError.notImplemented(
-                feature: "\(download.url.host() ?? "that site") needs an extractor. Install one "
-                    + "from the banner above, or paste a direct link to a media file"
-            )
+            throw DownloadProblem.noExtractor(host: download.url.host() ?? "That site")
         }
         let output = Self.unique(folder.appendingPathComponent(download.url.lastPathComponent))
         download.state = .running(fraction: 0)
@@ -504,8 +599,23 @@ final class Queue {
     ) async throws -> URL {
         let name = (listing.title ?? download.url.lastPathComponent)
             .replacingOccurrences(of: "/", with: "-")
+
+        // The extension has to match what is actually going to be written. It
+        // was always ".mp4", which is right for the pair path — two streams
+        // joined into an MPEG-4 file — and wrong for everything else: an MP3
+        // taken from a page would have landed as `something.mp4` and confused
+        // every player that trusts a filename.
+        let selection = try FormatSelector.select(from: listing, policy: .best)
+        let ext: String
+        switch selection {
+        case .pair:
+            ext = "mp4"
+        case .single(let format):
+            ext = format.ext ?? "mp4"
+        }
+
         let output = Self.unique(
-            folder.appendingPathComponent(name).appendingPathExtension("mp4"))
+            folder.appendingPathComponent(name).appendingPathExtension(ext))
         let media = try await fetcher.download(
             download.url, to: output, progress: Self.handle(for: download))
         return media.url
@@ -551,9 +661,12 @@ final class Queue {
 
         download.fileCount = written
         if written == 0 {
-            throw LatheError.notImplemented(
-                feature: "none of the \(playlist.entries.count) items could be downloaded"
-                    + (lastFailure.map { " — \($0)" } ?? ""))
+            throw DownloadProblem.nothingFound(
+                host: download.host,
+                detail: "None of the \(playlist.entries.count) items could be downloaded."
+                    + (lastFailure.map { " \($0)" } ?? ""),
+                needsSignIn: download.cookieFile == nil
+                    && SignInLikely.matches(download.host))
         }
         download.detail = "\(written) of \(playlist.entries.count)"
         download.state = .finished(directory)
@@ -578,10 +691,13 @@ final class Queue {
             // is not a diagnosis — it is the same message for a page with
             // nothing on it, a login that expired, and a site that has started
             // refusing.
-            let why = haul.problems.first.map { ": \($0)" }
-                ?? " — it recognised the site but the page had nothing on it"
-            throw LatheError.notImplemented(
-                feature: "gallery-dl downloaded nothing from \(download.host)\(why)")
+            throw DownloadProblem.nothingFound(
+                host: download.host,
+                detail: haul.problems.first,
+                // Only suggest signing in when they are not already, or the
+                // advice is both wrong and irritating.
+                needsSignIn: download.cookieFile == nil
+                    && SignInLikely.matches(download.host))
         }
         download.fileCount = haul.files.count
         download.detail = haul.files.count == 1 ? nil : "\(haul.files.count) files"
@@ -665,6 +781,12 @@ final class Queue {
         FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     }
 
+    /// Opens the download folder in the Finder.
+    func revealDestination() {
+        guard let folder = destination ?? defaultDestination() else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([folder])
+    }
+
     func chooseDestination() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -677,6 +799,13 @@ final class Queue {
     func setTorRouting(_ enabled: Bool) {
         useTor = enabled
         invalidateFetchers()
+        Task {
+            if enabled, torMode == .embedded {
+                await tor.start()
+            } else if !enabled {
+                tor.stop()
+            }
+        }
     }
 
     private func saveDestinationBookmark() {

@@ -53,11 +53,32 @@
 
   <div class="caps" style="margin-top:34px">
     <div class="cap">
-      <h3>Browse signed in</h3>
-      <p>A real web view with a persistent store, so signing in to a site once
-      sticks. &ldquo;Use this session&rdquo; hands that site&rsquo;s cookies to
-      the extractor &mdash; <b>only that site&rsquo;s</b>, never the whole jar.</p>
-      <span class="mono">WKWebView · Netscape cookie export</span>
+      <h3>Browse signed in, in tabs</h3>
+      <p>A real web view per tab, with a persistent store, so signing in sticks
+      and switching panes finds the page as you left it. Downloading from a tab
+      hands the extractor <b>that site&rsquo;s cookies</b> and nothing else.</p>
+      <span class="mono">WKWebView · per-tab sessions</span>
+    </div>
+    <div class="cap">
+      <h3>Mute a tab from the tab</h3>
+      <p>A tab that starts talking can be silenced without switching to it.
+      There is no public API for muting a web view &mdash; the supported calls
+      stop playback rather than quiet it &mdash; so it is an injected script.</p>
+      <span class="mono">Per-tab audio</span>
+    </div>
+    <div class="cap">
+      <h3>From your phone</h3>
+      <p>A one-step Shortcut on the iOS share sheet appends a link to a file in
+      iCloud Drive. Lathe watches the folder and starts the download on the
+      Mac, even if it was asleep when you shared.</p>
+      <span class="mono">iCloud Drive · Shortcuts</span>
+    </div>
+    <div class="cap">
+      <h3>Tor, built in</h3>
+      <p>The daemon is linked into the app, not launched as a process &mdash;
+      the arrangement that also works where a bundled binary could not be run
+      at all. Browsing and downloading both go through it.</p>
+      <span class="mono">tor_run_main · 15 MB slimmed</span>
     </div>
     <div class="cap">
       <h3>Two extractors, routed</h3>

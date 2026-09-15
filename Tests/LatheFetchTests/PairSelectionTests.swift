@@ -110,3 +110,77 @@ struct PairSelectionTests {
         #expect(audio.formatID == "hls-a")
     }
 }
+
+/// A page that only has audio on it.
+@Suite("Audio-only pages")
+struct AudioOnlySelectionTests {
+
+    /// The regression: an ordinary web page with an MP3 on it failed with
+    /// "every audio rendition here is in a codec an MPEG-4 file cannot hold
+    /// (mp3)". The container rule is about joining two streams into an MP4,
+    /// and with no video there is nothing to join.
+    @Test("an mp3 with no video beside it is downloadable")
+    func mp3WithoutVideo() throws {
+        let listing = MediaListing(
+            id: "t",
+            formats: [
+                MediaFormat(formatID: "mp3-128", ext: "mp3", transferProtocol: "https",
+                            url: URL(string: "https://example.test/a.mp3"),
+                            audioCodec: "mp3", videoIsAbsent: true,
+                            audioBitrate: 128, byteCount: 3_000_000)
+            ])
+        let selection = try FormatSelector.select(from: listing, policy: .best)
+        guard case let .single(format) = selection else {
+            Issue.record("expected a single rendition, got \(selection)")
+            return
+        }
+        #expect(format.formatID == "mp3-128")
+    }
+
+    @Test("the best of several audio-only renditions wins")
+    func picksTheBestAudio() throws {
+        let listing = MediaListing(
+            id: "t",
+            formats: [
+                MediaFormat(formatID: "low", ext: "mp3", transferProtocol: "https",
+                            url: URL(string: "https://example.test/low.mp3"),
+                            audioCodec: "mp3", videoIsAbsent: true, audioBitrate: 64),
+                MediaFormat(formatID: "high", ext: "mp3", transferProtocol: "https",
+                            url: URL(string: "https://example.test/high.mp3"),
+                            audioCodec: "mp3", videoIsAbsent: true, audioBitrate: 320),
+            ])
+        let selection = try FormatSelector.select(from: listing, policy: .best)
+        guard case let .single(format) = selection else {
+            Issue.record("expected a single rendition, got \(selection)")
+            return
+        }
+        #expect(format.formatID == "high")
+    }
+
+    /// And the rule still applies where it should: with video present, an
+    /// unmuxable audio track is still a real problem.
+    @Test("video plus unmuxable audio still prefers a pre-muxed rendition")
+    func videoStillConstrained() throws {
+        let listing = MediaListing(
+            id: "t",
+            formats: [
+                MediaFormat(formatID: "v", ext: "mp4", transferProtocol: "https",
+                            url: URL(string: "https://example.test/v.mp4"),
+                            width: 1920, height: 1080, videoCodec: "avc1.640028",
+                            audioIsAbsent: true),
+                MediaFormat(formatID: "a", ext: "mp3", transferProtocol: "https",
+                            url: URL(string: "https://example.test/a.mp3"),
+                            audioCodec: "mp3", videoIsAbsent: true),
+                MediaFormat(formatID: "both", ext: "mp4", transferProtocol: "https",
+                            url: URL(string: "https://example.test/b.mp4"),
+                            width: 640, height: 360, videoCodec: "avc1.42001E",
+                            audioCodec: "mp4a.40.2"),
+            ])
+        let selection = try FormatSelector.select(from: listing, policy: .best)
+        guard case let .single(format) = selection else {
+            Issue.record("expected the pre-muxed rendition, got \(selection)")
+            return
+        }
+        #expect(format.formatID == "both")
+    }
+}

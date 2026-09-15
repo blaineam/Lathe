@@ -1,7 +1,32 @@
 import AppKit
+import LatheFetch
 import SwiftUI
 
+/// The entry point.
+///
+/// Its own type rather than `@main` on the `App`, because defining
+/// `static func main()` on the App itself replaces the one SwiftUI synthesises
+/// and there is then no way to call the original. This runs the diagnostic
+/// when asked and hands over to SwiftUI otherwise.
 @main
+enum Entry {
+    static func main() {
+        /// Starts the embedded Tor client, waits for its SOCKS port, and exits.
+        ///
+        ///     Lathe.app/Contents/MacOS/Lathe --tor-selftest
+        ///
+        /// A real check that the linked daemon runs, rather than a check that
+        /// it linked. "The symbols resolved" and "it reaches the Tor network"
+        /// are very different claims, and only one of them is worth making to
+        /// somebody who turned the toggle on.
+        if CommandLine.arguments.contains("--tor-selftest") {
+            TorSelfTest.run()
+            return
+        }
+        LatheApp.main()
+    }
+}
+
 struct LatheApp: App {
     @State private var queue = Queue()
     @State private var browser = BrowserModel()
@@ -9,21 +34,28 @@ struct LatheApp: App {
     var body: some Scene {
         Window("Lathe", id: "main") {
             RootView(queue: queue, browser: browser)
-                .frame(minWidth: 860, minHeight: 560)
+                .frame(minWidth: 900, minHeight: 580)
                 .task { await queue.refreshTools() }
                 // Browsing and downloading go the same way. A toggle that
                 // routed the downloader but left the browser in the clear
                 // would be worse than no toggle: the page you visited to find
                 // the link is the part that identifies you.
                 .task(id: queue.routingSignature) {
-                    browser.setProxy(queue.useTor ? queue.proxy : nil)
+                    browser.setProxy(queue.useTor ? queue.activeProxy : nil)
                 }
         }
         .windowResizability(.contentMinSize)
+        // One continuous surface: no title bar, no separator, the traffic
+        // lights sitting in the same row as the app's own controls. The
+        // segmented control moves into the toolbar to fill that row — a
+        // hidden title bar with the picker still below it would leave an empty
+        // strip where the title used to be, which is worse than the title.
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands { CommandGroup(replacing: .newItem) {} }
 
         Settings {
-            SettingsView(queue: queue)
+            SettingsView(queue: queue, browser: browser)
         }
     }
 }
@@ -47,16 +79,6 @@ struct RootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $pane) {
-                ForEach(Pane.allCases) { pane in
-                    Label(pane.rawValue, systemImage: pane.icon).tag(pane)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelStyle(.titleAndIcon)
-            .fixedSize()
-            .padding(.top, 10)
-
             // Both panes stay in the hierarchy, and switching changes which
             // one is visible.
             //
@@ -85,6 +107,24 @@ struct RootView: View {
                 startPoint: .topLeading, endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("", selection: $pane) {
+                    ForEach(Pane.allCases) { pane in
+                        Label(pane.rawValue, systemImage: pane.icon).tag(pane)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelStyle(.titleAndIcon)
+                .fixedSize()
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button { queue.revealDestination() } label: {
+                    Label("Downloads folder", systemImage: "folder")
+                }
+                .help("Open the folder downloads go into")
+            }
         }
     }
 }
@@ -486,6 +526,7 @@ struct AddressBar: View {
     @Bindable var tab: BrowserTab
     @Binding var adopted: Set<String>
     @FocusState.Binding var addressFocused: Bool
+    @State private var asking: StartIntent?
 
     private var signedIn: Bool {
         if let host = tab.host { return adopted.contains(host) }
@@ -514,6 +555,43 @@ struct AddressBar: View {
                     .focused($addressFocused)
                     .onSubmit(tab.go)
                     .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
+
+                Menu {
+                    if !browser.places.bookmarks.isEmpty {
+                        Section("Bookmarks") {
+                            ForEach(browser.places.bookmarks.prefix(12)) { place in
+                                Button(place.label) { tab.load(place.url) }
+                            }
+                        }
+                    }
+                    if !browser.places.recent.isEmpty {
+                        Section("Recent") {
+                            ForEach(browser.places.recent.prefix(12)) { place in
+                                Button(place.label) { tab.load(place.url) }
+                            }
+                        }
+                    }
+                    if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
+                        Text("Nothing yet")
+                    }
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Bookmarks and recently visited")
+
+                Button {
+                    if let url = tab.currentURL {
+                        browser.places.toggleBookmark(url: url, title: tab.title)
+                    }
+                } label: {
+                    Image(systemName: browser.places.isBookmarked(tab.currentURL)
+                          ? "bookmark.fill" : "bookmark")
+                }
+                .buttonStyle(.glass)
+                .disabled(tab.currentURL == nil)
+                .help("Bookmark this page")
 
                 if tab.isPlayingAudio || tab.isMuted {
                     Button { tab.toggleMute() } label: {
@@ -546,18 +624,12 @@ struct AddressBar: View {
                 .help("Hand this site's cookies to the downloader, so it sees the same "
                       + "signed-in session you do. Only this site's cookies, never the rest.")
 
-                Button("Queue") {
-                    if let url = tab.currentURL { queue.add(text: url.absoluteString) }
-                }
-                .buttonStyle(.glass)
-                .disabled(tab.currentURL == nil)
-                .help("Add to the queue and download it with everything else")
+                Button("Queue") { asking = .queue }
+                    .buttonStyle(.glass)
+                    .disabled(tab.currentURL == nil)
+                    .help("Add to the queue and download it with everything else")
 
-                Button {
-                    if let url = tab.currentURL {
-                        Task { await queue.downloadNow(url) }
-                    }
-                } label: {
+                Button { asking = .now } label: {
                     Label("Download", systemImage: "arrow.down.circle.fill")
                 }
                 .buttonStyle(.glassProminent)
@@ -567,7 +639,52 @@ struct AddressBar: View {
             .padding(10)
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
         }
+        // Asked rather than assumed. A page in a browser is as likely to be a
+        // gallery, a playlist or a profile as it is to be one item, and
+        // silently taking "just this" off a page of two hundred pictures is
+        // the wrong guess often enough to be worth one tap.
+        .confirmationDialog(
+            "How much of this page?",
+            isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Just this one") { start(.single) }
+            Button("Everything on this page") { start(.all) }
+            Button("Cancel", role: .cancel) { asking = nil }
+        } message: {
+            Text(tab.currentURL?.absoluteString ?? "")
+        }
     }
+
+    private func start(_ scope: Scope) {
+        guard let url = tab.currentURL, let intent = asking else { return }
+        asking = nil
+        Task {
+            // Carry the session automatically.
+            //
+            // They are looking at the page, signed in as themselves — that is
+            // the whole reason the browser exists. Making them press a separate
+            // button first meant the common case failed with "nothing was
+            // downloaded" on every site that shows its content only to
+            // members, which is most of the sites worth having a browser for.
+            if let host = await queue.adoptCookies(from: tab) {
+                adopted.insert(host)
+            }
+            switch intent {
+            case .queue:
+                queue.add(text: url.absoluteString, scope: scope)
+            case .now:
+                await queue.downloadNow(url, scope: scope)
+            }
+        }
+    }
+}
+
+/// What the address bar is about to do, once the scope is chosen.
+enum StartIntent: Identifiable {
+    case queue
+    case now
+    var id: Int { self == .queue ? 0 : 1 }
 }
 
 /// A compact strip of whatever is downloading, so the browser does not have to
@@ -672,6 +789,27 @@ struct ActivityChip: View {
 
 struct SettingsView: View {
     @Bindable var queue: Queue
+    var browser: BrowserModel
+
+    var body: some View {
+        TabView {
+            GeneralSettings(queue: queue)
+                .tabItem { Label("General", systemImage: "gearshape") }
+            ToolsSettings(queue: queue)
+                .tabItem { Label("Downloaders", systemImage: "shippingbox") }
+            PrivacySettings(queue: queue)
+                .tabItem { Label("Privacy", systemImage: "hand.raised") }
+            ShortcutsSettings(queue: queue)
+                .tabItem { Label("Shortcuts", systemImage: "square.stack.3d.up") }
+            PlacesSettings(places: browser.places)
+                .tabItem { Label("Places", systemImage: "bookmark") }
+        }
+        .frame(width: 520, height: 430)
+    }
+}
+
+struct GeneralSettings: View {
+    @Bindable var queue: Queue
 
     var body: some View {
         Form {
@@ -680,38 +818,12 @@ struct SettingsView: View {
                     Button(queue.destination?.path ?? "Downloads") { queue.chooseDestination() }
                         .buttonStyle(.link)
                 }
-            }
-
-            Section("Privacy") {
-                Toggle("Route through a SOCKS proxy", isOn: Binding(
-                    get: { queue.useTor },
-                    set: { queue.setTorRouting($0) }))
-                HStack {
-                    TextField("Host", text: $queue.proxy.host)
-                    TextField("Port", value: $queue.proxy.port, format: .number.grouping(.never))
-                        .frame(width: 70)
+                Picker("Default scope", selection: $queue.defaultScope) {
+                    ForEach(Scope.allCases) { Text($0.label).tag($0) }
                 }
-                .disabled(!queue.useTor)
-                Text("Checked with a real SOCKS5 handshake before anything downloads. If the "
-                     + "proxy is not there the download fails rather than quietly going out "
-                     + "in the clear. 9050 is Tor's default.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !queue.cookieHosts.isEmpty {
-                Section("Signed-in sites") {
-                    ForEach(queue.cookieHosts, id: \.self) { host in
-                        LabeledContent(host) {
-                            Button("Forget") { queue.forgetCookies(for: host) }
-                                .buttonStyle(.link)
-                        }
-                    }
-                    Text("Sessions you handed to the downloader from Browse. Each site's "
-                         + "cookies are kept separately and only sent to that site.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("What a new link means when it names both an item and a "
+                     + "collection. Browsing asks each time instead.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Sami") {
@@ -720,12 +832,324 @@ struct SettingsView: View {
                 Text(queue.samiInstalled
                      ? "Finished downloads open in Sami for compression or conversion."
                      : "Sami is not installed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 440)
-        .padding()
+    }
+}
+
+/// Install, update and remove the extractors.
+///
+/// They are fetched rather than bundled, which is what makes them updatable at
+/// all — a downloader that needs a new app release every time a site changes
+/// its markup is broken most weeks. So there has to be somewhere to do it.
+struct ToolsSettings: View {
+    @Bindable var queue: Queue
+    @State private var packages: [PythonPackageInstaller.InstalledPackage] = []
+    @State private var confirmingRemoval: Tool?
+
+    var body: some View {
+        Form {
+            Section("Extractors") {
+                ToolRow(queue: queue, tool: .media, name: "yt-dlp",
+                        summary: "Video and audio sites",
+                        installed: queue.tools.ytdlpInstalled,
+                        version: queue.tools.ytdlpVersion,
+                        busy: queue.tools.ytdlpInstalling,
+                        remove: { confirmingRemoval = .media })
+                ToolRow(queue: queue, tool: .gallery, name: "gallery-dl",
+                        summary: "Image and gallery sites",
+                        installed: queue.tools.galleryDLInstalled,
+                        version: queue.tools.galleryDLVersion,
+                        busy: queue.tools.galleryDLInstalling,
+                        remove: { confirmingRemoval = .gallery })
+            }
+
+            if let error = queue.tools.lastError {
+                Section { Text(error).font(.caption).foregroundStyle(.orange) }
+            }
+
+            Section("Everything installed") {
+                if packages.isEmpty {
+                    Text("Nothing yet.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    // The dependencies as well, because "install gallery-dl"
+                    // is really six packages and a few megabytes, and somebody
+                    // deciding whether to keep it should be able to see that.
+                    ForEach(packages, id: \.name) { package in
+                        LabeledContent(package.name) {
+                            Text(package.version)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Text("Installed into this app's own folder in Application Support. "
+                     + "Nothing is written outside it and no system Python is touched.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .task { packages = await queue.installedPackages() }
+        .onChange(of: queue.tools.ytdlpInstalled) { Task { packages = await queue.installedPackages() } }
+        .onChange(of: queue.tools.galleryDLInstalled) { Task { packages = await queue.installedPackages() } }
+        .confirmationDialog(
+            "Remove this downloader?",
+            isPresented: Binding(get: { confirmingRemoval != nil },
+                                 set: { if !$0 { confirmingRemoval = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                if let tool = confirmingRemoval {
+                    confirmingRemoval = nil
+                    Task {
+                        await queue.remove(tool)
+                        packages = await queue.installedPackages()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { confirmingRemoval = nil }
+        } message: {
+            Text("Sites that need it will stop working until it is installed again. "
+                 + "Python is left in place; only the extractor's own files are removed.")
+        }
+    }
+}
+
+struct ToolRow: View {
+    @Bindable var queue: Queue
+    let tool: Tool
+    let name: String
+    let summary: String
+    let installed: Bool
+    let version: String?
+    let busy: Bool
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 7) {
+                    Text(name).font(.body.weight(.medium))
+                    if let version, installed {
+                        Text(version)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(summary).font(.caption).foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if busy {
+                ProgressView().controlSize(.small)
+            } else if installed {
+                Button("Update") { Task { await queue.update(tool) } }
+                Button("Remove", role: .destructive, action: remove)
+            } else {
+                Button("Install") { Task { await queue.update(tool) } }
+                    .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+struct PrivacySettings: View {
+    @Bindable var queue: Queue
+
+    var body: some View {
+        Form {
+            Section("Tor") {
+                Toggle("Route everything through Tor", isOn: Binding(
+                    get: { queue.useTor },
+                    set: { queue.setTorRouting($0) }))
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(queue.torStatusColor)
+                            .frame(width: 7, height: 7)
+                        Text(queue.torStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("Browsing and downloading both go through it. A toggle that "
+                     + "routed one and not the other would be worse than none: the "
+                     + "page you visited to find the link is the part that "
+                     + "identifies you.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Proxy") {
+                Picker("Use", selection: $queue.torMode) {
+                    ForEach(TorMode.allCases) { Text($0.label).tag($0) }
+                }
+                if queue.torMode == .external {
+                    HStack {
+                        TextField("Host", text: $queue.proxy.host)
+                        TextField("Port", value: $queue.proxy.port,
+                                  format: .number.grouping(.never))
+                            .frame(width: 70)
+                    }
+                }
+                Text(queue.torMode.explanation)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Text("This is not anonymity. It is the same browser with the same "
+                     + "logins in it, so a site you are signed in to knows exactly "
+                     + "who you are wherever the packets came from.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+struct PlacesSettings: View {
+    var places: Places
+
+    var body: some View {
+        Form {
+            Section("Bookmarks") {
+                if places.bookmarks.isEmpty {
+                    Text("None yet. Use the bookmark button in Browse.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(places.bookmarks) { place in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(place.label).lineLimit(1)
+                                Text(place.host).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                places.removeBookmark(place)
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
+            }
+
+            Section("Recently visited") {
+                LabeledContent("\(places.recent.count) pages") {
+                    Button("Clear") { places.clearRecent() }
+                        .buttonStyle(.link)
+                        .disabled(places.recent.isEmpty)
+                }
+                Text("Kept so you can find yesterday's page, capped at 40, and never "
+                     + "recorded at all while Tor routing is on.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+
+/// Walks somebody through setting up the phone-to-Mac hand-off.
+///
+/// Instructions rather than a generated shortcut, because a `.shortcut` file is
+/// a signed archive that only the Shortcuts app can produce — there is no
+/// supported way for another application to write one. What there is, is a
+/// folder both devices can see and four steps that take about a minute.
+struct ShortcutsSettings: View {
+    @Bindable var queue: Queue
+    @State private var folder: URL?
+    @State private var copied = false
+
+    var body: some View {
+        Form {
+            Section("Send links from your phone") {
+                Text("Lathe watches a folder. Anything that can write a file into "
+                     + "it can queue a download — including a one-step Shortcut on "
+                     + "your iPhone's share sheet.")
+                    .font(.callout)
+
+                if let folder {
+                    LabeledContent("Folder") {
+                        HStack(spacing: 8) {
+                            Button(copied ? "Copied" : "Copy path") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(folder.path, forType: .string)
+                                copied = true
+                            }
+                            .buttonStyle(.link)
+                            Button("Open") {
+                                NSWorkspace.shared.activateFileViewerSelecting([folder])
+                            }
+                            .buttonStyle(.link)
+                        }
+                    }
+                }
+
+                if !Inbox.isUsingiCloud {
+                    // Said plainly, because the iPhone half simply cannot work
+                    // without it and discovering that after building the
+                    // shortcut would be infuriating.
+                    Label("iCloud Drive is off on this Mac, so the folder is local "
+                          + "only. The steps below still work for Shortcuts on this "
+                          + "Mac; the iPhone half needs iCloud Drive.",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Section("On your iPhone, once") {
+                StepRow(1, "Open Shortcuts and make a new shortcut called “Send to Lathe”.")
+                StepRow(2, "In its settings, turn on “Show in Share Sheet” and set it "
+                           + "to accept URLs.")
+                StepRow(3, "Add one action: “Append to Text File”. Point it at "
+                           + "iCloud Drive → Lathe Inbox → queue.txt.")
+                StepRow(4, "Set what it appends to the Shortcut Input, and add a new "
+                           + "line after it.")
+            }
+
+            Section {
+                Text("Then share any link to it. The file syncs, Lathe notices within "
+                     + "a second or two, and the download starts here — even if the "
+                     + "Mac was asleep when you shared it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Right now") {
+                Toggle("Watch the folder", isOn: Binding(
+                    get: { queue.watchesInbox },
+                    set: { queue.setInboxWatching($0) }))
+                Button("Check the folder now") { queue.drainInbox() }
+                    .buttonStyle(.link)
+            }
+        }
+        .formStyle(.grouped)
+        .task { folder = try? Inbox.location() }
+    }
+}
+
+struct StepRow: View {
+    let number: Int
+    let text: String
+
+    init(_ number: Int, _ text: String) {
+        self.number = number
+        self.text = text
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(number)")
+                .font(.caption.monospaced().weight(.bold))
+                .foregroundStyle(.tint)
+                .frame(width: 14, alignment: .trailing)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

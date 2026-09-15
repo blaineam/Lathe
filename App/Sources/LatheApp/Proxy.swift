@@ -68,6 +68,7 @@ struct SOCKSProxy: Equatable, Sendable {
     enum Failure: LocalizedError {
         case unreachable(String)
         case notSOCKS5
+        case cannotReach(host: String, code: UInt8)
 
         var errorDescription: String? {
             switch self {
@@ -75,6 +76,14 @@ struct SOCKSProxy: Equatable, Sendable {
                 return "Could not reach the proxy: \(why). Start Tor, or turn proxy routing off."
             case .notSOCKS5:
                 return "Something is listening on that port, but it is not a SOCKS5 proxy."
+            case let .cannotReach(host, code):
+                // 0x04 is "host unreachable", which is what Tor answers while
+                // it is still building its first circuit — not a broken proxy,
+                // just one that is not ready.
+                if code == 0x04 {
+                    return "The proxy is running but cannot reach the network yet."
+                }
+                return "The proxy refused to connect to \(host) (SOCKS status \(code))."
             }
         }
     }
@@ -86,13 +95,23 @@ struct SOCKSProxy: Equatable, Sendable {
     /// agreed on, and the method it picked. Anything else on the wire is not a
     /// SOCKS5 server, and `0xFF` back means it is one but wants credentials
     /// this has no way to supply.
-    func verify(timeout: Duration = .seconds(5)) async throws {
+    /// - Parameter reaching: a host to ask the proxy to connect to. Supplying
+    ///   one turns this from "something is listening" into "the proxy can
+    ///   actually carry traffic", which for Tor are minutes apart: it opens its
+    ///   SOCKS listener immediately and cannot route anything until it has a
+    ///   consensus and descriptors. A readiness check that stops at the
+    ///   handshake reports "Connected" about a second after launch and every
+    ///   download started then fails.
+    func verify(timeout: Duration = .seconds(5), reaching host: String? = nil) async throws {
         let connection = NWConnection(to: endpoint, using: .tcp)
         defer { connection.cancel() }
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 try await Self.handshake(over: connection)
+                if let host {
+                    try await Self.connect(to: host, port: 443, over: connection)
+                }
             }
             group.addTask {
                 try await Task.sleep(for: timeout)
@@ -140,6 +159,35 @@ struct SOCKSProxy: Equatable, Sendable {
         guard reply.count == 2, reply[0] == 0x05 else { throw Failure.notSOCKS5 }
         guard reply[1] != 0xFF else {
             throw Failure.unreachable("the proxy requires authentication")
+        }
+    }
+
+    /// Asks the proxy to open a connection, and reads what it says about it.
+    ///
+    /// The request is version 5, command 1 (connect), address type 3 (a domain
+    /// name, so the *proxy* resolves it and nothing local learns the hostname).
+    /// The reply's second byte is the status: 0 succeeded, and everything else
+    /// is a refusal worth repeating.
+    private static func connect(
+        to host: String, port: UInt16, over connection: NWConnection
+    ) async throws {
+        var request = Data([0x05, 0x01, 0x00, 0x03])
+        let name = Array(host.utf8.prefix(255))
+        request.append(UInt8(name.count))
+        request.append(contentsOf: name)
+        request.append(UInt8(port >> 8))
+        request.append(UInt8(port & 0xFF))
+        try await send(request, over: connection)
+
+        // Version, status, reserved, address type — then an address whose
+        // length depends on that type. Only the status is needed.
+        let reply = try await receive(4, from: connection)
+        guard reply.count == 4, reply[reply.startIndex] == 0x05 else {
+            throw Failure.notSOCKS5
+        }
+        let status = reply[reply.startIndex + 1]
+        guard status == 0x00 else {
+            throw Failure.cannotReach(host: host, code: status)
         }
     }
 

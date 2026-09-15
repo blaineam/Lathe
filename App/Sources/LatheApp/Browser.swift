@@ -54,6 +54,9 @@ final class BrowserTab: Identifiable {
     private var observations: [NSKeyValueObservation] = []
     private var mediaRelay: MediaRelay?
 
+    /// Told when this tab settles on a page, so history can be kept.
+    var onNavigate: ((URL, String?) -> Void)?
+
     static let mediaChannel = "latheMedia"
 
     /// Mutes the page, and says when it starts making noise.
@@ -175,7 +178,16 @@ final class BrowserTab: Identifiable {
                 }
             },
             webView.observe(\.title, options: [.initial, .new]) { [weak self] view, _ in
-                MainActor.assumeIsolated { self?.title = view.title }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.title = view.title
+                    // Recorded on the title rather than on the URL: a page's
+                    // title arrives after its address, and an entry saved at
+                    // navigation time is an entry with no name on it.
+                    if let url = view.url, view.title?.isEmpty == false {
+                        self.onNavigate?(url, view.title)
+                    }
+                }
             },
             webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
                 MainActor.assumeIsolated { self?.isLoading = view.isLoading }
@@ -309,6 +321,9 @@ final class BrowserModel {
     /// rebuild the data store, and that is this type's business.
     private(set) var proxy: SOCKSProxy?
 
+    /// Where the tabs have been, and where they are bookmarked.
+    let places = Places()
+
     private var store: WKWebsiteDataStore
 
     init() {
@@ -333,6 +348,9 @@ final class BrowserModel {
     @discardableResult
     func newTab(_ url: URL? = nil) -> BrowserTab {
         let tab = BrowserTab(store: store, url: url)
+        tab.onNavigate = { [weak self] url, title in
+            self?.places.record(url: url, title: title)
+        }
         tabs.append(tab)
         selectedID = tab.id
         return tab
@@ -382,6 +400,9 @@ final class BrowserModel {
             store.proxyConfigurations = []
         }
         self.store = store
+        // Nothing visited over the proxy is written down. Recording it would
+        // undo most of the point of turning it on.
+        places.isPrivate = proxy != nil
 
         for tab in tabs where tab.currentURL != nil {
             tab.reload()

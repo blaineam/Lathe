@@ -255,6 +255,29 @@ public enum FormatSelector {
     ) throws -> FormatSelection {
         let preMuxed = bestVideo(from: candidates.filter(\.isPreMuxed), policy: policy)
 
+        // A page with no video on it is not a muxing problem.
+        //
+        // The container rules below exist because two streams are about to be
+        // joined into an MPEG-4 file. When there is only audio there is
+        // nothing to join: the rendition is downloaded as it stands, in its
+        // own container, and whether an MP4 could have held it never arises.
+        //
+        // Without this, an ordinary page with an MP3 on it failed with "every
+        // audio rendition here is in a codec an MPEG-4 file cannot hold
+        // (mp3)", which is true and beside the point.
+        //
+        // Asked of the *listing* and not of `candidates`: candidates have
+        // already been through the policy, so a `maximumHeight` low enough to
+        // exclude every video rendition would make a video page look like an
+        // audio-only one and quietly hand back the soundtrack. The question is
+        // whether the page has video on it, not whether any survived the
+        // filter.
+        if preMuxed == nil, !listing.formats.contains(where: \.hasVideo) {
+            if let audio = bestAudio(from: candidates.filter(\.isAudioOnly), policy: policy) {
+                return .single(audio)
+            }
+        }
+
         guard policy.allowsMuxing else {
             guard let preMuxed else {
                 throw MediaFetchError.noUsableFormat(
