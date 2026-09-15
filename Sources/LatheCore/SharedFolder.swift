@@ -110,7 +110,11 @@ public struct SharedFolder: Codable, Sendable, Equatable {
     }
 
     /// The file this process should write, found from the inside.
-    static func selfPublicationURL(
+    ///
+    /// Public because the publisher is the one side that cannot check its own
+    /// work with ``published(byBundleIdentifier:)`` — that call is computed
+    /// from a vantage point the publisher does not have.
+    public static func selfPublicationURL(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) throws -> URL {
@@ -152,6 +156,16 @@ public struct SharedFolder: Codable, Sendable, Equatable {
               isDirectory.boolValue
         else { return nil }
         return folder
+    }
+
+    /// Reads back what *this* application published, or nil.
+    public static func publishedByThisApplication() -> SharedFolder? {
+        guard let url = try? selfPublicationURL(),
+              let data = try? Data(contentsOf: url)
+        else { return nil }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(SharedFolder.self, from: data)
     }
 
     /// Stops publishing on behalf of another application.
