@@ -108,7 +108,19 @@ PY
 
 echo >&2
 echo "measuring an idle baseline for ${SECONDS_PER_CASE}s…" >&2
-BASELINE="$(sample idle "$BENCH" --loop idle "$SECONDS_PER_CASE")"
+# `sleep`, not a loop in our own binary. The baseline has to be the machine
+# doing nothing, and the cheapest way to be sure of that is to run something
+# that provably does nothing.
+BASELINE="$(sample idle sleep "$SECONDS_PER_CASE")"
+
+# What the machine was ACTUALLY doing during that window. A contaminated
+# baseline is the single easiest way to get a whole table of plausible-looking
+# wrong numbers, and it is invisible unless you look.
+echo >&2
+echo "busiest processes during the baseline:" >&2
+ps -Ao %cpu,comm -r 2>/dev/null | head -6 | sed 's/^/  /' >&2
+LOAD="$(uptime | sed 's/.*load averages*: //' | awk '{print $1}')"
+echo "  load average: $LOAD" >&2
 
 CASES=(
     "lathe-hevc|$BENCH|--loop|hevc|$SECONDS_PER_CASE"
@@ -126,14 +138,14 @@ done
 # for like rather than one long run against many short ones.
 SRC="$(ls "${TMPDIR:-/tmp}"/lathe-bench/source-5s.mov 2>/dev/null || true)"
 if [ -n "$SRC" ] && command -v ffmpeg >/dev/null; then
-    for pair in "ffmpeg-hevc-hw:-c:v hevc_videotoolbox -q:v 55" \
+    for pair in "ffmpeg-hevc-hw:-hwaccel videotoolbox -c:v hevc_videotoolbox -q:v 55" \
                 "ffmpeg-hevc-sw:-c:v libx265 -preset medium -crf 26"; do
         name="${pair%%:*}"; args="${pair#*:}"
         echo "measuring $name for ${SECONDS_PER_CASE}s…" >&2
         RESULTS+=("$(sample "$name" bash -c "
             end=\$(( \$(date +%s) + $SECONDS_PER_CASE )); n=0
             while [ \$(date +%s) -lt \$end ]; do
-                ffmpeg -nostdin -y -loglevel error -i '$SRC' $args '$WORK/out.mp4' || break
+                ffmpeg -nostdin -y -loglevel error $args -i '$SRC' '$WORK/out.mp4' || break
                 n=\$((n+1))
             done
             echo \$n")")
@@ -205,6 +217,26 @@ for label, iterations, rails in rows:
     energy = "— (baseline)" if label == "idle" else f"{joules:.1f} J"
     print(f"| {label} | {iterations or '—'} | " + " | ".join(cells)
           + f" | {energy} | {per} |")
+
+# A quiet Apple-silicon Mac idles in the hundreds of milliwatts. Anything near a
+# watt means something else was running, and every row below inherits it —
+# "energy above idle" is only meaningful if idle was idle.
+idle_combined = 0.0
+for name, (mean, _) in baseline.items():
+    if "Combined" in name:
+        idle_combined = mean
+if idle_combined > 3000:
+    print()
+    print(f"> **These numbers are not usable.** The idle baseline measured "
+          f"{idle_combined:.0f} mW. A quiet Apple-silicon Mac idles in the "
+          f"hundreds of milliwatts, so something else was running throughout — "
+          f"and every row above inherits it. Close other applications, wait for "
+          f"Spotlight and any file-provider sync to settle, check `uptime` shows "
+          f"a low load average, and run it again.")
+    print(">")
+    print("> The *ratios* between workloads survive a contaminated baseline "
+          "better than the absolute figures do, because every row was measured "
+          "under the same contamination — but do not publish the joules.")
 
 print()
 print("Energy above idle = (mean combined power − idle combined power) × window.")
