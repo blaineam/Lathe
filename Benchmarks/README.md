@@ -43,6 +43,24 @@ root does not build any of it.
 - **Rows Lathe loses are kept.** A table where one side wins everything is not
   believed, and would not be true.
 
+## Energy: asked for, and not answered
+
+The interesting claim about hardware encoding is **watts**, not seconds, and
+there is no trustworthy way to get that figure here — `powermetrics` needs root.
+
+**The CPU column is the closest honest proxy and it is not energy.** It
+*understates* what hardware costs, because a fixed-function encoder does its work
+in a block that never appears as CPU time at all. A row showing Lathe using 1/295
+of the CPU is showing where the work moved, not that it became free.
+
+`proc_pid_rusage`'s `ri_billed_energy` is readable without root and looked like
+the answer. It is reproducible across runs — hardware HEVC reports ~135,000,000
+units against `libx265`'s ~60,000 — and that is three orders of magnitude in the
+direction that says *hardware costs more*, which is almost certainly not what the
+field means. Its units and sampling are not documented well enough to publish. It
+is written down because it is a real reproducible observation, and kept out of
+the table because a number nobody can interpret does not belong in one.
+
 ## What the current results say
 
 **Parity where it should be.** WebP: same size to the byte, same SSIM, same
@@ -54,9 +72,22 @@ is ~97× faster than `ffprobe`, because the work is milliseconds and a process
 launch is not. Writing metadata is ~7× faster than `exiftool`, which also pays
 for a Perl interpreter. HEVC is ~4× faster than `x265` at medium.
 
-**Losses, kept.** `cjpeg` encodes JPEG twice as fast as ImageIO. And `x265`
-produces a much smaller file than the hardware encoder does — the hardware trades
-bits for speed and power, which is the deal it offers.
+**The VP9 row is the best evidence in the table**, because it is the only heavy
+row where the two sides land at the *same quality* — 92.16 against 92.13 VMAF,
+inside tolerance. At matched quality Lathe's file is 4.8% smaller, arrives 5.9×
+sooner, and costs **274× less CPU**. Nothing has to be taken on trust there.
+
+**Losses, kept.** `cjpeg` encodes JPEG twice as fast as ImageIO. `x265` produces
+a much smaller file than the hardware encoder — the hardware trades bits for
+speed and power, which is the deal it offers. And `cwebp` and `lame` are a hair
+faster than Lathe calling the same libraries, which is what "no difference" looks
+like when measured honestly.
+
+**AV1 is the row Lathe cannot answer at all.** Its encoder is a spike in a
+separate repository and does not ship, because 1.2–1.9 GB of working set is not
+a budget an iOS app can plan around. The AV1 row above is ffmpeg's, and it is
+there to show what reaching for AV1 costs today rather than to imply Lathe has
+an answer.
 
 ## What this does not measure
 

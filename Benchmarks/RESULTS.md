@@ -2,17 +2,19 @@
 
 ## Lathe against the tools
 
-| task | tool | Lathe | tool | speed | size | quality |
-|---|---|---|---|---|---|---|
-| WebP encode, 1920×1080, q80 | `cwebp` | 0.131 s | 0.130 s | 1.0× slower | 173 vs 173 KiB (0.0%) | 0.95 vs 0.95 SSIM |
-| JPEG encode, 1920×1080, q80 | `cjpeg (mozjpeg)` | 0.026 s | 0.012 s | 2.2× slower | 578 vs 257 KiB — *not matched* | 0.99 vs 0.95 SSIM ⚠︎ |
-| AVIF encode, 1920×1080, q80 | `avifenc (libaom)` | 0.059 s | 0.096 s | **1.6× faster** | 398 vs 389 KiB (+2.3%) | — |
-| HEVC transcode, 1080p30, 5 s | `ffmpeg −c:v libx265 −preset medium` | 0.696 s | 2.801 s | **4.0× faster** | 4508 vs 2761 KiB — *not matched* | 92.16 vs 88.15 VMAF ⚠︎ |
-| HEVC transcode, 1080p30, 5 s | `ffmpeg −c:v hevc_videotoolbox` | 0.691 s | 0.976 s | **1.4× faster** | 4508 vs 3607 KiB — *not matched* | 92.16 vs 86.24 VMAF ⚠︎ |
-| AAC encode, 10 s stereo 44.1 kHz | `ffmpeg −c:a aac` | 0.042 s | 0.139 s | **3.3× faster** | 171 vs 159 KiB (+7.6%) | — |
-| MP3 encode, 10 s stereo 44.1 kHz | `lame −V4` | 0.058 s | 0.058 s | **1.0× faster** | 206 vs 176 KiB (+17.0%) | — |
-| Probe a 1080p file (duration, tracks, codecs) | `ffprobe` | 0.001 s | 0.058 s | **97.4× faster** | — | — |
-| Write title and author into a JPEG | `exiftool` | 0.018 s | 0.123 s | **7.0× faster** | 620 vs 710 KiB (-12.7%) | — |
+| task | tool | Lathe | tool | speed | CPU | size | quality |
+|---|---|---|---|---|---|---|---|
+| WebP encode, 1920×1080, q80 | `cwebp` | 134.5 ms | 129.7 ms | 1.0× slower | 0.13 vs 0.13 s | 173 vs 173 KiB (0.0%) | 0.95 vs 0.95 SSIM |
+| JPEG encode, 1920×1080, q80 | `cjpeg (mozjpeg)` | 26.2 ms | 12.1 ms | 2.2× slower | 0.03 vs 0.01 s | 578 vs 257 KiB — *not matched* | 0.99 vs 0.95 SSIM ⚠︎ |
+| AVIF encode, 1920×1080, q80 | `avifenc (libaom)` | 59.0 ms | 113.6 ms | **1.9× faster** | 0.28 vs 0.60 s (**2× less**) | 398 vs 389 KiB (+2.3%) | — |
+| HEVC transcode, 1080p30, 5 s | `ffmpeg −c:v libx265 −preset medium` | 697.9 ms | 2.87 s | **4.1× faster** | 0.09 vs 26.38 s (**295× less**) | 4508 vs 2761 KiB — *not matched* | 92.16 vs 88.15 VMAF ⚠︎ |
+| HEVC transcode, 1080p30, 5 s | `ffmpeg −c:v hevc_videotoolbox` | 684.6 ms | 1.02 s | **1.5× faster** | 0.10 vs 3.02 s (**32× less**) | 4508 vs 3607 KiB — *not matched* | 92.16 vs 86.24 VMAF ⚠︎ |
+| 1080p30 5 s → AV1 | `ffmpeg −c:v libsvtav1` | 682.1 ms | 1.41 s | **2.1× faster** | 0.08 vs 11.81 s (**146× less**) | 4508 vs 3152 KiB — *not matched* | 92.16 vs 89.95 VMAF ⚠︎ |
+| 1080p30 5 s → VP9 | `ffmpeg −c:v libvpx-vp9` | 685.3 ms | 4.05 s | **5.9× faster** | 0.12 vs 32.50 s (**274× less**) | 4508 vs 4733 KiB (-4.8%) | 92.16 vs 92.13 VMAF |
+| AAC encode, 10 s stereo 44.1 kHz | `ffmpeg −c:a aac` | 43.4 ms | 139.1 ms | **3.2× faster** | 0.05 vs 0.14 s (**3× less**) | 171 vs 159 KiB (+7.6%) | — |
+| MP3 encode, 10 s stereo 44.1 kHz | `lame −V4` | 57.8 ms | 57.1 ms | 1.0× slower | 0.06 vs 0.06 s | 206 vs 176 KiB (+17.0%) | — |
+| Probe a 1080p file (duration, tracks, codecs) | `ffprobe` | 540 µs | 58.7 ms | **108.7× faster** | 0.00 vs 0.06 s | — | — |
+| Write title and author into a JPEG | `exiftool` | 17.3 ms | 123.3 ms | **7.1× faster** | 0.02 vs 0.12 s (**7× less**) | 620 vs 710 KiB (-12.7%) | — |
 
 ⚠︎ marks a row where the two sides did **not** land at the same quality, so
 the byte counts are not comparable and no percentage is claimed for them. Two
@@ -24,8 +26,10 @@ misleads in whichever direction the settings happened to fall.
 - **WebP encode, 1920×1080, q80** — Same library. Parity is the expected result and the point.
 - **JPEG encode, 1920×1080, q80** — ImageIO against a better JPEG encoder. Read the size column, not the clock.
 - **AVIF encode, 1920×1080, q80** — Apple's AVIF encoder against libaom's.
-- **HEVC transcode, 1080p30, 5 s** — Hardware against software. The clock is the claim; x265 wins on bits.
+- **HEVC transcode, 1080p30, 5 s** — Hardware against software. The CPU column is the real gap; x265 wins on bits.
 - **HEVC transcode, 1080p30, 5 s** — Same silicon both sides. What is left is process launch and muxing.
+- **1080p30 5 s → AV1** — Lathe ships HEVC, not AV1. This is what reaching for AV1 costs today.
+- **1080p30 5 s → VP9** — Lathe ships HEVC, not VP9. This is what reaching for VP9 costs today.
 - **AAC encode, 10 s stereo 44.1 kHz** — AudioToolbox against ffmpeg's built-in AAC. Not rate-matched, so read the clock rather than the bytes.
 - **MP3 encode, 10 s stereo 44.1 kHz** — Same encoder — Lathe vendors LAME — but `-V4` and quality(0.6) are not the same target, so the byte counts are not comparable.
 - **Probe a 1080p file (duration, tracks, codecs)** — Small work, so the process launch dominates. This is the in-process case.
@@ -41,6 +45,45 @@ misleads in whichever direction the settings happened to fall.
 - exiftool 13.55
 - lame LAME 64bits version 3.100 (http://lame.sf.net)
 - Apple M4 Pro, 14 cores, macOS Version 27.0 (Build 26A428)
+
+### On energy, which is the number people actually want
+
+**Not measured, and not for want of trying.** The interesting claim about
+hardware encoding is watts rather than seconds, and there is no way to get a
+trustworthy figure here: `powermetrics` needs root.
+
+The CPU column is the closest honest proxy and it is **not** energy. It
+understates what hardware costs, because a fixed-function encoder does its
+work in a block that never appears as CPU time at all — so a row showing
+Lathe using a fraction of the CPU is showing where the work moved, not that
+the work became free.
+
+`proc_pid_rusage`'s `ri_billed_energy` is readable without root and looked
+promising. It is reproducible — hardware HEVC reports ~135,000,000 units
+against `libx265`'s ~60,000 across repeated runs — and that ratio is three
+orders of magnitude in the direction that says hardware costs *more*, which
+is almost certainly not what it means. The field's units and sampling are not
+documented well enough to publish. It is recorded here because it is a real
+reproducible observation, and omitted from the table because a number nobody
+can interpret does not belong in one.
+
+### Not shipping: the codec spikes
+
+AV1 and WebM encoders exist as **spikes in separate repositories** and are
+not part of Lathe. The AV1 rows above are ffmpeg's, not Lathe's, and the
+comparison is what reaching for those codecs costs today.
+
+The spikes' own measurements, for context, at 1080p on this machine:
+
+| | binary | footprint | fastest usable |
+|---|---|---|---|
+| WebM (VP9 + Opus) | 1.14 MiB | 191–299 MB | 0.16 s/s |
+| AV1 (SVT-AV1) | 2.90 MiB | **1.2–1.9 GB** | 0.17 s/s |
+
+**AV1's memory is the reason it is not in Lathe.** 1.2–1.9 GB is not a budget
+an iOS app can plan around, and the ~570 MB configuration that would fit
+costs five to seven times the wall clock. That is the clearest thing in this
+whole document that Lathe cannot currently do.
 
 ### The row that cannot be measured here
 

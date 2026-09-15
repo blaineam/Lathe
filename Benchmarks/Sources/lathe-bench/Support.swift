@@ -6,10 +6,31 @@ import UniformTypeIdentifiers
 
 // MARK: - Running things
 
-/// One measured run of anything.
-struct Timing {
-    var seconds: Double
-    var peakResidentBytes: UInt64
+/// CPU seconds this process has used, user plus system.
+///
+/// Reported alongside wall clock because the two say different things: wall
+/// clock is what a user waits, and CPU time is what the machine spent. A row
+/// that is twice as fast on the clock and uses ten times the CPU has spent
+/// fourteen cores to get there, and a reader deserves to see that.
+func processCPUSeconds() -> Double {
+    var usage = rusage()
+    guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+    return Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1_000_000
+        + Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1_000_000
+}
+
+/// CPU seconds used by every child process reaped so far.
+func childCPUSeconds() -> Double {
+    var usage = rusage()
+    guard getrusage(RUSAGE_CHILDREN, &usage) == 0 else { return 0 }
+    return Double(usage.ru_utime.tv_sec) + Double(usage.ru_utime.tv_usec) / 1_000_000
+        + Double(usage.ru_stime.tv_sec) + Double(usage.ru_stime.tv_usec) / 1_000_000
+}
+
+/// One measured run: how long a user waited, and what the machine spent.
+struct Measurement {
+    var wallSeconds: Double
+    var cpuSeconds: Double
 }
 
 /// Runs a closure `repeats` times and keeps the FASTEST.
@@ -20,13 +41,29 @@ struct Timing {
 /// benchmark of this kind reports — so a mean here would not be comparable with
 /// the numbers a reader already has.
 func best(_ repeats: Int = 3, _ body: () async throws -> Void) async rethrows -> Double {
-    var fastest = Double.greatestFiniteMagnitude
+    try await bestMeasured(repeats, body).wallSeconds
+}
+
+/// ``best(_:_:)`` with the CPU cost of the fastest run alongside.
+///
+/// Both figures come from the SAME run rather than from separate bests, so the
+/// row is internally consistent — a wall time from one run beside a CPU time
+/// from another would describe an execution that never happened.
+func bestMeasured(
+    _ repeats: Int = 3, inProcess: Bool = true, _ body: () async throws -> Void
+) async rethrows -> Measurement {
+    var best = Measurement(wallSeconds: .greatestFiniteMagnitude, cpuSeconds: 0)
     for _ in 0..<repeats {
+        let cpuBefore = inProcess ? processCPUSeconds() : childCPUSeconds()
         let started = Date()
         try await body()
-        fastest = Swift.min(fastest, Date().timeIntervalSince(started))
+        let wall = Date().timeIntervalSince(started)
+        let cpu = (inProcess ? processCPUSeconds() : childCPUSeconds()) - cpuBefore
+        if wall < best.wallSeconds {
+            best = Measurement(wallSeconds: wall, cpuSeconds: Swift.max(0, cpu))
+        }
     }
-    return fastest
+    return best
 }
 
 /// Runs a command line, returning its wall time and output.
@@ -66,6 +103,17 @@ func byteCount(_ url: URL) -> Int {
 
 func format(_ value: Double, _ places: Int = 2) -> String {
     String(format: "%.\(places)f", value)
+}
+
+/// A duration at a resolution that says something.
+///
+/// A probe that takes 400 microseconds prints as "0.000 s" at three decimal
+/// places, which reads as "instant" when the point is that it is measurably not
+/// zero and the tool beside it took sixty milliseconds.
+func duration(_ seconds: Double) -> String {
+    if seconds < 0.001 { return "\(format(seconds * 1_000_000, 0)) µs" }
+    if seconds < 1 { return "\(format(seconds * 1000, 1)) ms" }
+    return "\(format(seconds, 2)) s"
 }
 
 /// A size difference as a percentage, negative meaning smaller.
