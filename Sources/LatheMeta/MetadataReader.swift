@@ -25,8 +25,15 @@ public struct MetadataReader: Sendable {
     public func read(_ url: URL) async throws -> MediaMetadata {
         try MetaFiles.requireReadableFile(at: url)
         switch try MetadataStore.detect(at: url) {
-        case .iTunesAtoms, .id3:
+        case .iTunesAtoms:
             return try await readAVFoundation(url)
+        case .id3:
+            // Read through this module's own parser rather than AVFoundation.
+            // The writer had to exist regardless, and reading through it means
+            // the two agree by construction — and that a file whose audio frames
+            // are damaged still reports its title, which is exactly the file
+            // someone is trying to fix.
+            return try ID3File.read(url)
         case .imageProperties:
             return try readImage(url)
         case .pdfInfo:

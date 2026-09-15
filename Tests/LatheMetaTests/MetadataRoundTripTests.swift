@@ -387,26 +387,29 @@ struct MetadataRoundTripTests {
         #expect(throws: LatheError.self) { try reader.store(of: text) }
     }
 
-    /// Reading MP3 tags works; writing them does not yet, and the refusal has to
-    /// say so rather than half-succeeding — a tag write that silently did
-    /// nothing is worse than one that failed.
-    @Test("writing MP3 tags is refused by name, not attempted")
-    func mp3WriteIsRefusedClearly() async throws {
+    /// An MP3 goes through the same public call as everything else, which is
+    /// the point of the normalised model: the caller does not have to know that
+    /// this one file has no container and its tags are a block bolted to the
+    /// front. See ``ID3Tests`` for the format itself.
+    @Test("an MP3 is written through the same API as everything else")
+    func mp3WritesThroughTheSameAPI() async throws {
         let directory = try DocumentFixtures.makeTemporaryDirectory("mp3")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        // An ID3v2 header followed by an MPEG frame sync is enough to be
-        // recognised as the ID3 store without being a decodable MP3.
-        var bytes = Data("ID3".utf8)
-        bytes.append(contentsOf: [0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-        bytes.append(contentsOf: [0xFF, 0xFB, 0x90, 0x00])
+        var bytes = Data([0xFF, 0xFB, 0x90, 0x00])
+        bytes.append(Data(repeating: 0x5A, count: 500))
         let mp3 = try DocumentFixtures.write(bytes, to: directory.appendingPathComponent("a.mp3"))
+        let output = directory.appendingPathComponent("b.mp3")
 
         #expect(try reader.store(of: mp3) == .id3)
-        await #expect(throws: LatheError.self) {
-            try await writer.write(MediaMetadata(title: "x"), to: mp3,
-                                   writingTo: directory.appendingPathComponent("b.mp3"))
-        }
+        let result = try await writer.write(
+            MediaMetadata(title: "Written", creators: ["Someone"]), to: mp3, writingTo: output
+        )
+        #expect(result.store == .id3)
+
+        let read = try await reader.read(output)
+        #expect(read.title == "Written")
+        #expect(read.creators == ["Someone"])
     }
 
     /// Metadata editing is the operation most likely to be asked for in place.

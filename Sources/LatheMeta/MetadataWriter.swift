@@ -57,6 +57,8 @@ public struct MetadataWriter: Sendable {
         let store = try MetadataStore.detect(at: source)
         let inputBytes = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
 
+        var unrepresented: [String] = []
+        var removedTrailingV1 = false
         let outputBytes: UInt64
         switch store {
         case .iTunesAtoms:
@@ -66,22 +68,22 @@ public struct MetadataWriter: Sendable {
         case .pdfInfo:
             outputBytes = try writePDF(metadata, source: source, destination: destination)
         case .id3:
-            // AVFoundation reads ID3 and cannot write it, and an MP3 tag is not
-            // a container rewrite — it is a length-prefixed block prepended to
-            // the audio frames, which needs a writer of its own. Refused by name
-            // rather than half-attempted, because the failure of a half-attempt
-            // is a file whose tags silently did not change.
-            throw LatheError.encodeUnavailable(
-                format: "ID3 writing (an MP3's tags need a writer this module does not have yet; "
-                    + "M4A carries the same facts and can be written)"
-            )
+            // Not a container rewrite: an MP3 has no container. The tag is a
+            // block bolted to the front of the MPEG frames, so this emits a new
+            // one and copies the audio across byte for byte. See ``ID3File``.
+            let written = try ID3File.write(metadata, source: source, destination: destination)
+            outputBytes = written.bytes
+            unrepresented = written.unrepresented
+            removedTrailingV1 = written.removedTrailingV1
         }
 
         return MetadataWriteResult(
             output: destination,
             store: store,
             inputByteCount: UInt64(inputBytes),
-            outputByteCount: outputBytes
+            outputByteCount: outputBytes,
+            unrepresentedFields: unrepresented,
+            removedTrailingID3v1: removedTrailingV1
         )
     }
 
@@ -266,10 +268,30 @@ public struct MetadataWriteResult: Sendable, Equatable {
     public var inputByteCount: UInt64
     public var outputByteCount: UInt64
 
-    public init(output: URL, store: MetadataStore, inputByteCount: UInt64, outputByteCount: UInt64) {
+    /// Fields the destination format has no way to express, named rather than
+    /// silently dropped. ID3 has no frame for a series and episode, so writing
+    /// television metadata into an MP3 loses it — and a caller who is told can
+    /// decide, where a caller who is not finds out months later.
+    public var unrepresentedFields: [String]
+
+    /// Whether a trailing 128-byte ID3v1 tag was removed. It is removed rather
+    /// than left to disagree with the v2 tag just written — see ``ID3File`` —
+    /// and reported because it is a change beyond the one that was asked for.
+    public var removedTrailingID3v1: Bool
+
+    public init(
+        output: URL,
+        store: MetadataStore,
+        inputByteCount: UInt64,
+        outputByteCount: UInt64,
+        unrepresentedFields: [String] = [],
+        removedTrailingID3v1: Bool = false
+    ) {
         self.output = output
         self.store = store
         self.inputByteCount = inputByteCount
         self.outputByteCount = outputByteCount
+        self.unrepresentedFields = unrepresentedFields
+        self.removedTrailingID3v1 = removedTrailingID3v1
     }
 }
