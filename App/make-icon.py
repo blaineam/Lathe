@@ -47,9 +47,15 @@ import sys
 
 CANVAS = 1024.0
 
-# The work, seen end-on.
-CENTRE = (CANVAS * 0.46, CANVAS * 0.55)
-RADIUS = CANVAS * 0.28
+# The work, seen end-on, at the exact centre of the canvas.
+#
+# Everything else hangs off it: the tool comes in to its face, the chip
+# leaves its rim. Composing the other way round — fitting the whole
+# figure's bounding box to the square — put the disc down and left, and an
+# icon whose subject is off-centre reads as a mistake however deliberate
+# the arrangement was.
+CENTRE = (CANVAS * 0.5, CANVAS * 0.5)
+RADIUS = CANVAS * 0.255
 
 # Where the tool is presenting, measured from the positive x axis. Up and
 # to the right, which is the direction the chip then unwinds away from.

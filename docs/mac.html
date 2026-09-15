@@ -22,7 +22,7 @@
 
 <header class="pagehead bleed">
   <div class="wrap">
-    <div class="label">macOS 26 &middot; free &middot; Apache-2.0</div>
+    <div class="label">macOS 26 &middot; free, and free of charge &middot; Apache-2.0</div>
     <h1>The Mac app</h1>
     <p class="lede">Paste one link or a hundred. Or browse to the page, signed in
     as yourself, and take what is on it. <b>Lathe works through them in the
@@ -96,10 +96,10 @@
     </div>
     <div class="cap">
       <h3>Hand off to Sami</h3>
-      <p>If Sami is installed, finished downloads go straight to it for conversion
-      or compression under whatever preset you have set there. If it is not, the
-      file simply lands in your folder.</p>
-      <span class="mono">Optional · security-scoped</span>
+      <p>Finished downloads go straight to Sami for compression or conversion,
+      with the operation and preset you chose travelling <em>with</em> them. If
+      Sami is not installed the file simply lands in your folder.</p>
+      <span class="mono">Handoff · one delivery</span>
     </div>
   </div>
 </section>
@@ -153,7 +153,33 @@
 
 <section class="wrap">
   <div class="sec-head">
-    <div class="label">04 — Building it</div>
+    <div class="label">04 — The hand-off</div>
+    <h2>Getting a file into a sandboxed app is the&nbsp;whole problem</h2>
+  </div>
+  <div class="prose">
+    <p>Sami is sandboxed, as anything from the App Store is. It cannot read a
+    folder Lathe picked, it cannot see Lathe&rsquo;s preferences, and the two do
+    not share a container &mdash; that would need both to be signed into the same
+    App Group, which a locally built tool is not.</p>
+    <p>What a sandbox <b>does</b> admit is a file the system handed it. Opening a
+    document in another application grants that application access to exactly
+    those files, through the same machinery that makes double-clicking work.</p>
+    <p class="pull">So the request travels as one of the files.</p>
+    <p>Lathe writes a small handoff document &mdash; what to do, which preset,
+    where the results should go &mdash; and opens it in Sami <em>alongside</em> the
+    media it describes. One delivery. The options and the files arrive together
+    or not at all, rather than as a URL and an open that can land in either
+    order, or only one of which lands.</p>
+    <p>The format is versioned, and a receiver that meets a newer one says so
+    rather than acting on the half it understood.</p>
+  </div>
+</section>
+
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">05 — Building it</div>
     <h2>One script, no project file</h2>
   </div>
   <pre><span class="c"># Builds build/Lathe.app</span>

@@ -1,4 +1,5 @@
 import AppKit
+import LatheCore
 import LatheFetch
 import SwiftUI
 
@@ -839,10 +840,26 @@ struct GeneralSettings: View {
             Section("Sami") {
                 Toggle("Hand finished files to Sami", isOn: $queue.handOffToSami)
                     .disabled(!queue.samiInstalled)
-                Text(queue.samiInstalled
-                     ? "Finished downloads open in Sami for compression or conversion."
-                     : "Sami is not installed.")
-                    .font(.caption).foregroundStyle(.secondary)
+
+                if queue.samiInstalled {
+                    Picker("Ask for", selection: $queue.samiIntent) {
+                        Text("Compression").tag(Handoff.Intent.compress)
+                        Text("Conversion").tag(Handoff.Intent.convert)
+                        Text("Let me choose in Sami").tag(Handoff.Intent.ask)
+                    }
+                    .disabled(!queue.handOffToSami)
+
+                    TextField("Preset name (optional)", text: $queue.samiPreset)
+                        .disabled(!queue.handOffToSami)
+
+                    Text("The request travels as a document opened alongside the "
+                         + "media, because that is the one thing a sandboxed app is "
+                         + "allowed to read from another.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Sami is not installed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .formStyle(.grouped)

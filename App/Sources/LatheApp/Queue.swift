@@ -765,14 +765,50 @@ final class Queue {
 
     // MARK: - Sami
 
+    /// What to ask Sami for. Mirrors Sami's own vocabulary.
+    var samiIntent: Handoff.Intent = .compress
+
+    /// The preset name to ask for, when the user has named one.
+    var samiPreset: String = ""
+
     private func openInSami(_ urls: [URL]) {
         guard let sami = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.samiBundleID)
         else { return }
-        // `open -a`, which is the arrangement that works without either app
-        // knowing anything about the other's internals. An App Intent would be
-        // better and is what the hand-off should become.
-        NSWorkspace.shared.open(urls, withApplicationAt: sami,
-                                configuration: NSWorkspace.OpenConfiguration())
+
+        let handoff = Handoff(
+            files: urls,
+            intent: samiIntent,
+            preset: samiPreset.isEmpty ? nil : samiPreset,
+            destination: destination ?? defaultDestination())
+
+        do {
+            // The request travels as a document opened alongside the media.
+            //
+            // Sami is sandboxed: it cannot read a folder we chose, see our
+            // preferences, or share a container with a locally built tool. The
+            // one thing it can read is a file the system handed it, and
+            // `open(_:withApplicationAt:)` grants access to exactly the files
+            // in the call. So the options ride in the same delivery as the
+            // media, and arrive or fail together.
+            let document = try handoff.write()
+            NSWorkspace.shared.open(
+                handoff.openList(documentAt: document),
+                withApplicationAt: sami,
+                configuration: NSWorkspace.OpenConfiguration())
+
+            // Left for Sami to read at its own pace, then swept. Deleting it
+            // straight away would race the open.
+            Task {
+                try? await Task.sleep(for: .seconds(60))
+                try? FileManager.default.removeItem(at: document.deletingLastPathComponent())
+            }
+        } catch {
+            summary = "Could not hand off to Sami: \(Self.describe(error))"
+            // The media still goes, without the options. A failed preference
+            // is not a reason to lose the files.
+            NSWorkspace.shared.open(urls, withApplicationAt: sami,
+                                    configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 
     // MARK: - Destination
