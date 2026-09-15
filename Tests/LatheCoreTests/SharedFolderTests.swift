@@ -149,4 +149,63 @@ struct SharedFolderTests {
         #expect(read.chosenBy == "Sami")
     }
 
+
+    // MARK: - App groups
+
+    /// **On iOS a path is not enough.** Neither side is unsandboxed and no app
+    /// can open another's container, so the folder itself has to live inside
+    /// ground both are entitled to.
+    ///
+    /// None of these ask the system for a container. On macOS that call
+    /// returns a URL for any identifier at all and **creates the directory**,
+    /// so a test that used it to stand in for "not entitled" would be testing
+    /// a behaviour that only exists on the other platform — and would litter
+    /// the developer's Group Containers folder on the way past. Which is
+    /// exactly what the first version of this suite did.
+    @Test func theChoiceSitsAtTheContainerRoot() {
+        let container = URL(fileURLWithPath: "/data/shared", isDirectory: true)
+        let url = SharedFolder.publicationURL(inContainer: container)
+
+        #expect(url.lastPathComponent == SharedFolder.fileName)
+        #expect(SharedFolder.isWithin(url, container))
+    }
+
+    @Test func aFolderInsideTheContainerRoundTrips() throws {
+        // A stand-in container, which is all the placement rules need.
+        let container = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: container) }
+        let target = container.appendingPathComponent("Downloads", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+
+        let folder = SharedFolder(path: target.path, chosenBy: "Sami")
+        try folder.publish(to: SharedFolder.publicationURL(inContainer: container))
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let data = try Data(contentsOf: SharedFolder.publicationURL(inContainer: container))
+        #expect(try decoder.decode(SharedFolder.self, from: data).path == target.path)
+    }
+
+    @Test func withdrawingFromAGroupThatIsNotThereIsQuiet() {
+        // Withdrawing is cleanup, and cleanup that throws on "there was
+        // nothing to clean" makes every caller write a guard. Safe to call
+        // with a real identifier shape because removeItem on a missing file
+        // is already a no-op here.
+        SharedFolder.withdraw(fromAppGroup: "group.com.blainemiller.absent")
+    }
+
+    @Test func reachabilityComparesWholePathComponents() throws {
+        // A prefix match on raw strings would call "/data/shared-evil"
+        // reachable from "/data/shared". The boundary matters because the
+        // answer gates a publish.
+        let container = URL(fileURLWithPath: "/data/shared", isDirectory: true)
+        let inside = URL(fileURLWithPath: "/data/shared/Downloads", isDirectory: true)
+        let sibling = URL(fileURLWithPath: "/data/shared-evil", isDirectory: true)
+
+        #expect(SharedFolder.isWithin(inside, container))
+        #expect(SharedFolder.isWithin(container, container))
+        #expect(!SharedFolder.isWithin(sibling, container))
+    }
+
 }

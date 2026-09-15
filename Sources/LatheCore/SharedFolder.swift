@@ -2,10 +2,18 @@ import Foundation
 
 /// The folder two applications agree to meet in.
 ///
-/// A macOS arrangement in practice — it exists because one app is sandboxed
-/// and the other is not, and on iOS there is no unsandboxed peer to meet. It
-/// compiles everywhere regardless, because LatheCore is linked by iOS targets
-/// that use entirely unrelated parts of it.
+/// There are two arrangements here, because the platforms differ in what is
+/// possible at all.
+///
+/// **On macOS** one app is sandboxed and the other is not. The sandboxed side
+/// owns the choice and publishes a plain path; the unsandboxed side reads it
+/// and writes there. See the rest of this note.
+///
+/// **On iOS** neither side is unsandboxed and no app can read another's
+/// container, so a path on its own is worth nothing — whatever it names, the
+/// other app is not permitted to open it. The only ground two applications
+/// share is an **App Group container**, and the shared folder has to live
+/// inside it. See ``publicationURL(inAppGroup:)``.
 ///
 /// ## The problem this exists for
 ///
@@ -155,13 +163,104 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         return publicationURL(forBundleIdentifier: identifier)
     }
 
+    // MARK: - App groups
+
+    /// The App Group container two applications share, or nil when this
+    /// application cannot have one.
+    ///
+    /// **The two platforms answer differently, and the difference matters.**
+    /// On iOS, nil means the entitlement is missing or misspelt — the usual
+    /// mistake, and the only signal there is, since the system does not
+    /// distinguish "not entitled" from "no such group". On macOS an
+    /// unsandboxed process gets a URL for *any* identifier, and asking
+    /// **creates the directory**: the call is not an entitlement check there,
+    /// and cannot be used as one.
+    ///
+    /// So a non-nil answer is not proof of a working group. It is only proof
+    /// that there is somewhere to write.
+    public static func appGroupContainer(_ groupIdentifier: String) -> URL? {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: groupIdentifier)
+    }
+
+    /// Where the choice is published for an App Group.
+    ///
+    /// The only arrangement available on iOS, and usable on macOS too when
+    /// both sides are sandboxed. Unlike the container path, this one is not
+    /// computed from a bundle identifier — a group container's location is the
+    /// system's business, and it is only reachable by an application actually
+    /// entitled to the group.
+    public static func publicationURL(inAppGroup groupIdentifier: String) -> URL? {
+        appGroupContainer(groupIdentifier).map(publicationURL(inContainer:))
+    }
+
+    /// Where the choice sits inside a container this caller already has.
+    ///
+    /// Split out from the lookup so the placement can be checked without
+    /// asking the system for a container — which, on macOS, would create one.
+    public static func publicationURL(inContainer container: URL) -> URL {
+        container.appendingPathComponent(fileName)
+    }
+
+    /// Publishes into an App Group.
+    ///
+    /// The folder named should itself be inside the group container. A path
+    /// outside it is one the reading side is not permitted to open, and
+    /// publishing it produces a destination that fails at the moment it is
+    /// used rather than at the moment it is chosen — see ``isReachable(in:)``.
+    public func publish(toAppGroup groupIdentifier: String) throws {
+        guard let url = Self.publicationURL(inAppGroup: groupIdentifier) else {
+            throw SharedFolderError.noAppGroup(groupIdentifier)
+        }
+        try publish(to: url)
+    }
+
+    /// Reads what was published into an App Group, or nil.
+    public static func published(inAppGroup groupIdentifier: String) -> SharedFolder? {
+        guard let url = publicationURL(inAppGroup: groupIdentifier) else { return nil }
+        return decode(at: url)
+    }
+
+    /// Stops publishing into an App Group.
+    public static func withdraw(fromAppGroup groupIdentifier: String) {
+        guard let url = publicationURL(inAppGroup: groupIdentifier) else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Whether this folder is somewhere the group's other members can actually
+    /// open.
+    ///
+    /// Checked before publishing rather than discovered afterwards: a path
+    /// outside the container is perfectly real to the app that chose it and
+    /// completely unreadable to the one it was chosen for, which is a failure
+    /// that shows up far from its cause.
+    public func isReachable(in groupIdentifier: String) -> Bool {
+        guard let container = Self.appGroupContainer(groupIdentifier) else { return false }
+        return Self.isWithin(url, container)
+    }
+
+    /// Whether `candidate` is the container or sits inside it.
+    ///
+    /// Compared on whole path components: a raw prefix match would accept
+    /// `/data/shared-evil` as being inside `/data/shared`, and this answer
+    /// gates a publish.
+    static func isWithin(_ candidate: URL, _ container: URL) -> Bool {
+        let root = container.standardizedFileURL.pathComponents
+        let mine = candidate.standardizedFileURL.pathComponents
+        guard mine.count >= root.count else { return false }
+        return Array(mine.prefix(root.count)) == root
+    }
+
     /// Reads what another application published, or nil.
     ///
     /// Nil covers every ordinary reason there is nothing: not installed, never
     /// configured, folder since deleted. None of those is a failure worth
     /// raising — the caller falls back to its own destination.
     public static func published(byBundleIdentifier identifier: String) -> SharedFolder? {
-        let url = publicationURL(forBundleIdentifier: identifier)
+        decode(at: publicationURL(forBundleIdentifier: identifier))
+    }
+
+    private static func decode(at url: URL) -> SharedFolder? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -190,5 +289,19 @@ public struct SharedFolder: Codable, Sendable, Equatable {
     /// Stops publishing on behalf of another application.
     public static func withdraw(forBundleIdentifier identifier: String) {
         try? FileManager.default.removeItem(at: publicationURL(forBundleIdentifier: identifier))
+    }
+}
+
+
+public enum SharedFolderError: Error, CustomStringConvertible {
+    /// This application is not a member of the group it tried to publish into.
+    /// An entitlement problem, not a runtime one.
+    case noAppGroup(String)
+
+    public var description: String {
+        switch self {
+        case .noAppGroup(let identifier):
+            return "this application is not entitled to the App Group \(identifier)"
+        }
     }
 }
