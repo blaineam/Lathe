@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """Generates App/Icon/Lathe.icon — a layered Icon Composer document.
 
-The mark is a ribbon with a twist in it: a band sweeping through an S,
-pinching to nothing where it turns edge-on, and showing its darker
-underside past each turn. It is the shape material takes coming off a
-tool, and the twist is what carries the idea — the same band, turned, is
-a different thing.
+The mark is a facing cut: the work seen end-on, a tool driven into its
+face at an angle, and the chip curling away from the cut. It is the
+operation the machine is named for, drawn as the three things actually
+involved.
 
-Five earlier attempts are recorded here so nobody draws them again:
+Seven earlier attempts are recorded here so nobody draws them again, and
+because the reasons are more useful than the drawings were:
 
-  1. Concentric rings. What a spinning thing looks like head-on, and
+  1. Concentric rings — what a spinning thing looks like head-on, and
      hypnotic in a Dock.
-  2. A download arrow. The most generic mark available; said nothing the
+  2. A download arrow — the most generic mark available; said nothing the
      app's name did not.
-  3. A turned spindle in silhouette. About lathes, but rendered as a
+  3. A turned spindle in silhouette — about lathes, but rendered as a
      chess pawn.
-  4. The chip curl on its own. A single open spiral is the Debian swirl.
-  5. The chip curl hanging off a pale upright cylinder. Fixed the swirl
-     problem and introduced a much worse one: a pale rounded capsule with
-     a string coming off it reads as a tampon, and nobody who sees that
-     can stop seeing it.
+  4. The chip curl alone — a single open spiral is the Debian swirl.
+  5. The chip on a pale upright cylinder — a capsule with a string coming
+     off it, which nobody can un-see as something else.
+  6. A twisted ribbon — the lobes read as leaves.
+  7. A stepped shaft, and a letterform L — both fine, neither loved.
 
-The lesson from 3 and 5 is the one worth keeping: at icon size a shape
-is whatever it most resembles, not whatever it depicts. Check the
-resemblance before the meaning.
+The lesson from 3 and 5 is the one worth keeping: at icon size a shape is
+whatever it most resembles, not whatever it depicts. Check the
+resemblance before the meaning. The lesson from this one is the opposite
+and just as important — the tool block reads as pasted-on to the person
+who drew it and as a tool to everyone else, so a second opinion beats a
+confident first one.
 
 Emitted as SVG inside a .icon bundle rather than a flattened .icns
 because that is what macOS 26 wants: the system owns the squircle, the
@@ -44,159 +47,161 @@ import sys
 
 CANVAS = 1024.0
 
-SWEEP = 0.86 * CANVAS      # how far the ribbon travels top to bottom
-AMPLITUDE = 0.135 * CANVAS  # how far it leans out of the vertical
-# Narrow on purpose. A twisted band seen straight on always makes lens
-# shapes, and a lens much wider than a third of its length stops reading
-# as ribbon and starts reading as leaf. Roughly 1:2.5 is where it turns.
-WIDTH = 0.122 * CANVAS      # the band's width seen flat on
-TILT = -14.0                # degrees off vertical, so it does not sit at attention
+# The work, seen end-on.
+CENTRE = (CANVAS * 0.46, CANVAS * 0.55)
+RADIUS = CANVAS * 0.28
 
-# The twist, in half-turns. Every time this passes an odd multiple of a
-# quarter turn the band is edge-on: zero width, and the face you were
-# looking at becomes the other one.
-#
-# Phase 0.5 with a whole number of half-turns puts a pinch at t=0 and at
-# t=1 as well as in between, so the band tapers to a point at both ends
-# instead of being cut off at full width. That matters more than it
-# sounds: an end cut across the width renders as a hard triangle, and
-# three hard triangles is a logo for something else entirely.
-TWIST = 3.0
-TWIST_PHASE = 0.5
+# Where the tool is presenting, measured from the positive x axis. Up and
+# to the right, which is the direction the chip then unwinds away from.
+TOOL_ANGLE = -52.0
+# How far into the work the cut goes, as a fraction of the radius.
+DEPTH = 0.26
+
+CHIP_START = -18.0     # degrees; where the chip leaves the rim
+CHIP_TURNS = 0.52      # how far round it travels before it runs out
+CHIP_WIDTH = 0.050     # of the canvas, at its thickest
+CHIP_TAPER = 1.7       # how sharply it thins toward the tip
 
 
-def spine(t):
-    """The path the band travels, as a point."""
-    return (AMPLITUDE * math.sin(math.pi * (t * 2.0 - 0.5)),
-            (t - 0.5) * SWEEP)
+def chip_path(samples=220):
+    """The chip, peeling off the rim and unwinding outward.
 
-
-def twist_angle(t):
-    return math.pi * (TWIST_PHASE + t * TWIST)
-
-
-def band(samples=400):
-    """The band, cut into pieces at every point where it turns edge-on.
-
-    Returned as a list of (points, facing) where facing is +1 for the
-    side lit by the gradient and -1 for the underside. The pieces are
-    disjoint — the band does not overlap itself — so they can be filled
-    independently and in any order without occlusion to reason about.
+    Thin where it leaves the metal, thickest just after, tapering to a
+    point. A chip drawn at full width from its first sample has a blunt
+    flag on the leading end and reads as a loading spinner rather than as
+    material coming off a cut.
     """
-    pieces = []
-    current, facing = [], None
-
-    for i in range(samples + 1):
-        t = i / samples
-        x, y = spine(t)
-        after, before = spine(min(t + 1e-3, 1.0)), spine(max(t - 1e-3, 0.0))
-        dx, dy = after[0] - before[0], after[1] - before[1]
-        length = math.hypot(dx, dy) or 1.0
-        nx, ny = -dy / length, dx / length
-
-        # Foreshortening: a band rotated by φ about its own axis presents
-        # cos φ of its width. The sign of that cosine is which face is
-        # toward the viewer, and a sign change is the edge-on moment.
-        projected = math.cos(twist_angle(t))
-        side = 1 if projected >= 0 else -1
-        half = 0.5 * WIDTH * abs(projected)
-
-        if facing is None:
-            facing = side
-        if side != facing:
-            # Close the piece exactly at the pinch, where the width is
-            # zero, so consecutive pieces meet at a point instead of
-            # leaving a notch or overlapping by a sample.
-            current.append(((x, y), (x, y)))
-            pieces.append((current, facing))
-            current, facing = [((x, y), (x, y))], side
-
-        current.append(((x + nx * half, y + ny * half),
-                        (x - nx * half, y - ny * half)))
-
-    if current:
-        pieces.append((current, facing))
-    return pieces
+    cx, cy = CENTRE
+    outer, inner = [], []
+    start = math.radians(CHIP_START)
+    for index in range(samples + 1):
+        t = index / samples
+        angle = start + t * CHIP_TURNS * 2 * math.pi
+        # Unwinds away from the rim rather than spiralling into itself.
+        radius = RADIUS + t * RADIUS * 0.62
+        ramp = min(1.0, t / 0.16)
+        width = CHIP_WIDTH * CANVAS * ramp * (1.0 - t) ** CHIP_TAPER
+        x, y = cx + radius * math.cos(angle), cy + radius * math.sin(angle)
+        nx, ny = math.cos(angle), math.sin(angle)
+        outer.append((x + nx * width, y + ny * width))
+        inner.append((x - nx * width, y - ny * width))
+    points = outer + list(reversed(inner))
+    head = "M %.1f %.1f" % points[0]
+    return head + " " + " ".join("L %.1f %.1f" % p for p in points[1:]) + " Z"
 
 
-def outline(piece):
-    """One side of the band and back along the other."""
-    return [a for a, _ in piece] + [b for _, b in reversed(piece)]
+def tool_path():
+    """The tool, as the flat it has cut plus the body behind it.
 
-
-def rotate(groups, degrees):
-    a = math.radians(degrees)
-    cos, sin = math.cos(a), math.sin(a)
-    return [[(x * cos - y * sin, x * sin + y * cos) for x, y in g]
-            for g in groups]
-
-
-def fit(groups, box=0.86):
-    """Centre the whole composition and scale it to fill `box` of the canvas.
-
-    Computed rather than hand-placed: the band's extent depends on the
-    twist and the sweep together, and a figure sitting off-centre in the
-    squircle is the kind of thing nobody can un-see.
+    A chord rather than a wedge: a facing cut leaves a flat, and a wedge
+    driven into a circle is a pie slice, which is what the first version
+    of this looked like.
     """
-    xs = [x for g in groups for x, _ in g]
-    ys = [y for g in groups for _, y in g]
-    scale = box * CANVAS / max(max(xs) - min(xs), max(ys) - min(ys))
-    cx, cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
-    return [[((x - cx) * scale + CANVAS / 2, (y - cy) * scale + CANVAS / 2)
-             for x, y in g] for g in groups]
+    cx, cy = CENTRE
+    a = math.radians(TOOL_ANGLE)
+    depth = RADIUS * DEPTH
+    hx, hy = math.cos(a), math.sin(a)            # into the work
+    tx, ty = -hy, hx                             # across the cutting edge
+
+    # The cutting edge sits at the chord; the body extends back out of the
+    # work along the same axis.
+    px, py = cx + (RADIUS - depth) * hx, cy + (RADIUS - depth) * hy
+    half = math.sqrt(max(0.0, RADIUS * RADIUS - (RADIUS - depth) ** 2))
+    back = depth * 2.0
+
+    # Narrower at the tip than at the back, which is the shape of every
+    # tool that has to clear its own cut.
+    relief = 0.82
+    return (
+        f"M {px + tx * half:.1f} {py + ty * half:.1f} "
+        f"L {px - tx * half:.1f} {py - ty * half:.1f} "
+        f"L {px - tx * half / relief + hx * back:.1f} "
+        f"{py - ty * half / relief + hy * back:.1f} "
+        f"L {px + tx * half / relief + hx * back:.1f} "
+        f"{py + ty * half / relief + hy * back:.1f} Z"
+    )
 
 
-def path(points):
-    head = f"M {points[0][0]:.2f} {points[0][1]:.2f}"
-    rest = " ".join(f"L {x:.2f} {y:.2f}" for x, y in points[1:])
-    return f"{head} {rest} Z"
+def cutting_edge():
+    """A bright line along the tool's tip.
+
+    Without it the tool is a silhouette, and a dark shape overlapping a
+    pale one reads as a hole in the pale one rather than as an object in
+    front of it.
+    """
+    cx, cy = CENTRE
+    a = math.radians(TOOL_ANGLE)
+    depth = RADIUS * DEPTH
+    hx, hy = math.cos(a), math.sin(a)
+    tx, ty = -hy, hx
+    px, py = cx + (RADIUS - depth) * hx, cy + (RADIUS - depth) * hy
+    half = math.sqrt(max(0.0, RADIUS * RADIUS - (RADIUS - depth) ** 2))
+    width = CANVAS * 0.011
+    return (
+        f"M {px + tx * half:.1f} {py + ty * half:.1f} "
+        f"L {px - tx * half:.1f} {py - ty * half:.1f} "
+        f"L {px - tx * half + hx * width:.1f} {py - ty * half + hy * width:.1f} "
+        f"L {px + tx * half + hx * width:.1f} {py + ty * half + hy * width:.1f} Z"
+    )
+
+
+DEFS = (
+    '  <defs>\n'
+    '    <linearGradient id="chip" x1="0.15" y1="0" x2="0.85" y2="1">\n'
+    '      <stop offset="0" stop-color="#FFCE7C"/>\n'
+    '      <stop offset="0.5" stop-color="#FFA23C"/>\n'
+    '      <stop offset="1" stop-color="#EF7A12"/>\n'
+    '    </linearGradient>\n'
+    '    <linearGradient id="work" x1="0.1" y1="0" x2="0.9" y2="1">\n'
+    '      <stop offset="0" stop-color="#F2F5FC"/>\n'
+    '      <stop offset="1" stop-color="#94A5C2"/>\n'
+    '    </linearGradient>\n'
+    '    <linearGradient id="tool" x1="0" y1="0" x2="1" y2="1">\n'
+    '      <stop offset="0" stop-color="#232838"/>\n'
+    '      <stop offset="1" stop-color="#11131D"/>\n'
+    '    </linearGradient>\n'
+    '  </defs>\n'
+)
+
+
+def svg(body):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" '
+            f'viewBox="0 0 1024 1024">\n{DEFS}{body}\n</svg>\n')
 
 
 def main(root):
     assets = root / "Lathe.icon" / "Assets"
     assets.mkdir(parents=True, exist_ok=True)
 
-    pieces = band()
-    shapes = fit(rotate([outline(p) for p, _ in pieces], TILT))
-    facings = [f for _, f in pieces]
+    cx, cy = CENTRE
+    # The work and the tool in one layer, because the tool is *in* the cut
+    # and a separate group would give it its own shadow and lift it off.
+    (assets / "work.svg").write_text(svg(
+        f'  <circle cx="{cx:.1f}" cy="{cy:.1f}" r="{RADIUS:.1f}" fill="url(#work)"/>\n'
+        f'  <path d="{tool_path()}" fill="url(#tool)"/>\n'
+        f'  <path d="{cutting_edge()}" fill="#BFC9DE" fill-opacity="0.75"/>'))
 
-    # One hue. The face is bright and the underside is the same colour in
-    # shadow, because that is what a twist looks like — not two colours,
-    # one colour and one light source.
-    defs = (
-        '  <defs>\n'
-        '    <linearGradient id="face" x1="0.1" y1="0" x2="0.9" y2="1">\n'
-        '      <stop offset="0" stop-color="#FFD089"/>\n'
-        '      <stop offset="0.55" stop-color="#FFA83E"/>\n'
-        '      <stop offset="1" stop-color="#F2801B"/>\n'
-        '    </linearGradient>\n'
-        '    <linearGradient id="back" x1="0.1" y1="0" x2="0.9" y2="1">\n'
-        '      <stop offset="0" stop-color="#C87418"/>\n'
-        '      <stop offset="1" stop-color="#9C5410"/>\n'
-        '    </linearGradient>\n'
-        '  </defs>\n'
-    )
-    body = "\n".join(
-        f'  <path d="{path(shape)}" fill="url(#{"face" if facing > 0 else "back"})"/>'
-        for shape, facing in zip(shapes, facings))
-    (assets / "ribbon.svg").write_text(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" '
-        f'viewBox="0 0 1024 1024">\n{defs}{body}\n</svg>\n')
+    # The chip is its own group so the system gives it its own depth: it is
+    # the one thing here that is genuinely in front of everything else.
+    (assets / "chip.svg").write_text(svg(
+        f'  <path d="{chip_path()}" fill="url(#chip)"/>'))
 
     document = {
         "fill": {
-            "automatic-gradient": "extended-srgb:0.094,0.106,0.180,1.000"
+            "automatic-gradient": "extended-srgb:0.086,0.098,0.169,1.000"
         },
         "groups": [
             {
-                # One group, not one per piece: the pieces are parts of a
-                # single band, and separate groups would give each its own
-                # shadow and pull the band apart at the twists.
-                "layers": [{"image-name": "ribbon.svg", "name": "Ribbon"}],
-                "shadow": {"kind": "neutral", "opacity": 0.6},
+                "layers": [{"image-name": "work.svg", "name": "Work"}],
+                "shadow": {"kind": "neutral", "opacity": 0.5},
+                "translucency": {"enabled": False, "value": 0.5},
+            },
+            {
+                "layers": [{"image-name": "chip.svg", "name": "Chip"}],
+                "shadow": {"kind": "neutral", "opacity": 0.65},
                 "specular": True,
                 "translucency": {"enabled": False, "value": 0.5},
-            }
+            },
         ],
         "supported-platforms": {"circles": ["watchOS"], "squares": "shared"},
     }

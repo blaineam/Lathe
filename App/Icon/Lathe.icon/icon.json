@@ -1,18 +1,34 @@
 {
   "fill": {
-    "automatic-gradient": "extended-srgb:0.094,0.106,0.180,1.000"
+    "automatic-gradient": "extended-srgb:0.086,0.098,0.169,1.000"
   },
   "groups": [
     {
       "layers": [
         {
-          "image-name": "ribbon.svg",
-          "name": "Ribbon"
+          "image-name": "work.svg",
+          "name": "Work"
         }
       ],
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.6
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "chip.svg",
+          "name": "Chip"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.65
       },
       "specular": true,
       "translucency": {
