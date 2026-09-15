@@ -154,6 +154,49 @@ public enum DocumentFixtures {
         }
     }
 
+    /// A PDF whose every page says which page it is.
+    ///
+    /// Exists for the editing tests, which have to assert that page 3 of the
+    /// output is page 3 of the source. A fixture with identical pages cannot
+    /// tell a correct reorder from one that did nothing, so each page here
+    /// carries its own marker and the assertion reads the markers back.
+    ///
+    /// - Parameter labels: one label per page, drawn large. `PAGE-1` and so on
+    ///   by default.
+    public static func labelledPDF(
+        labels: [String],
+        size: CGSize = CGSize(width: 400, height: 300)
+    ) throws -> Data {
+        try pdf { context in
+            for label in labels {
+                beginPage(context, box: CGRect(origin: .zero, size: size))
+                let font = CTFontCreateWithName("Helvetica" as CFString, 36, nil)
+                let line = CTLineCreateWithAttributedString(NSAttributedString(
+                    string: label,
+                    attributes: [
+                        kCTFontAttributeName as NSAttributedString.Key: font,
+                        kCTForegroundColorAttributeName as NSAttributedString.Key:
+                            CGColor(gray: 0, alpha: 1),
+                    ]
+                ))
+                context.setTextDrawingMode(.fill)
+                context.textMatrix = .identity
+                context.textPosition = CGPoint(x: 30, y: size.height - 80)
+                CTLineDraw(line, context)
+                context.endPDFPage()
+            }
+        }
+    }
+
+    /// `labelledPDF` with the conventional `PAGE-1`… labels.
+    public static func numberedPDF(
+        pageCount: Int,
+        prefix: String = "PAGE",
+        size: CGSize = CGSize(width: 400, height: 300)
+    ) throws -> Data {
+        try labelledPDF(labels: (1...pageCount).map { "\(prefix)-\($0)" }, size: size)
+    }
+
     /// A one-page "scan": an image PDF, optionally with a non-zero MediaBox
     /// origin and a `/Rotate`.
     ///

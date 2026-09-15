@@ -13,9 +13,55 @@ struct ZIPEntry: Sendable, Equatable {
     let compressedSize: UInt64
     let uncompressedSize: UInt64
     let localHeaderOffset: UInt64
+    /// The entry's CRC-32 as the archive recorded it.
+    ///
+    /// Read rather than recomputed, because the only thing that needs it is
+    /// rewriting an archive without decompressing anything: a new header has to
+    /// carry the same checksum the old one did, and computing it would mean
+    /// inflating the payload purely to restate a number already on disk.
+    let crc32: UInt32
+    /// The MS-DOS modification time and date words, kept paired and opaque.
+    ///
+    /// Carried through an edit unchanged so that rearranging an archive does not
+    /// restamp every page to the moment of the edit.
+    let modificationTime: UInt16
+    let modificationDate: UInt16
+    /// The general-purpose bit flag. Bit 3 says the sizes in the LOCAL header
+    /// are zero and the real ones follow the payload in a data descriptor —
+    /// which is why a rewriter must take sizes from the central directory, as
+    /// this reader does, rather than from where they appear to be.
+    let flags: UInt16
     /// The MS-DOS / Unix attribute word, used only to recognise a directory
     /// that was written without a trailing slash.
     let externalAttributes: UInt32
+
+    /// The checksum, timestamps and flags default because the page rules do not
+    /// consult them: a test constructing an entry to ask "is this a page?" has
+    /// no CRC to supply and inventing one would be noise. The parser always
+    /// passes all of them, and the rewriter is the only reader of them.
+    init(
+        name: String,
+        compressionMethod: UInt16,
+        compressedSize: UInt64,
+        uncompressedSize: UInt64,
+        localHeaderOffset: UInt64,
+        crc32: UInt32 = 0,
+        modificationTime: UInt16 = 0,
+        modificationDate: UInt16 = 0,
+        flags: UInt16 = 0,
+        externalAttributes: UInt32
+    ) {
+        self.name = name
+        self.compressionMethod = compressionMethod
+        self.compressedSize = compressedSize
+        self.uncompressedSize = uncompressedSize
+        self.localHeaderOffset = localHeaderOffset
+        self.crc32 = crc32
+        self.modificationTime = modificationTime
+        self.modificationDate = modificationDate
+        self.flags = flags
+        self.externalAttributes = externalAttributes
+    }
 
     /// The last path component.
     var baseName: String {
@@ -122,7 +168,9 @@ enum ZIPDirectory {
             reader.skip(4)                                   // versions
             let flags = try reader.u16()
             let method = try reader.u16()
-            reader.skip(8)                                   // time, date, crc32
+            let modTime = try reader.u16()
+            let modDate = try reader.u16()
+            let crc = try reader.u32()
             var compressed = UInt64(try reader.u32())
             var uncompressed = UInt64(try reader.u32())
             let nameLength = Int(try reader.u16())
@@ -154,6 +202,10 @@ enum ZIPDirectory {
                 compressedSize: compressed,
                 uncompressedSize: uncompressed,
                 localHeaderOffset: localOffset,
+                crc32: crc,
+                modificationTime: modTime,
+                modificationDate: modDate,
+                flags: flags,
                 externalAttributes: externalAttributes
             ))
         }
@@ -198,6 +250,39 @@ enum ZIPDirectory {
 
         if entry.compressionMethod == 0 { return compressed }
         return try inflate(compressed, to: Int(entry.uncompressedSize), name: entry.baseName)
+    }
+
+    /// The entry's payload exactly as it sits in the archive, still compressed.
+    ///
+    /// What rearranging an archive uses. Copying the stored bytes means an edit
+    /// never decodes a page and never re-encodes one, so the images in the
+    /// result are bit-for-bit the images in the source — the edit changed the
+    /// order, and provably nothing else.
+    ///
+    /// Unlike ``extract(_:from:name:)`` this places no restriction on the
+    /// compression method: a method this package cannot decompress can still be
+    /// copied through untouched, which is the one useful thing to do with it.
+    static func rawPayload(_ entry: ZIPEntry, from url: URL, name: String) throws -> Data {
+        guard entry.compressedSize <= UInt64(Int.max) else {
+            throw LatheError.invalidInput(reason: "\(entry.baseName) is implausibly large")
+        }
+        let handle = try open(url, name: name)
+        defer { try? handle.close() }
+
+        // As in extract: the local header's extra field is routinely a different
+        // length from the central directory's copy, so the payload offset is
+        // computed from the local header rather than the central record.
+        let header = try read(handle, at: entry.localHeaderOffset, count: 30, name: name)
+        var reader = ByteReader(header)
+        guard try reader.u32() == localFileHeaderSignature else {
+            throw LatheError.invalidInput(reason: "\(entry.baseName) has no local header in \(name)")
+        }
+        reader.skip(22)
+        let nameLength = Int(try reader.u16())
+        let extraLength = Int(try reader.u16())
+
+        let payloadOffset = entry.localHeaderOffset &+ 30 &+ UInt64(nameLength) &+ UInt64(extraLength)
+        return try read(handle, at: payloadOffset, count: Int(entry.compressedSize), name: name)
     }
 
     // MARK: - Locating the central directory
