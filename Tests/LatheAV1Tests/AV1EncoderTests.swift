@@ -199,6 +199,13 @@ struct AV1EncoderTests {
     }
 }
 
+/// Whether this process runs in a virtual machine.
+let isVirtualMachine: Bool = {
+    var value: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    return sysctlbyname("kern.hv_vmm_present", &value, &size, nil, 0) == 0 && value == 1
+}()
+
 /// Clips built on demand, so the suite carries no binary media.
 enum Clips {
     struct ClipOptions {
@@ -452,7 +459,10 @@ enum Clips {
 
         let codec = CMFormatDescriptionGetMediaSubType(format)
         var decoded: Int?
-        if codec != kCMVideoCodecType_AV1 || VTIsHardwareDecodeSupported(codec) {
+        // A virtual Mac — GitHub's runners are — reports the host's AV1
+        // decoder as supported and then fails every decode, so there the
+        // frames are counted without decoding, as on a machine with none.
+        if codec != kCMVideoCodecType_AV1 || (VTIsHardwareDecodeSupported(codec) && !isVirtualMachine) {
             let reader = try AVAssetReader(asset: asset)
             let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
