@@ -89,6 +89,41 @@ struct ChapterWriterTests {
         #expect(result.chapters.count == Self.chapters.count)
     }
 
+    /// **The same fallback on the tag-only path.** A tag edit of an `.mp4`
+    /// with no chapters goes through the passthrough export rather than
+    /// ``ChapterWriter``, and loses the same tags on the same systems, so it
+    /// retries with the same brand. Forced here for the same reason as above.
+    @Test("an .mp4 tag write through the M4V fallback keeps every tag")
+    func mp4TagWriteFallbackKeepsTags() async throws {
+        guard let plain = await chaptered("mp4", chapters: [], name: "fallback-plain.mp4") else { return }
+        let png = try DocumentFixtures.solidPNG(gray: 0.6)
+        let art = try #require(Artwork(sniffing: png))
+
+        var meta = MediaMetadata()
+        meta.title = "Plain fallback"
+        meta.creators = ["Someone"]
+        meta.genre = "Drama"
+        meta.kind = .tvShow
+        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 1, episodeNumber: 4)
+        meta.artwork = [art]
+
+        var writer = MetadataWriter()
+        writer.mp4FileTypes = [.m4v]
+        let output = await scratch("fallback-plain-out.mp4")
+        try await writer.write(meta, to: plain, writingTo: output)
+
+        #expect(output.pathExtension == "mp4")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "Plain fallback")
+        #expect(back.creators == ["Someone"])
+        #expect(back.genre == "Drama")
+        #expect(back.show?.episodeNumber == 4)
+        #expect(back.artwork.first?.data == png)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix(".lathe-") }
+        #expect(leftovers.isEmpty, "scratch files were left: \(leftovers)")
+    }
+
     /// The fast path stays fast: a file with no chapters is exported once and
     /// never remuxed.
     @Test("a file with no chapters is not remuxed by a tag write")
