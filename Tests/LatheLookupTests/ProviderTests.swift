@@ -563,4 +563,40 @@ struct ProviderTests {
         #expect(matches.first?.title == "A Show")
     }
 
+
+    // MARK: - The message a person actually sees
+
+    /// **An `Error` without `LocalizedError` reports as a case index.** This
+    /// shipped: a sandboxed app with no outgoing-connections entitlement put
+    /// "LatheLookup.LookupError error 4." in front of a user, which tells them
+    /// to go and count enum cases.
+    @Test("every failure explains itself in words")
+    func errorsAreReadable() {
+        let cases: [LookupError] = [
+            .notConfigured(provider: "TMDb", requirement: "a key"),
+            .unauthorised(provider: "TMDb", detail: "401"),
+            .rateLimited(provider: "TMDb", retryAfter: 30),
+            .malformedResponse(provider: "TMDb", detail: "no results field"),
+            .transport(provider: "TMDb", detail: "offline"),
+            .emptyQuery,
+        ]
+        for failure in cases {
+            let message = (failure as any Error).localizedDescription
+            #expect(message == failure.description)
+            // The generic NSError text this replaces looks like
+            // "... (LatheLookup.LookupError error 4.)".
+            #expect(!message.contains("LookupError error"))
+            #expect(!message.isEmpty)
+            #expect(failure.recoverySuggestion?.isEmpty == false)
+        }
+    }
+
+    /// The transport case is the one that was misread as a credential problem,
+    /// so its advice names the cause that is easy to miss.
+    @Test("an unreachable provider mentions the sandbox entitlement")
+    func transportMentionsTheEntitlement() {
+        let failure = LookupError.transport(provider: "TMDb", detail: "offline")
+        #expect(failure.recoverySuggestion?.contains("entitlement") == true)
+    }
+
 }
