@@ -64,7 +64,11 @@ struct VideoTranscoderTests {
     // MARK: - Quality
 
     /// The headline claim: the quality knob is connected to something.
-    @Test("a lower quality target produces a smaller file")
+    /// The iOS Simulator encodes in software, and its HEVC encoder accepts
+    /// `Quality` and then ignores it: both files come out byte-for-byte the
+    /// same size. Devices and Macs encode in hardware, where it is honoured.
+    @Test("a lower quality target produces a smaller file",
+          .disabled(if: runningInSimulator, "the simulator's software encoder ignores Quality"))
     func lowerQualityIsSmaller() async throws {
         guard let source = await noiseMovie() else { return }
         let low = await FixtureLibrary.shared.scratchURL(named: "quality-low.mov")
@@ -126,10 +130,15 @@ struct VideoTranscoderTests {
             to: await FixtureLibrary.shared.scratchURL(named: "rate-factor.mov"),
             quality: .constantQualityFactor(0.4)
         )
+        // A software encoder may take neither key, and then the documented
+        // last resort is a derived bitrate — which the simulator's does.
+        let fellBackToBitrate: Bool
+        if case .averageBitrate = factor.rateControl { fellBackToBitrate = true } else { fellBackToBitrate = false }
         #expect(
             factor.rateControl == .constantQualityFactor(0.4)
-                || factor.rateControl == .constantQuality(0.4),
-            "unexpected fallback"
+                || factor.rateControl == .constantQuality(0.4)
+                || fellBackToBitrate,
+            "unexpected fallback: \(factor.rateControl)"
         )
     }
 
@@ -569,3 +578,13 @@ private final class Recorder: @unchecked Sendable {
         return storage.count
     }
 }
+
+/// Whether these tests are running in the iOS Simulator, whose encoders are
+/// software stand-ins for the hardware ones.
+let runningInSimulator: Bool = {
+    #if targetEnvironment(simulator)
+    true
+    #else
+    false
+    #endif
+}()

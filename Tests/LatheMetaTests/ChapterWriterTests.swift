@@ -49,6 +49,108 @@ struct ChapterWriterTests {
         #expect([0, Self.chapters.count].contains(result.restoredChapterCount))
     }
 
+    /// **The fallback for an `.mp4` that loses its tags.**
+    ///
+    /// On macOS 26 the MPEG-4 file type keeps a title and drops the artist, the
+    /// artwork, the track and the episode, so `ChapterWriter` writes such a file
+    /// again with the M4V brand. The machine this was written on does not lose
+    /// the tags, so the fallback never runs by itself here; the writer is told
+    /// to go straight to it, and the output is checked the same way the normal
+    /// path's is. A `.mp4` name and M4V contents is what ships on those systems.
+    @Test("an .mp4 written through the M4V fallback keeps every tag and chapter")
+    func mp4FallbackKeepsTags() async throws {
+        guard let source = await chaptered("mp4") else { return }
+        let png = try DocumentFixtures.solidPNG(gray: 0.4)
+        let art = try #require(Artwork(sniffing: png))
+
+        var meta = MediaMetadata()
+        meta.title = "Through the fallback"
+        meta.creators = ["Someone"]
+        meta.kind = .tvShow
+        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 1, episodeNumber: 4)
+        meta.track = TrackInfo(trackNumber: 3, trackCount: 9)
+        meta.artwork = [art]
+
+        var writer = ChapterWriter()
+        writer.mp4FileTypes = [.m4v]
+        let output = await scratch("fallback-out.mp4")
+        let result = try await writer.write(
+            Self.chapters, into: source, writingTo: output,
+            metadata: MetadataItemBuilder.items(for: meta), progress: .ignoring())
+
+        #expect(output.pathExtension == "mp4", "the fallback renamed the user's file")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "Through the fallback")
+        #expect(back.creators == ["Someone"])
+        #expect(back.artwork.first?.data == png)
+        #expect(back.track?.trackNumber == 3)
+        #expect(back.show?.episodeNumber == 4)
+        expectSame(await ChapterTrack.read(from: AVURLAsset(url: output)), Self.chapters)
+        #expect(result.chapters.count == Self.chapters.count)
+    }
+
+    /// **The same fallback on the tag-only path.** A tag edit of an `.mp4`
+    /// with no chapters goes through the passthrough export rather than
+    /// ``ChapterWriter``, and loses the same tags on the same systems, so it
+    /// retries with the same brand. Forced here for the same reason as above.
+    @Test("an .mp4 tag write through the M4V fallback keeps every tag")
+    func mp4TagWriteFallbackKeepsTags() async throws {
+        guard let plain = await chaptered("mp4", chapters: [], name: "fallback-plain.mp4") else { return }
+        let png = try DocumentFixtures.solidPNG(gray: 0.6)
+        let art = try #require(Artwork(sniffing: png))
+
+        var meta = MediaMetadata()
+        meta.title = "Plain fallback"
+        meta.creators = ["Someone"]
+        meta.genre = "Drama"
+        meta.kind = .tvShow
+        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 1, episodeNumber: 4)
+        meta.artwork = [art]
+
+        var writer = MetadataWriter()
+        writer.mp4FileTypes = [.m4v]
+        let output = await scratch("fallback-plain-out.mp4")
+        try await writer.write(meta, to: plain, writingTo: output)
+
+        #expect(output.pathExtension == "mp4")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "Plain fallback")
+        #expect(back.creators == ["Someone"])
+        #expect(back.genre == "Drama")
+        #expect(back.show?.episodeNumber == 4)
+        #expect(back.artwork.first?.data == png)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: output.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix(".lathe-") }
+        #expect(leftovers.isEmpty, "scratch files were left: \(leftovers)")
+    }
+
+    /// **3GPP tags read as the fields they are.** What macOS 26 writes for a
+    /// plain MPEG-4 export, and what other tools write, reads the same as the
+    /// iTunes spelling. The survival check does not accept it as kept.
+    @Test("an .mp4 tagged in the 3GPP keyspace reads its title and artist")
+    func isoUserDataTags() async throws {
+        guard let source = await movie("chapters-base-movie.mov") else { return }
+        let output = await scratch("iso-tags.mp4")
+        func item(_ identifier: String, _ value: String) -> AVMetadataItem {
+            let item = AVMutableMetadataItem()
+            item.identifier = AVMetadataIdentifier(identifier)
+            item.value = value as NSString
+            item.extendedLanguageTag = "und"
+            return item
+        }
+        let tags = [item("uiso/titl", "A Title"), item("uiso/perf", "A Performer")]
+        try await ChapterWriter().write([], into: source, writingTo: output, metadata: tags, progress: .ignoring())
+
+        let found = try await AVURLAsset(url: output).load(.metadata).compactMap { $0.identifier?.rawValue }
+        try #require(found.contains("uiso/perf"), "this system did not write 3GPP tags: \(found)")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "A Title")
+        #expect(back.creators == ["A Performer"])
+
+        let itunes = MetadataItemBuilder.items(for: MediaMetadata(title: "A Title", creators: ["A Performer"]))
+        #expect(await TagSurvival.allKept(itunes, in: output) == false)
+    }
+
     /// The fast path stays fast: a file with no chapters is exported once and
     /// never remuxed.
     @Test("a file with no chapters is not remuxed by a tag write")

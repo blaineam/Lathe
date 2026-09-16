@@ -201,12 +201,14 @@ public struct FrameVideoWriter: Sendable {
             )
         }
 
-        let input = AVAssetWriterInput(
-            mediaType: .video,
-            outputSettings: Self.outputSettings(
-                codec: codec, size: size, quality: quality, frameRate: frameRate
+        guard let settings = Self.applicableSettings(
+            for: writer, codec: codec, size: size, quality: quality, frameRate: frameRate
+        ) else {
+            throw LatheError.encodeUnavailable(
+                format: "\(codec.rawValue) at \(size.width)×\(size.height) in \(destination.pathExtension)"
             )
-        )
+        }
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
         guard writer.canAdd(input) else {
             throw LatheError.encodeUnavailable(
@@ -367,6 +369,46 @@ public struct FrameVideoWriter: Sendable {
     }
 
     // MARK: - Settings
+
+    /// The first of the settings to try that this writer will take.
+    ///
+    /// An `AVAssetWriterInput` given a compression property its encoder does
+    /// not support raises an Objective-C exception, which Swift cannot catch:
+    /// the iOS Simulator's software H.264 encoder takes no `Quality`, and the
+    /// process died there. `canApply` asks the same question without the
+    /// exception, so the request degrades the way ``VideoCompressor``'s
+    /// does — quality factor, then quality, then a bitrate derived from it —
+    /// and only a codec that accepts nothing at all is refused.
+    static func applicableSettings(
+        for writer: AVAssetWriter, codec: VideoCodec, size: PixelSize,
+        quality: QualityTarget, frameRate: Double
+    ) -> [String: Any]? {
+        var targets = [quality]
+        switch quality {
+        case let .constantQualityFactor(value):
+            targets.append(.quality(value))
+            targets.append(.averageBitrate(VideoCompressor.derivedBitrate(
+                for: value, codec: codec, size: size, frameRate: frameRate)))
+        case let .quality(value):
+            targets.append(.averageBitrate(VideoCompressor.derivedBitrate(
+                for: value, codec: codec, size: size, frameRate: frameRate)))
+        default:
+            break
+        }
+        for hinted in [true, false] {
+            for target in targets {
+                var settings = outputSettings(codec: codec, size: size, quality: target, frameRate: frameRate)
+                if !hinted, var compression = settings[AVVideoCompressionPropertiesKey] as? [String: Any] {
+                    compression.removeValue(forKey: VTKey.expectedFrameRate)
+                    settings[AVVideoCompressionPropertiesKey] = compression
+                }
+                if writer.canApply(outputSettings: settings, forMediaType: .video) {
+                    return settings
+                }
+            }
+        }
+        return nil
+    }
 
     /// The writer input's output settings.
     ///

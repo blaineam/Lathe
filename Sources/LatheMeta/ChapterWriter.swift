@@ -31,6 +31,14 @@ import LatheCore
 /// edit that quietly removed the picture would be worse than none.
 public struct ChapterWriter: Sendable {
 
+    /// The file types an `.mp4` is tried as, in order. See `write`.
+    ///
+    /// Internal and settable only so a test can go straight to the fallback:
+    /// the machines that need it are the ones that do not reproduce the bug on
+    /// demand, so without this the fallback's output would be verified only by
+    /// whichever CI runner happens to lose the tags.
+    var mp4FileTypes: [AVFileType] = [.mp4, .m4v]
+
     public init() {}
 
     /// The containers a chapter track can be written into, by extension.
@@ -160,33 +168,54 @@ public struct ChapterWriter: Sendable {
         let scratch = TrackRemux.scratchURL(beside: destination, prefix: ".lathe-chapters-")
         defer { try? FileManager.default.removeItem(at: scratch) }
 
-        let dropped: [String]
-        let list: [Chapter]
-        let written: Int
-        let failure: String?
-        do {
-            let remux = try TrackRemux(
-                asset: asset, duration: duration, writingTo: scratch, fileType: fileType,
-                metadata: tags, stage: "chapters", progress: progress
-            )
-            try await remux.copyTracks()
-            guard !remux.droppedMedia else {
-                throw ChapterError.mediaRefused(
-                    remux.dropped.joined(separator: "; ")
+        // An `.mp4` is written as `.mp4` first, and as an M4V-branded file only
+        // if that loses the tags.
+        //
+        // AVAssetWriter's handling of iTunes-style tags in the MPEG-4 file type
+        // is not the same on every OS. On macOS 27 an `.mp4` keeps them; on
+        // macOS 26 the same call keeps the title and silently drops the
+        // artist, the artwork, the track and the episode number — found on the
+        // CI runner, not on the machine the code was written on. The M4V file
+        // type keeps them everywhere. It is the same ISO container with a
+        // different brand, which every player that reads MP4 reads, and the
+        // file keeps its `.mp4` name. Checking rather than always choosing M4V
+        // means a system that writes MP4 correctly keeps MP4's own brand.
+        let attempts = fileType == .mp4 ? mp4FileTypes : [fileType]
+
+        var dropped: [String] = []
+        var list: [Chapter] = []
+        for (index, attempt) in attempts.enumerated() {
+            try? FileManager.default.removeItem(at: scratch)
+            let written: Int
+            let failure: String?
+            do {
+                let remux = try TrackRemux(
+                    asset: asset, duration: duration, writingTo: scratch, fileType: attempt,
+                    metadata: tags, stage: "chapters", progress: progress
                 )
+                try await remux.copyTracks()
+                guard !remux.droppedMedia else {
+                    throw ChapterError.mediaRefused(
+                        remux.dropped.joined(separator: "; ")
+                    )
+                }
+                if !chapters.isEmpty, let reason = remux.attachChapters(chapters).reason {
+                    throw ChapterError.refused(reason)
+                }
+                remux.groupTracks()
+                list = remux.chaptersToWrite
+                (written, failure) = try await remux.run()
+                dropped = remux.dropped
+            } catch let failure as TrackRemux.Failure {
+                throw ChapterError.writeFailed(stage: failure.stage, reason: failure.reason)
             }
-            if !chapters.isEmpty, let reason = remux.attachChapters(chapters).reason {
-                throw ChapterError.refused(reason)
+            guard written == list.count else {
+                throw ChapterError.incomplete(written: written, expected: list.count, reason: failure)
             }
-            remux.groupTracks()
-            list = remux.chaptersToWrite
-            (written, failure) = try await remux.run()
-            dropped = remux.dropped
-        } catch let failure as TrackRemux.Failure {
-            throw ChapterError.writeFailed(stage: failure.stage, reason: failure.reason)
-        }
-        guard written == list.count else {
-            throw ChapterError.incomplete(written: written, expected: list.count, reason: failure)
+
+            let isLastAttempt = index == attempts.count - 1
+            if isLastAttempt { break }
+            if await TagSurvival.allKept(tags, in: scratch) { break }
         }
 
         try TrackRemux.moveIntoPlace(scratch, at: destination)

@@ -43,6 +43,13 @@ import PDFKit
 /// preserves what it did not touch, and that is where merging belongs.
 public struct MetadataWriter: Sendable {
 
+    /// The file types an `.mp4` export is tried as, in order. See
+    /// ``ChapterWriter``'s property of the same name: on macOS 26 the MPEG-4
+    /// type keeps a title and drops most other tags, and the M4V brand keeps
+    /// them. Internal so a test can go straight to the fallback on a system
+    /// that does not need it.
+    var mp4FileTypes: [AVFileType] = [.mp4, .m4v]
+
     public init() {}
 
     /// Writes `source` to `destination` carrying `metadata`, leaving the media
@@ -160,22 +167,27 @@ public struct MetadataWriter: Sendable {
         let chapters = await ChapterTrack.read(from: asset)
         let ext = destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension
 
-        guard !chapters.isEmpty else {
-            let bytes = try MetaFiles.writingAtomically(
-                to: destination, pathExtension: ext, stage: "metadata-passthrough"
-            ) { scratch in
-                try Self.export(session, to: scratch, fileType: fileType, metadata: items)
-            }
-            return ContainerWrite(bytes: bytes)
-        }
-
         // The export goes to a scratch file of the container's own extension,
         // because ``ChapterWriter`` chooses its container by extension.
         let exported = TrackRemux.scratchURL(
             beside: destination, prefix: ".lathe-"
         ).deletingPathExtension().appendingPathExtension(Self.pathExtension(for: fileType) ?? ext)
         defer { try? FileManager.default.removeItem(at: exported) }
-        try Self.export(session, to: exported, fileType: fileType, metadata: items)
+        let supported = await session.supportedFileTypes
+        let fallbacks = mp4FileTypes.filter { $0 == .mp4 || supported.contains($0) }
+        let attempts = fileType == .mp4 && !fallbacks.isEmpty ? fallbacks : [fileType]
+        try await Self.export(
+            asset: asset, first: session, to: exported, attempts: attempts, metadata: items)
+
+        guard !chapters.isEmpty else {
+            let bytes = try MetaFiles.writingAtomically(
+                to: destination, pathExtension: ext, stage: "metadata-passthrough"
+            ) { scratch in
+                try? FileManager.default.removeItem(at: scratch)
+                try FileManager.default.moveItem(at: exported, to: scratch)
+            }
+            return ContainerWrite(bytes: bytes)
+        }
 
         let kept = await ChapterTrack.read(from: AVURLAsset(url: exported))
         if kept.map(\.title) == chapters.map(\.title) {
@@ -214,6 +226,34 @@ public struct MetadataWriter: Sendable {
             restoredChapters: restored.chapters.count,
             droppedTracks: restored.droppedTracks
         )
+    }
+
+    /// Exports as each file type in `attempts` until one keeps the tags.
+    ///
+    /// Every attempt but the last is read back, and accepted when every tag is
+    /// there under the identifier it was written with; the last is accepted as
+    /// it is, so a system that loses tags either way still gets the best file
+    /// it can make.
+    /// A session runs once, so each retry makes its own.
+    private static func export(
+        asset: AVURLAsset, first: AVAssetExportSession, to url: URL,
+        attempts: [AVFileType], metadata: [AVMetadataItem]
+    ) async throws {
+        var session = first
+        for (index, fileType) in attempts.enumerated() {
+            if index > 0 {
+                try? FileManager.default.removeItem(at: url)
+                guard let fresh = AVAssetExportSession(
+                    asset: asset, presetName: AVAssetExportPresetPassthrough
+                ) else {
+                    throw LatheError.encodeUnavailable(format: "passthrough export as \(fileType.rawValue)")
+                }
+                session = fresh
+            }
+            try export(session, to: url, fileType: fileType, metadata: metadata)
+            guard index < attempts.count - 1 else { return }
+            if await TagSurvival.allKept(metadata, in: url) { return }
+        }
     }
 
     /// Runs the passthrough export to `url`, blocking until it ends.
