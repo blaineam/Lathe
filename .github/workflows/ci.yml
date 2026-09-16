@@ -32,6 +32,7 @@ jobs:
     # with it. Never `macos-14` (Intel, slower, older toolchain) and never a
     # `-large` runner (billed, and no faster for a package this size).
     runs-on: macos-26
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +75,7 @@ jobs:
   ios-simulator:
     name: iOS Simulator
     runs-on: macos-26
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v4
@@ -226,6 +228,7 @@ jobs:
   lint:
     name: Format check
     runs-on: macos-26
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 

@@ -32,6 +32,17 @@ on:
 permissions:
   contents: write
 
+# One release at a time, and never cancel one.
+#
+# Releases piled up during a run of quick successive tags: every one claimed a
+# macOS runner, and they competed with each other for capacity that is scarce
+# to begin with. Queued rather than cancelled, because unlike CI a release run
+# is not superseded by the next push — each tag is its own artifact, and
+# throwing one away loses a build somebody may be waiting on.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   APP_NAME: Lathe
   # Keep SwiftPM's scratch directory off any synced or network-backed path:
@@ -43,6 +54,7 @@ jobs:
   test:
     name: Tests
     runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       # Deliberately NOT pinning a specific Xcode.app — the same rule ci.yml
@@ -64,6 +76,7 @@ jobs:
     name: Mac app
     needs: test
     runs-on: macos-26
+    timeout-minutes: 45
     outputs:
       artifact: ${{ steps.package.outputs.artifact }}
       signed: ${{ steps.sign.outputs.signed }}
@@ -192,6 +205,7 @@ jobs:
     name: Publish
     needs: app
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4

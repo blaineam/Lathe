@@ -102,7 +102,18 @@ public struct FrameVideoResult: Sendable, Equatable {
 /// which is not going anywhere.
 public struct FrameVideoWriter: Sendable {
 
-    public init() {}
+    /// How long to wait for the encoder to accept the next frame before
+    /// deciding it is not going to.
+    ///
+    /// Generous on purpose: a large frame on a loaded machine can legitimately
+    /// keep the input busy for a while, and turning a slow encode into a
+    /// failure would be worse than the hang this replaces. It exists to put a
+    /// ceiling on *never*, not to police *slow*.
+    public var stallTimeout: Duration
+
+    public init(stallTimeout: Duration = .seconds(30)) {
+        self.stallTimeout = stallTimeout
+    }
 
     /// Writes `frames` as a video.
     ///
@@ -241,10 +252,29 @@ public struct FrameVideoWriter: Sendable {
             for (index, url) in urls.enumerated() {
                 try progress.checkCancellation()
 
+                // The encoder is behind. Yielding rather than spinning, and
+                // the sleep is short enough not to become the bottleneck for a
+                // fast codec on a small frame.
+                //
+                // Bounded, because "behind" and "never going to be ready" look
+                // identical from here and only one of them ends. A machine
+                // whose VideoToolbox cannot start a session — a virtualised
+                // host with no GPU is the usual one — leaves this flag false
+                // forever, and an unbounded loop then hangs the caller with no
+                // error and nothing in a log. That is not hypothetical: it sat
+                // in a CI job for six hours until the runner killed it, which
+                // is indistinguishable from a queue that never cleared.
+                let deadline = ContinuousClock.now + stallTimeout
                 while !input.isReadyForMoreMediaData {
-                    // The encoder is behind. Yielding rather than spinning, and
-                    // the sleep is short enough not to become the bottleneck for
-                    // a fast codec on a small frame.
+                    if ContinuousClock.now >= deadline {
+                        throw LatheError.encodingFailed(
+                            stage: "encode", code: nil,
+                            reason: "the \(codec.rawValue) encoder never became ready for "
+                                + "frame \(index + 1) of \(urls.count) within "
+                                + "\(stallTimeout). On a machine with no usable video "
+                                + "encoder this never clears."
+                        )
+                    }
                     try await Task.sleep(nanoseconds: 1_000_000)
                     try progress.checkCancellation()
                 }
