@@ -1,40 +1,5 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lathe — media, turned down to spec</title>
-<meta name="description" content="A Swift media engine that runs entirely on the device: encoding, frames, tags, subtitles, chapters, AV1 and Flash, through the system frameworks, with no subprocesses. Free under Apache-2.0.">
-<link rel="canonical" href="https://wemiller.com/apps/lathe/">
-<meta property="og:type" content="website">
-<meta property="og:title" content="Lathe — media, turned down to spec">
-<meta property="og:description" content="A Swift media engine that runs entirely on the device: encoding, frames, tags, subtitles, chapters, AV1 and Flash, through the system frameworks, with no subprocesses. Free under Apache-2.0.">
-<meta property="og:url" content="https://wemiller.com/apps/lathe/">
-<meta property="og:image" content="https://wemiller.com/apps/lathe/media/icon.png">
-<meta name="twitter:card" content="summary">
-<meta name="theme-color" content="#16192b">
-<link rel="icon" type="image/png" href="media/icon-180.png">
-<link rel="apple-touch-icon" href="media/icon-180.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;0,6..96,800;0,6..96,900;1,6..96,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="lathe.css">
-</head>
-<body>
-<header class="masthead">
-  <div class="wrap">
-    <div class="issue-line">
-      <span>Vol. 0.13.0 &middot; September 2026</span>
-      <span>Swift 6 &middot; iOS 17 &middot; macOS 14 &middot; Apache-2.0</span>
-      <span>Measured, not claimed</span>
-    </div>
-    <div class="mast-row">
-      <a class="wordmark" href="index.html"><img src="media/icon-180.png" alt="" width="38" height="38">Lathe</a>
-      <nav aria-label="Pages"><ul class="contents-nav"><li><a href="index.html" aria-current="page">The Issue</a></li><li><a href="documentation.html">Documentation</a></li><li><a href="benchmarks.html">Benchmarks</a></li><li><a href="mac.html">Mac app</a></li><li><a href="sami.html">Sami</a></li><li><a href="https://github.com/blaineam/Lathe">GitHub</a></li></ul></nav>
-    </div>
-  </div>
-</header>
-
+<!-- title: Lathe — media, turned down to spec -->
+<!-- description: A Swift media engine that runs entirely on the device: encoding, frames, tags, subtitles, chapters, AV1 and Flash, through the system frameworks, with no subprocesses. Free under Apache-2.0. -->
 <main>
 
 <section class="cover">
@@ -47,7 +12,7 @@
         <a class="btn amber" href="https://github.com/blaineam/Lathe/releases/latest/download/Lathe.dmg">Download the Mac app <small>free · notarized</small></a>
         <a class="btn ghost" href="documentation.html">Read the documentation</a>
       </div>
-      <p class="byline">Swift package &middot; 13 products &middot; iOS 17 and macOS 14 &middot; by Blaine Miller</p>
+      <p class="byline">Swift package &middot; {{products}} products &middot; iOS 17 and macOS 14 &middot; by Blaine Miller</p>
     </div>
     <figure class="plate">
       <div class="dim">A FACING CUT</div>
@@ -59,9 +24,9 @@
 
 <section class="glance" aria-label="At a glance">
   <div class="wrap">
-    <div class="stat"><div class="k">This issue</div><div class="v">0.13.0</div></div>
-    <div class="stat"><div class="k">Tests</div><div class="v">810</div></div>
-    <div class="stat"><div class="k">Products</div><div class="v">13<small>to choose from</small></div></div>
+    <div class="stat"><div class="k">This issue</div><div class="v">{{version}}</div></div>
+    <div class="stat"><div class="k">Tests</div><div class="v">{{tests}}</div></div>
+    <div class="stat"><div class="k">Products</div><div class="v">{{products}}<small>to choose from</small></div></div>
     <div class="stat"><div class="k">Subprocesses</div><div class="v">Zero</div></div>
   </div>
 </section>
@@ -177,7 +142,7 @@
     </div>
     <div class="figure">
       <p class="figure-label"><b>Fig. 2</b> — wall-clock ratio, Lathe against each tool. Grey rows are where Lathe is slower.</p>
-      <div class="bars"><div class="bar-row"><div class="name">Probe a 1080p file (duration, tracks, codecs)</div><div class="bar-track"><div class="bar-fill" style="width:100.0%">108.7× faster</div></div><div class="value">vs ffprobe</div></div><div class="bar-row"><div class="name">Write title and author into a JPEG</div><div class="bar-track"><div class="bar-fill" style="width:25.6%">7.1× faster</div></div><div class="value">vs exiftool</div></div><div class="bar-row"><div class="name">1080p30 5 s → VP9</div><div class="bar-track"><div class="bar-fill" style="width:23.3%">5.9× faster</div></div><div class="value">vs ffmpeg −c:v libvpx-vp9</div></div><div class="bar-row"><div class="name">HEVC transcode, 1080p30, 5 s</div><div class="bar-track"><div class="bar-fill" style="width:19.4%">4.1× faster</div></div><div class="value">vs ffmpeg −c:v libx265 −preset medium</div></div><div class="bar-row"><div class="name">AAC encode, 10 s stereo 44.1 kHz</div><div class="bar-track"><div class="bar-fill" style="width:17.2%">3.2× faster</div></div><div class="value">vs ffmpeg −c:a aac</div></div><div class="bar-row"><div class="name">1080p30 5 s → AV1</div><div class="bar-track"><div class="bar-fill" style="width:13.9%">2.1× faster</div></div><div class="value">vs ffmpeg −c:v libsvtav1</div></div></div>
+      {{bench_teaser}}
       <p class="chart-note">Drawn on a square-root scale so the largest ratio does not flatten the rest; the figure on each bar is the real one. <a href="benchmarks.html">Every row, with its caveats →</a></p>
     </div>
   </div>
@@ -198,18 +163,12 @@
           <p>Ten minutes containing two seconds of speech averages about <b>−45&nbsp;dBFS</b>: by that number, indistinguishable from a file with nothing in it. That is not a corner case. It is an ordinary phone video with one sentence in it.</p>
           <p>So Lathe answers the question the caller has. <code>meanVolumeDB</code> reports the familiar statistic, so existing thresholds keep working; <code>hasAudibleAudio</code> reads short windows and <b>returns the moment it knows</b>. A loud file is decided in its first second.</p>
         </div>
-        <pre><code><span class="c">// A measurement, and a decision that stops as soon as it has an answer.</span>
-<span class="k">let</span> volume = <span class="k">try</span> <span class="k">await</span> LoudnessProbe().meanVolumeDB(url: source)
-<span class="k">let</span> audible = <span class="k">try</span> <span class="k">await</span> LoudnessProbe().hasAudibleAudio(url: source)
-
-<span class="c">// Re-encoding a lossy source is refused unless asked for.</span>
-<span class="k">let</span> outcome = <span class="k">try</span> <span class="k">await</span> AudioTranscoder().transcode(
-    source: source, to: out, codec: .aac, quality: .quality(0.5))</code></pre>
+        {{snippet:audio}}
       </div>
       <aside class="spec" aria-label="Specifications">
         <h3>Specifications</h3>
         <dl>
-          <dt>Version</dt><dd>0.13.0</dd>
+          <dt>Version</dt><dd>{{version}}</dd>
           <dt>Platforms</dt><dd>iOS 17 · macOS 14</dd>
           <dt>Language</dt><dd>Swift 6</dd>
           <dt>Licence</dt><dd>Apache-2.0</dd>
@@ -217,7 +176,7 @@
           <dt>Subprocesses</dt><dd>None</dd>
           <dt>Compiled in</dt><dd>libwebp</dd>
           <dt>Separate products</dt><dd>LAME · SVT-AV1 · Ruffle</dd>
-          <dt>Tests</dt><dd>810</dd>
+          <dt>Tests</dt><dd>{{tests}}</dd>
         </dl>
       </aside>
     </div>
@@ -235,7 +194,7 @@
     </div>
     <div class="figure">
 <pre><code><span class="c">// Package.swift</span>
-.package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"0.13.0"</span>)
+.package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"{{version}}"</span>)
 
 <span class="c">// then, per target</span>
 .product(name: <span class="s">"LatheVideo"</span>, package: <span class="s">"Lathe"</span>),
@@ -356,27 +315,3 @@
     .catch(() => {});
 })();
 </script>
-<footer class="colophon">
-  <div class="wrap">
-    <div>
-      <h4>Colophon</h4>
-      <p>Lathe 0.13.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
-      <p>Set in Bodoni Moda, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
-    </div>
-    <div>
-      <h4>Lathe</h4>
-      <p><a href="documentation.html">Documentation</a></p>
-      <p><a href="benchmarks.html">Benchmarks</a></p>
-      <p><a href="mac.html">The Mac app</a></p>
-      <p><a href="https://github.com/blaineam/Lathe">Source on GitHub</a></p>
-    </div>
-    <div>
-      <h4>Elsewhere</h4>
-      <p><a href="https://wemiller.com/apps/sami/">Sami, the app it powers</a></p>
-      <p><a href="https://wemiller.com/apps/">More apps by Blaine Miller</a></p>
-      <p><a href="https://wemiller.com/support/">Support the free apps</a></p>
-    </div>
-  </div>
-</footer>
-</body>
-</html>

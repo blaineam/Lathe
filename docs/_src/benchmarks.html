@@ -1,0 +1,70 @@
+<!-- title: Benchmarks — Lathe -->
+<!-- description: Lathe measured against ffmpeg, cwebp, cjpeg, avifenc, lame and exiftool — speed, CPU, size and quality, with the rows where it loses. -->
+<main>
+
+<section class="pagehead">
+  <div class="wrap">
+    <div class="kicker">The data spread</div>
+    <h1>Measured, <em>not claimed.</em></h1>
+    <p class="dek">Every figure here comes from a suite in the repository, run against the command-line tools Lathe replaces. Three claims are made, and only three: <b>in-process beats a process launch</b>, <b>hardware beats software on time and power</b>, and <b>software encoders still win on bits.</b></p>
+  </div>
+</section>
+
+<section class="feature" style="border-top:0">
+  <div class="wrap">
+    <div class="figure">
+      <p class="figure-label"><b>Fig. 1</b> — wall-clock ratio for the same job, Lathe against each tool. Grey rows are where Lathe is slower.</p>
+      {{bench_chart}}
+      <p class="chart-note">Drawn on a square-root scale so the largest ratio does not flatten the rest; the figure on each bar is the real ratio.</p>
+    </div>
+  </div>
+</section>
+
+<section class="night">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">How to read it</div>
+        <h2 class="section-title">The size column is where the honesty is</h2>
+      </div>
+      <p class="standfirst">A table of wall-clock times from a hardware encoder is an advertisement. Hardware encoders are faster and spend more bits; a table that shows one half is not a measurement.</p>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>Four columns, every row</h3><p>Time, CPU, size and quality. A row that shows only speed would be hiding the size, so none do.</p></div>
+      <div class="card"><h3>No mismatched percentages</h3><p>Two encoders' “q80” are not the same q80. Where the two sides did not land at the same quality, the row declines to claim a size difference. ⚠︎ marks them.</p></div>
+      <div class="card"><h3>Losses stay in</h3><p>If a row makes Lathe look bad, it is still in the table — JPEG against mozjpeg is the plainest example.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="feature" style="border-top:0">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">Table 1</div>
+        <h2 class="section-title">Every row</h2>
+      </div>
+      <p class="standfirst">Generated from <code>Benchmarks/RESULTS.md</code>, which the suite writes. Regenerating this page is how it is updated.</p>
+    </div>
+    <div class="figure">
+      {{bench_table}}
+    </div>
+  </div>
+</section>
+
+<section class="feature">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">On energy</div>
+        <h2 class="section-title">The number people want, and why it is not here</h2>
+      </div>
+      <div class="prose">
+        <p>The interesting claim about hardware encoding is <b>watts</b>, not seconds. It is not in the table, and not for want of trying: <code>powermetrics</code> needs root, and a measurement taken on a machine that was not idle is worse than none.</p>
+        <p>The CPU column is the closest honest proxy, and it is <b>not</b> energy. A fixed-function encoder does its work in a block that never appears as CPU time, so a row where Lathe uses a fraction of the CPU shows where the work <em>moved</em> — not that it became free.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>

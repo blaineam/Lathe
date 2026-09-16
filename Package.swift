@@ -439,6 +439,12 @@ let package = Package(
         .testTarget(name: "LatheSWFRenderTests", dependencies: ["LatheSWFRender"]),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
         .testTarget(name: "LatheAV1Tests", dependencies: ["LatheAV1", "LatheFixtures"]),
+        // The code on the documentation site, compiled; docs/build.py copies
+        // the samples out of it.
+        .testTarget(
+            name: "LatheDocSnippetsTests",
+            dependencies: ["Lathe", "LatheAV1", "LatheLookup", "LatheMP3", "LatheSWF", "LatheSWFRender"]
+        ),
 
         // The Python suite runs against whatever CPython the host machine has,
         // and records a known issue naming the reason when there is none —
