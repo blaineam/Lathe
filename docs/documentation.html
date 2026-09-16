@@ -24,7 +24,7 @@
 <header class="masthead">
   <div class="wrap">
     <div class="issue-line">
-      <span>Vol. 1.0.0 &middot; September 2026</span>
+      <span>Vol. 1.1.0 &middot; September 2026</span>
       <span>Swift 6 &middot; iOS 17 &middot; macOS 14 &middot; Apache-2.0</span>
       <span>Measured, not claimed</span>
     </div>
@@ -39,7 +39,7 @@
 
 <section class="pagehead">
   <div class="wrap">
-    <div class="kicker">The manual &middot; Lathe 1.0.0</div>
+    <div class="kicker">The manual &middot; Lathe 1.1.0</div>
     <h1>Take only what <em>you use.</em></h1>
     <p class="dek">13 library products over the system frameworks. Every sample on this page is cut from a test target the build compiles, so none of them can drift from the API they show.</p>
   </div>
@@ -67,10 +67,10 @@
   <div>
     <section class="module" id="install">
       <div class="module-head"><h2>Installation</h2></div>
-      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>1.0.0</b>.</p>
+      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>1.1.0</b>.</p>
 <pre><code><span class="c">// Package.swift</span>
 dependencies: [
-    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"1.0.0"</span>),
+    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"1.1.0"</span>),
 ],
 targets: [
     .target(name: <span class="s">"YourApp"</span>, dependencies: [
@@ -139,6 +139,19 @@ targets: [
     source: source, to: out,
     codec: .hevc, quality: .quality(0.65), resize: .longestSide(1920))
 <span class="k">print</span>(result.rateControl)   <span class="c">// what actually ran, not what was asked</span></code></pre>
+      <p class="lede" style="margin-top:18px"><b>Visually lossless video.</b> <code>VideoQualitySearch</code> cuts a few short clips, tries settings on those instead of the whole film, and hands back the lowest one whose frames still match. The encode is yours — a hardware quality or an AV1 bitrate.</p>
+      <pre><code><span class="c">// Try settings on three short clips, not the whole film, then encode</span>
+<span class="c">// once at the lowest one that still looks like the source.</span>
+<span class="k">let</span> search = <span class="k">try</span> <span class="k">await</span> VideoQualitySearch().run(
+    asset: AVURLAsset(url: video), outputExtension: <span class="s">&quot;mov&quot;</span>
+) { clip, value, output <span class="k">in</span>
+    <span class="k">try</span> <span class="k">await</span> VideoTranscoder().transcode(
+        source: clip, to: output, codec: .hevc, quality: .quality(value))
+}
+<span class="k">if</span> <span class="k">let</span> quality = search.value {
+    <span class="k">try</span> <span class="k">await</span> VideoTranscoder().transcode(
+        source: video, to: out, codec: .hevc, quality: .quality(quality))
+}</code></pre>
     </section>
 
     <section class="module" id="image">
@@ -150,6 +163,14 @@ targets: [
 <span class="k">let</span> result = <span class="k">try</span> <span class="k">await</span> ImageEncoder().encode(
     source: source, to: out, format: format,
     quality: .quality(0.8), resize: .longestSide(2048))</code></pre>
+      <div style="height:14px"></div>
+      <p class="lede" style="margin-top:18px"><b>Visually lossless.</b> Instead of a fixed quality, search for the lowest one each picture can take without a visible change. Every candidate is compared with the original by structural similarity — luma at full resolution, colour at half, and the worst 32&nbsp;×&nbsp;32 region on its own — so a banded sky fails even when the average is fine.</p>
+      <pre><code><span class="c">// The lowest quality this picture can take without a visible change,</span>
+<span class="c">// decided for this picture alone. nil: nothing in range passed.</span>
+<span class="k">if</span> <span class="k">let</span> result = <span class="k">try</span> <span class="k">await</span> ImageEncoder().encodeVisuallyLossless(
+    source: photo, to: out, format: .heic) {
+    <span class="k">print</span>(result.quality, result.similarity.overall, result.encode.outputByteCount)
+}</code></pre>
       <div style="height:14px"></div>
       <pre><code><span class="c">// A folder of frames, in natural order, as an animation or a document.</span>
 <span class="k">let</span> frames = <span class="k">try</span> FrameSequence.contentsOfDirectory(folder)
@@ -260,7 +281,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
   <div class="wrap">
     <div>
       <h4>Colophon</h4>
-      <p>Lathe 1.0.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
+      <p>Lathe 1.1.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
       <p>Set in Newsreader, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
     </div>
     <div>
