@@ -24,7 +24,7 @@
 <header class="masthead">
   <div class="wrap">
     <div class="issue-line">
-      <span>Vol. 0.13.0 &middot; September 2026</span>
+      <span>Vol. 1.0.0 &middot; September 2026</span>
       <span>Swift 6 &middot; iOS 17 &middot; macOS 14 &middot; Apache-2.0</span>
       <span>Measured, not claimed</span>
     </div>
@@ -39,7 +39,7 @@
 
 <section class="pagehead">
   <div class="wrap">
-    <div class="kicker">The manual &middot; Lathe 0.13.0</div>
+    <div class="kicker">The manual &middot; Lathe 1.0.0</div>
     <h1>Take only what <em>you use.</em></h1>
     <p class="dek">13 library products over the system frameworks. Every sample on this page is cut from a test target the build compiles, so none of them can drift from the API they show.</p>
   </div>
@@ -67,10 +67,10 @@
   <div>
     <section class="module" id="install">
       <div class="module-head"><h2>Installation</h2></div>
-      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>0.13.0</b>.</p>
+      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>1.0.0</b>.</p>
 <pre><code><span class="c">// Package.swift</span>
 dependencies: [
-    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"0.13.0"</span>),
+    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"1.0.0"</span>),
 ],
 targets: [
     .target(name: <span class="s">"YourApp"</span>, dependencies: [
@@ -197,7 +197,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
 
     <section class="module" id="doc">
       <div class="module-head"><h2>LatheDoc</h2><span class="product">PDF · CBZ</span></div>
-      <p class="lede">Reorder, insert, remove and merge pages across PDF and CBZ, recompress them, and add a Vision text layer. A remote CBZ is counted with two range requests, not a download.</p>
+      <p class="lede">Reorder, insert, remove and merge pages across PDF and CBZ, build either from a folder of frames, and add a Vision text layer. A remote CBZ is counted with two range requests, not a download.</p>
       <pre><code><span class="c">// PDF and CBZ pages, reordered and merged. A CBZ is renamed, not</span>
 <span class="c">// just reshuffled, because its readers sort by filename.</span>
 <span class="k">try</span> DocumentEditor().reorderPages(of: pdf, to: [2, 0, 1], writingTo: out)
@@ -210,7 +210,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
       <pre><code><span class="c">// SVT-AV1 on the CPU — no Apple device encodes AV1 in hardware.</span>
 <span class="k">let</span> result = <span class="k">try</span> <span class="k">await</span> AV1Encoder().encode(
     source: source, to: out,
-    options: AV1EncodeOptions(maxWidth: 1920, maxHeight: 1080, bitrate: 2_500_000))
+    options: AV1EncodeOptions(resize: .fit(PixelSize(width: 1920, height: 1080)), bitrate: 2_500_000))
 <span class="k">print</span>(result.frameCount, result.isTenBit)</code></pre>
     </section>
 
@@ -260,7 +260,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
   <div class="wrap">
     <div>
       <h4>Colophon</h4>
-      <p>Lathe 0.13.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
+      <p>Lathe 1.0.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
       <p>Set in Newsreader, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
     </div>
     <div>
