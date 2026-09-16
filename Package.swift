@@ -63,6 +63,11 @@ let package = Package(
         // the target below for the argument.
         .library(name: "LatheSWF", targets: ["LatheSWF"]),
 
+        // Rendering a Flash movie, as opposed to salvaging what is inside one.
+        // Its own product for a reason worth choosing deliberately; see the
+        // target.
+        .library(name: "LatheSWFRender", targets: ["LatheSWFRender"]),
+
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
         // the user asks for at run time. It is a separate product precisely so
@@ -175,6 +180,42 @@ let package = Package(
         // link libwebp and a full encoder into every consumer that only wanted
         // to open a Flash file.
         .target(name: "LatheSWF", dependencies: ["LatheCore"]),
+
+        // Rendering, which is a different thing from the salvage above and
+        // carries a different set of consequences.
+        //
+        // `LatheSWF` reads a container. `LatheSWFRender` runs a WebAssembly
+        // build of Ruffle inside a `WKWebView` and captures the frames it draws
+        // — which means it executes the ActionScript inside a user-supplied file.
+        // It is a separate product, and not in the umbrella, because that is a
+        // decision an application has to make rather than inherit:
+        //
+        // * **It interprets untrusted bytecode.** Inside WebKit, which is the
+        //   sanctioned place for it on Apple's platforms, and with nothing
+        //   fetched at run time — but an App Store submission should weigh it
+        //   deliberately, and an app that only salvages bitmaps should be able to
+        //   prove it ships none of it.
+        // * **It costs about 10 MB.** The Ruffle build is a bundled resource, so
+        //   an app that links this carries it whether it renders anything or not.
+        // * **It needs WebKit**, which `LatheSWF` does not, and which an
+        //   extension or a command-line tool may not want.
+        //
+        // It depends on `LatheImage` for `FrameSequence`, which is how its output
+        // reaches `AnimatedImageWriter`, `FrameVideoWriter` and
+        // `FrameDocumentWriter` without this target growing an encoder of its
+        // own. The Ruffle artifact itself is NOT committed — `fetch-upstream.sh`
+        // downloads the pinned release against a recorded SHA-256, exactly as
+        // `LatheFetch` does for CPython. This target builds and tests with it
+        // absent; see Sources/LatheSWFRender/VENDORING.md.
+        .target(
+            name: "LatheSWFRender",
+            dependencies: ["LatheCore", "LatheSWF", "LatheImage"],
+            exclude: [
+                "VENDORING.md",
+                "fetch-upstream.sh",
+            ],
+            resources: [.copy("RenderHost")]
+        ),
 
         // MARK: - Network ingest
         //
@@ -343,6 +384,7 @@ let package = Package(
         .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
         .testTarget(name: "LatheLookupTests", dependencies: ["LatheLookup"]),
         .testTarget(name: "LatheSWFTests", dependencies: ["LatheSWF"]),
+        .testTarget(name: "LatheSWFRenderTests", dependencies: ["LatheSWFRender"]),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,

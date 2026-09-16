@@ -69,6 +69,7 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheMP3`** | MP3 encoding, via vendored LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Sources/CLAME/VENDORING.md`. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
 | **`LatheSWF`** | **Not in the umbrella.** Salvage for Adobe Flash `.swf`: walks the tag stream and recovers the embedded JPEG, PNG, GIF, MP3 and PCM, with a manifest naming what was found *and what was left behind*. It does not render vector art and does not execute ActionScript, and says so. A hand-written parser for hostile input, which is why it is opt-in by product. |
+| **`LatheSWFRender`** | **Not in the umbrella.** The other half of Flash: plays a `.swf` with a bundled WebAssembly build of **Ruffle** inside a `WKWebView` and captures the frames — vector art, timeline and ActionScript included — handing back a `FrameSequence` the composers assemble. Capture is real time. It interprets untrusted bytecode, so it is opt-in by product. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 
 Import the umbrella for convenience, or a single module to keep your binary
@@ -92,6 +93,7 @@ print(Lathe.capabilityReport)   // what this system can actually encode
 
 .product(name: "LatheFetch", package: "Lathe")   // embedded CPython — NOT in the umbrella
 .product(name: "LatheSWF",   package: "Lathe")   // Flash salvage — NOT in the umbrella
+.product(name: "LatheSWFRender", package: "Lathe") // Flash *rendering* — NOT in the umbrella
 ```
 
 The `Lathe` umbrella product is **media processing only, permanently**. Modules
@@ -130,6 +132,18 @@ attack surface, and an application that never opens a `.swf` should be able to
 prove it links none of it by naming its products. It is also not media
 *processing*: it is one-way salvage, and what it produces — a folder of JPEGs and
 MP3s — is an input to the other modules rather than an output of one.
+
+**`LatheSWFRender` is the third, and the one to weigh hardest.** It bundles
+Ruffle — a Flash Player compiled to WebAssembly — and runs it over a
+user-supplied file inside a `WKWebView`. That means **interpreting untrusted
+ActionScript on the user's device**. It happens inside WebKit, which is the
+sanctioned place for exactly that; nothing is fetched at run time; and the host
+WebView refuses navigation to any scheme but its own, so a movie calling `getURL`
+cannot make it fetch anything. It is still a judgement an App Store submission
+should make deliberately rather than inherit, and this README is not the place
+that judgement gets made. It also costs about 10 MB of bundled resource and
+needs WebKit, neither of which `LatheSWF` does. Depending on `LatheSWF` alone
+ships none of it.
 
 ---
 
@@ -1116,6 +1130,71 @@ contents are not** — once a declared length does not fit, everything after it 
 noise presented as data, but a single bitmap that fails to inflate says nothing
 about the next tag, so it is recorded as a malformed omission and the file still
 gives up its other eleven images.
+
+### Rendering a Flash movie, with Ruffle
+
+The section above says a renderer is out of scope, and it is — **writing** one
+is. `LatheSWFRender` does not write one. It bundles
+[Ruffle](https://github.com/ruffle-rs/ruffle), which is a mature Flash Player
+compiled to WebAssembly, runs it in an offscreen `WKWebView`, and captures the
+frames it draws.
+
+```swift
+let render = try await SWFRenderer().render(movie, to: frames)
+
+try AnimatedImageWriter().write(              // → GIF, APNG, HEICS
+    render.frames, to: gif, format: .gif,
+    delays: .framesPerSecond(render.framesPerSecond))
+
+try await FrameVideoWriter().write(           // → H.264 / HEVC
+    render.frames, to: mp4, frameRate: render.framesPerSecond)
+```
+
+**It stops at frames on purpose.** The output is a `FrameSequence` and a frame
+rate, which is exactly what `AnimatedImageWriter`, `FrameVideoWriter` and
+`FrameDocumentWriter` already take — so this module writes no encoder of its own
+and gains GIF, APNG, HEICS, H.264, HEVC, PDF and CBZ for free.
+
+This does **not** replace `SWFCapture`. Extraction pulls out the embedded JPEGs
+and MP3s at original quality with no WebView, no WebAssembly and nothing
+executed, and works on files Ruffle refuses. Rendering re-rasterises the movie
+as pixels and works on files with no embedded media at all — which is to say, on
+exactly the files extraction reports as `.vectorOrScriptOnly`. Neither answers
+the other's question.
+
+**Capture is real time. A thirty-second movie takes about thirty seconds.**
+Ruffle is an emulator playing at wall-clock speed and there is no public way to
+step its clock, so frames are *sampled* from a live performance rather than
+rendered on demand. If the machine cannot keep up, the recording is **decimated,
+not slowed** — playback carries on regardless, so the missed frames are content
+that is simply gone and the result plays back fast.
+`SWFRenderResult.achievedFramesPerSecond` and `.keptUp` report that rather than
+hiding it.
+
+Frames are read from Ruffle's `<canvas>` rather than with
+`WKWebView.takeSnapshot(with:)`. Snapshotting photographs the *view*: it wants
+the view onscreen, returns images in the display's scale factor rather than the
+movie's, and goes through the window server every frame. Reading the canvas — 
+copied through a 2D canvas first, so a WebGL or WebGPU backend cannot come back
+blank — gives exactly the pixels Ruffle drew, at exactly the movie's resolution,
+with no compositor round trip.
+
+**The thing to know before hosting it:** WebKit suspends rendering updates for
+content it considers not visible, and `requestAnimationFrame` is the casualty —
+which matters because Ruffle's own player loop is driven by the same callback.
+When it stops arriving the movie does not advance, and every captured frame is
+the same picture. `SWFRenderResult.renderingUpdatesObserved` is `false` when that
+happened; the remedy is to host the render in a real, non-occluded window, not to
+lengthen a timeout.
+
+Ruffle itself is **not committed to this repository** — it is ~10 MB, and this
+package keeps no binary artifacts in git. `Sources/LatheSWFRender/fetch-upstream.sh`
+downloads the pinned release, checks it against a recorded SHA-256, and unpacks
+it into the resource bundle. The module builds, links and passes its whole test
+suite without it; what it cannot do is render, and it refuses by name. Ruffle is
+dual-licensed Apache-2.0 or MIT — the same licence as Lathe, with nothing to
+reconcile — and it is a clean-room implementation containing no Adobe code. See
+`Sources/LatheSWFRender/VENDORING.md` and `THIRD-PARTY-NOTICES.md`.
 
 ### The capability probe
 

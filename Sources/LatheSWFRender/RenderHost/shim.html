@@ -1,0 +1,241 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Lathe SWF render host</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage { position: absolute; top: 0; left: 0; }
+  #stage > * { width: 100%; height: 100%; display: block; }
+</style>
+<div id="stage"></div>
+<script>
+// The page Lathe drives to turn a Flash movie into frames.
+//
+// It is deliberately small and deliberately SPLIT IN TWO. Everything below
+// `--- capture ---` knows nothing about Ruffle: it finds a canvas, reads its
+// pixels inside a frame callback, and hands back a data URL. Everything below
+// `--- players ---` puts *something* on the stage, and Ruffle is only one of
+// the two things it can put there.
+//
+// That split is not tidiness, it is testability. The Ruffle artifact is
+// fetched rather than committed (see VENDORING.md), so a clone has no Ruffle in
+// it and a test that needed one could not run at all. With the split, the
+// suite drives this exact file, through the exact scheme handler, capture path,
+// PNG decode and frame writer — substituting a canvas it animates itself for
+// the one Ruffle would have drawn. Everything except Ruffle is then covered by
+// tests that run anywhere.
+"use strict";
+
+window.latheState = { status: "idle", detail: null, frameCount: 0 };
+
+function fail(detail) {
+  window.latheState.status = "error";
+  window.latheState.detail = String(detail);
+}
+
+// --- capture -----------------------------------------------------------------
+
+// Ruffle renders into a <canvas> inside its custom element's SHADOW root, so a
+// plain document.querySelector("canvas") finds nothing. This walks open shadow
+// roots as well as the light DOM, which also means the self-test canvas — an
+// ordinary child of #stage — is found by the same code path the real one is.
+function findCanvas(root) {
+  root = root || document;
+  const direct = root.querySelector ? root.querySelector("canvas") : null;
+  if (direct) return direct;
+  const all = root.querySelectorAll ? root.querySelectorAll("*") : [];
+  for (const element of all) {
+    if (element.shadowRoot) {
+      const found = findCanvas(element.shadowRoot);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// A single reusable scratch canvas. Allocating one per frame would make the
+// capture loop's cost grow with the movie's length rather than stay flat.
+let scratch = null;
+function scratchContext(width, height) {
+  if (!scratch) scratch = document.createElement("canvas");
+  if (scratch.width !== width || scratch.height !== height) {
+    scratch.width = width;
+    scratch.height = height;
+  }
+  return scratch.getContext("2d", { willReadFrequently: true });
+}
+
+function readCanvas(canvas) {
+  const width = canvas.width, height = canvas.height;
+  if (!width || !height) throw new Error("the stage canvas is " + width + "x" + height);
+  const context = scratchContext(width, height);
+  context.clearRect(0, 0, width, height);
+  // Copy through a 2D canvas rather than calling toDataURL on the source.
+  // Ruffle may be drawing with WebGL or WebGPU, and reading a WebGL canvas
+  // directly returns a blank image unless it was created with
+  // preserveDrawingBuffer — which is not ours to choose. Copying is one blit
+  // and works for every backend.
+  context.drawImage(canvas, 0, 0);
+  return scratch.toDataURL("image/png");
+}
+
+// Captures one frame, as a `data:image/png;base64,...` URL.
+//
+// The read happens inside a frame callback because a WebGL drawing buffer is
+// only guaranteed to hold its contents until the end of the frame that drew it;
+// reading afterwards is the standard way to get a blank image intermittently
+// and never reproducibly.
+//
+// The timeout is the other half of that. An offscreen WKWebView may never
+// composite, in which case requestAnimationFrame is never called and waiting
+// for it would hang the whole capture. If it has not fired in time, the frame
+// is read directly, which is correct for a 2D canvas and is the better of the
+// two available answers for a WebGL one.
+function latheCapture(rafTimeoutMs) {
+  return new Promise((resolve, reject) => {
+    const canvas = findCanvas();
+    if (!canvas) { reject(new Error("no canvas on the stage yet")); return; }
+
+    let settled = false;
+    const attempt = (viaFrameCallback) => {
+      if (settled) return;
+      settled = true;
+      try {
+        const url = readCanvas(canvas);
+        window.latheState.frameCount += 1;
+        resolve({ dataURL: url, viaFrameCallback: viaFrameCallback });
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    const timer = setTimeout(() => attempt(false), rafTimeoutMs || 250);
+    requestAnimationFrame(() => { clearTimeout(timer); attempt(true); });
+  });
+}
+window.latheCapture = latheCapture;
+
+// --- players -----------------------------------------------------------------
+
+function stage() { return document.getElementById("stage"); }
+
+function sizeStage(width, height) {
+  const element = stage();
+  element.style.width = width + "px";
+  element.style.height = height + "px";
+  document.body.style.width = width + "px";
+  document.body.style.height = height + "px";
+}
+
+// A canvas Lathe animates itself, standing in for Ruffle so that the capture
+// path can be tested in a clone that has no Ruffle in it. It draws a band that
+// moves with the frame number, so a test can tell one captured frame from the
+// next — identical frames could not distinguish a working capture loop from one
+// that returned the same image every time.
+function startSelfTest(config) {
+  const canvas = document.createElement("canvas");
+  canvas.width = config.width;
+  canvas.height = config.height;
+  stage().appendChild(canvas);
+  const context = canvas.getContext("2d");
+
+  let tick = 0;
+  const draw = () => {
+    context.fillStyle = "#101820";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const x = (tick * 7) % Math.max(1, canvas.width);
+    context.fillStyle = "#ff5a1f";
+    context.fillRect(x, 0, Math.max(1, canvas.width / 8), canvas.height);
+    tick += 1;
+  };
+  draw();
+  // Faster than any capture rate, because Ruffle also redraws continuously
+  // rather than at whatever rate somebody is sampling it.
+  setInterval(draw, 16);
+  window.latheState.status = "ready";
+}
+
+// `autoplay: "on"` and `unmuteOverlay: "hidden"` matter more than they look.
+// Ruffle's defaults wait for a user gesture and paint a click-to-unmute overlay
+// across the stage, and there is nobody here to click either of them. A capture
+// that quietly recorded nine hundred frames of an overlay would look exactly
+// like a working one.
+function playerOptions(config) {
+  return {
+    autoplay: "on",
+    unmuteOverlay: "hidden",
+    contextMenu: "off",
+    splashScreen: false,
+    logLevel: "error",
+    // Advisory. If this build of Ruffle does not know the key it is ignored,
+    // which is why the capture path copies through a 2D canvas regardless
+    // rather than relying on having been handed a 2D backend.
+    preferredRenderer: config.preferredRenderer || undefined,
+  };
+}
+
+// The real thing. `ruffle.js` lazily loads its own core JS and `.wasm` from the
+// directory it was served out of, which is why the scheme handler serves that
+// whole directory rather than three named files — their names carry a content
+// hash that changes with every Ruffle release.
+function startRuffle(config) {
+  if (!window.RufflePlayer || !window.RufflePlayer.newest) {
+    fail("ruffle.js loaded but did not install window.RufflePlayer");
+    return;
+  }
+  // Set the configuration BOTH ways Ruffle documents, because they are not
+  // equivalent across versions and a silently ignored one here means a capture
+  // of 900 frames of a click-to-play overlay. `window.RufflePlayer.config` is
+  // the global path; the same object is passed to `load` below for the
+  // per-player path. Whichever this build honours, the settings apply.
+  window.RufflePlayer.config = Object.assign({}, window.RufflePlayer.config, playerOptions(config));
+
+  let player;
+  try {
+    player = window.RufflePlayer.newest().createPlayer();
+  } catch (error) {
+    fail("could not create a Ruffle player: " + error);
+    return;
+  }
+  stage().appendChild(player);
+
+  player.addEventListener("loadeddata", () => { window.latheState.status = "ready"; });
+  player.addEventListener("error", (event) => { fail("Ruffle error: " + (event && event.message)); });
+
+  try {
+    player.ruffle().load(Object.assign({ url: config.movieURL }, playerOptions(config)));
+  } catch (error) {
+    fail("Ruffle refused the movie: " + error);
+    return;
+  }
+
+  // Ruffle does not always emit `loadeddata` for every movie, so readiness is
+  // also inferred from a canvas existing with a non-zero size. Waiting only for
+  // the event would hang on content that plays perfectly well.
+  const poll = setInterval(() => {
+    if (window.latheState.status === "error") { clearInterval(poll); return; }
+    const canvas = findCanvas();
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      window.latheState.status = "ready";
+      clearInterval(poll);
+    }
+  }, 50);
+}
+
+// Called from Swift once, with everything the page needs. Returns immediately;
+// readiness is polled through `latheState`, because a movie's first frame can
+// take a while and blocking here would only move the wait.
+window.latheInit = function (config) {
+  try {
+    window.latheState.status = "loading";
+    sizeStage(config.width, config.height);
+    if (config.mode === "selftest") {
+      startSelfTest(config);
+    } else {
+      startRuffle(config);
+    }
+  } catch (error) {
+    fail(error);
+  }
+  return window.latheState.status;
+};
+</script>

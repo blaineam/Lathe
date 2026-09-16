@@ -2,13 +2,14 @@
 
 Lathe is licensed under the Apache License, Version 2.0 — see `LICENSE`.
 
-Two third-party components are involved, and **they are involved in different
+Three third-party components are involved, and **they are involved in different
 ways** — which changes what you have to do about each:
 
 | Component | Relationship | Who distributes it |
 |---|---|---|
 | **libwebp** | vendored as source and compiled into `LatheImage` | you do, in your binary |
 | **CPython** | bound at run time by `LatheFetch`; **not** in this repository | you do, *if* you embed it |
+| **Ruffle** | fetched into `LatheSWFRender`'s resource bundle; **not** in this repository | you do, *if* you ship `LatheSWFRender` |
 
 If you ship an application that depends on `LatheImage` (directly, or through the
 `Lathe` umbrella, `LatheVideo` or `LatheDoc`), you are distributing libwebp and
@@ -17,6 +18,12 @@ CPython framework**, you are distributing CPython and its obligations apply too.
 Depending on `LatheFetch` without embedding one — on macOS, where the host
 supplies the interpreter — distributes no CPython and carries no obligation.
 Reproducing this file in your application's acknowledgements satisfies both.
+
+If you depend on `LatheSWFRender`, you are distributing Ruffle: the fetch script
+puts it in a resource bundle that ships inside your application. Apache-2.0
+requires attribution and a copy of the licence, so its notice applies to you.
+Depending on `LatheSWF` alone distributes no Ruffle and carries no obligation —
+that module has no renderer in it at all.
 
 `LatheCore` and `LatheAudio` link nothing but Apple's own frameworks.
 
@@ -212,3 +219,52 @@ organisation, read it rather than this summary.
 application that does not name it links none of this. And an application that
 does name it still ships no CPython unless it embeds a framework itself — on
 macOS the host's interpreter is used and nothing is redistributed.
+
+
+---
+
+## Ruffle
+
+- **Used by:** `LatheSWFRender` only. **Not** `LatheSWF`, and not the `Lathe`
+  umbrella.
+- **Why:** it is a Flash Player. Rendering a `.swf` means running one, and
+  writing one is a project measured in person-years; Ruffle is the only
+  permissively licensed implementation that works.
+- **Upstream:** <https://github.com/ruffle-rs/ruffle>
+- **Version:** v0.6.0 (released 2026-09-06), asset
+  `ruffle-0.6.0-web-selfhosted.zip`, SHA-256
+  `e8acfacc37443303872379d0e215999af846854d1dd3fa8fac0a765445b43dbf`
+- **Licence:** **Apache-2.0 OR MIT**, at the user's option. Lathe takes it under
+  Apache-2.0, which is Lathe's own licence — so there is nothing to reconcile,
+  no copyleft obligation, and no per-application decision of the kind
+  `LatheMP3`'s LGPL vendoring forces.
+- **Copyright:** Ruffle LLC \<ruffle@ruffle.rs\> and Ruffle contributors
+- **Vendored at:** `Sources/LatheSWFRender/RenderHost/ruffle/` — and **not
+  committed**. `Sources/LatheSWFRender/fetch-upstream.sh` downloads the pinned
+  release, verifies the hash above, and unpacks it, keeping upstream's own
+  licence files beside the code they cover. See
+  `Sources/LatheSWFRender/VENDORING.md`.
+- **Modifications:** none. The unpacked build is byte-for-byte upstream's
+  release asset.
+
+Ruffle is a clean-room reimplementation of the Flash Player. It contains no
+Adobe code and needs no licence from Adobe — which is the question people
+usually mean when they ask whether shipping a Flash player is allowed.
+
+### Licence
+
+Apache-2.0 is reproduced in this repository's own `LICENSE`, and applies to
+Ruffle on the same terms. Upstream's `LICENSE.md`, which carries both that and
+the MIT alternative together with the copyright line above, is unpacked into
+`Sources/LatheSWFRender/RenderHost/ruffle/` by the fetch script and ships in the
+resource bundle alongside the code.
+
+### The other thing to weigh, which is not a licence question
+
+`LatheSWFRender` runs a WebAssembly interpreter over ActionScript from a
+**user-supplied file**. It does so inside WebKit — the sanctioned place for
+untrusted code on Apple's platforms — with nothing fetched at run time, and with
+the host WebView refusing navigation to any scheme but its own. That is still
+third-party bytecode from an untrusted file executing on a user's device, and an
+App Store submission should weigh it deliberately rather than inherit it. It is
+a separate product so that the decision is one you make.

@@ -106,6 +106,37 @@ public struct SWFCapture: Sendable {
         return try SWFReader.signature(of: head, name: name)
     }
 
+    /// Just the header: version, compression, stage size, frame rate and frame
+    /// count.
+    ///
+    /// Cheap on purpose. It reads the first 64 KB of the file and tries to parse
+    /// a header out of that, which for an uncompressed movie needs about twenty
+    /// bytes and for a compressed one needs whatever the first deflate block
+    /// yields — so a 40 MB movie costs the same as a 40 KB one. It falls back to
+    /// reading the whole file only if the prefix was not enough, so the saving is
+    /// an optimisation rather than a new way to fail.
+    ///
+    /// The frame rate and frame count are what a renderer needs to choose a
+    /// capture rate and a length, which is what this exists for.
+    ///
+    /// - Throws: the same errors as ``inspect(_:)``, including
+    ///   ``LatheError/decodeUnavailable(format:)`` for an LZMA file.
+    public func header(of url: URL) throws -> SWFHeader {
+        let name = url.lastPathComponent
+        if let prefix = try? Self.readPrefix(of: url, byteCount: 64 * 1024),
+           let header = try? SWFReader.open(prefix, name: name, limits: limits).header
+        {
+            return header
+        }
+        return try SWFReader.open(url, name: name, limits: limits).header
+    }
+
+    private static func readPrefix(of url: URL, byteCount: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        return try handle.read(upToCount: byteCount) ?? Data()
+    }
+
     // MARK: - Inspecting
 
     /// Finds everything a capture would recover, and writes nothing.
