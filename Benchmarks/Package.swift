@@ -14,6 +14,18 @@ let package = Package(
     platforms: [.macOS(.v14)],
     dependencies: [.package(path: "..")],
     targets: [
+        // The images on the documentation site. A separate executable so the
+        // site's pictures are produced BY the library they advertise, rather
+        // than exported once by hand and quietly drifting from what the code
+        // actually does.
+        .executableTarget(
+            name: "lathe-siteassets",
+            dependencies: [
+                .product(name: "LatheCore", package: "Lathe"),
+                .product(name: "LatheImage", package: "Lathe"),
+                .product(name: "LatheVideo", package: "Lathe"),
+            ]
+        ),
         .executableTarget(
             name: "lathe-bench",
             dependencies: [

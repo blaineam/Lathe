@@ -1,0 +1,42 @@
+{
+  "encodings" : [
+    {
+      "bytes" : 47032,
+      "displayable" : true,
+      "file" : "comparison-jpeg.jpg",
+      "format" : "JPEG",
+      "label" : "JPEG",
+      "quality" : 0.32
+    },
+    {
+      "bytes" : 18098,
+      "displayable" : true,
+      "file" : "comparison-webp.webp",
+      "format" : "WebP",
+      "label" : "WebP",
+      "quality" : 0.32
+    },
+    {
+      "bytes" : 13281,
+      "displayable" : true,
+      "file" : "comparison-avif.avif",
+      "format" : "AVIF",
+      "label" : "AVIF",
+      "quality" : 0.32
+    },
+    {
+      "bytes" : 19318,
+      "displayable" : false,
+      "file" : "comparison-heic.heic",
+      "format" : "HEIC",
+      "label" : "HEIC",
+      "quality" : 0.32
+    }
+  ],
+  "generatedAt" : "2026-09-16T01:32:42Z",
+  "height" : 900,
+  "originalBytes" : 204126,
+  "originalFile" : "comparison-original.png",
+  "quality" : 0.32,
+  "width" : 1440
+}

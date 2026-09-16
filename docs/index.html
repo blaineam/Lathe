@@ -136,6 +136,40 @@
   </div>
 </section>
 
+<div class="wrap"><div class="hr"></div></div>
+
+<section class="wrap">
+  <div class="sec-head">
+    <div class="label">See it</div>
+    <h2>The same picture, four ways</h2>
+  </div>
+  <div class="prose" style="margin-bottom:22px">
+    <p>Drag the handle. Left is the lossless original; right is what Lathe wrote at <b>quality 0.32</b> — deliberately low, because at a setting nobody would complain about there is nothing to look at.</p>
+  </div>
+
+  <div class="formats" id="formats" role="group" aria-label="Output format"></div>
+
+  <figure class="compare" id="compare" style="margin:0">
+    <img id="before" src="media/comparison-original.png" alt="The original, uncompressed" width="1440" height="900">
+    <div class="after" id="after">
+      <img id="afterImage" src="media/comparison-avif.avif" alt="The same image after compression">
+    </div>
+    <div class="handle" aria-hidden="true"></div>
+    <div class="grip" aria-hidden="true">◀ ▶</div>
+    <figcaption>
+      <span id="beforeLabel">PNG · —</span>
+      <span id="afterLabel">AVIF · —</span>
+    </figcaption>
+  </figure>
+  <input class="compare-range" id="split" type="range" min="0" max="100" value="50"
+         aria-label="Reveal more of the compressed image">
+
+  <div class="prose" style="margin-top:22px">
+    <p id="savingLine">Every figure here is the real size of the real file, written by the encoder that produced it.</p>
+    <p>The source is a generated scene rather than a photograph — it needs no licence and regenerates from a checkout — and it is built out of the four things that actually make codecs struggle: a slow gradient that bands, fine texture that smears, hard-edged type that rings, and saturated colour boundaries that bleed. Those are the artefacts a slider is for.</p>
+  </div>
+</section>
+
 <section class="sami bleed">
   <div class="wrap">
     <div class="sami-grid">
@@ -245,5 +279,96 @@
   </div>
 </footer>
 
+
+<script>
+// The comparison is driven by the manifest the encoder wrote, so the numbers on
+// the page cannot drift from the files beside them. If it fails to load, the
+// slider still works — it just cannot label the sizes, which is the honest
+// degradation.
+(function () {
+  const compare = document.getElementById("compare");
+  const after = document.getElementById("after");
+  const afterImage = document.getElementById("afterImage");
+  const afterLabel = document.getElementById("afterLabel");
+  const beforeLabel = document.getElementById("beforeLabel");
+  const range = document.getElementById("split");
+  const formats = document.getElementById("formats");
+  const savingLine = document.getElementById("savingLine");
+  if (!compare) return;
+
+  const setSplit = (percent) => {
+    const clamped = Math.max(0, Math.min(100, percent));
+    compare.style.setProperty("--split", clamped + "%");
+    if (range.value !== String(Math.round(clamped))) range.value = Math.round(clamped);
+  };
+  setSplit(50);
+
+  const fromEvent = (event) => {
+    const box = compare.getBoundingClientRect();
+    const x = (event.touches ? event.touches[0].clientX : event.clientX) - box.left;
+    return (x / box.width) * 100;
+  };
+
+  let dragging = false;
+  compare.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    compare.setPointerCapture(e.pointerId);
+    setSplit(fromEvent(e));
+  });
+  compare.addEventListener("pointermove", (e) => { if (dragging) setSplit(fromEvent(e)); });
+  compare.addEventListener("pointerup", (e) => {
+    dragging = false;
+    if (compare.hasPointerCapture(e.pointerId)) compare.releasePointerCapture(e.pointerId);
+  });
+  range.addEventListener("input", () => setSplit(Number(range.value)));
+
+  const kb = (n) => (n / 1024).toFixed(1) + " kB";
+
+  fetch("media/comparison.json")
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then((manifest) => {
+      beforeLabel.textContent = "PNG original · " + kb(manifest.originalBytes);
+
+      const show = (entry) => {
+        afterImage.src = "media/" + entry.file;
+        afterLabel.textContent = entry.label + " · " + kb(entry.bytes);
+        const saved = Math.round((1 - entry.bytes / manifest.originalBytes) * 100);
+        savingLine.innerHTML =
+          "<b>" + entry.label + " at quality " + entry.quality + "</b> is " +
+          kb(entry.bytes) + " against the original's " + kb(manifest.originalBytes) +
+          " — <b>" + saved + "% smaller</b>. Every figure is the real size of the " +
+          "real file, written by the encoder that produced it.";
+        for (const button of formats.children) {
+          button.setAttribute("aria-pressed", String(button.dataset.file === entry.file));
+        }
+      };
+
+      for (const entry of manifest.encodings) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.file = entry.file;
+        button.setAttribute("aria-pressed", "false");
+        button.textContent = entry.label + " · " + kb(entry.bytes);
+        if (entry.displayable) {
+          button.addEventListener("click", () => show(entry));
+        } else {
+          // HEIC is in the manifest because its size is a real result, and no
+          // browser will render it. Reporting the number and refusing to
+          // pretend beats a pane that silently shows nothing.
+          button.disabled = true;
+          button.title = "No browser displays HEIC — the size is measured, the picture cannot be shown here.";
+        }
+        formats.appendChild(button);
+      }
+
+      const first = manifest.encodings.find((e) => e.displayable);
+      if (first) show(first);
+    })
+    .catch(() => {
+      afterLabel.textContent = "AVIF";
+      beforeLabel.textContent = "PNG original";
+    });
+})();
+</script>
 </body>
 </html>
