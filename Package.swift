@@ -56,7 +56,9 @@ let package = Package(
         // it is the only non-permissive code in this package: it vendors LAME,
         // which is LGPL. Naming this product is how a consumer takes on that
         // obligation, and NOT naming it is how a consumer proves it has not.
-        // See Sources/CLAME/VENDORING.md before depending on it.
+        // LAME is linked as its own dynamic framework so that it can be
+        // replaced, as the LGPL requires. See Vendor/LAME/VENDORING.md before
+        // depending on it.
         .library(name: "LatheMP3", targets: ["LatheMP3"]),
 
         // Network ingest, and the first module the rule above was written for.
@@ -130,9 +132,16 @@ let package = Package(
         // capability that cannot be had from the system, and the only way to
         // have it is to vendor an LGPL library. Separating it means the rest of
         // the package stays permissive and a consumer chooses.
+        //
+        // This target is STATIC like every other Swift target here; only LAME,
+        // below, is dynamic. Making LatheMP3 itself a dynamic product would put
+        // a second copy of LatheCore inside that framework, beside the one the
+        // app links through every other Lathe product — two `LatheError` types,
+        // and `catch let e as LatheError` silently stops matching what the MP3
+        // code throws.
         .target(
             name: "LatheMP3",
-            dependencies: ["LatheCore", "CLAME"]
+            dependencies: ["LatheCore", "LAME"]
         ),
 
         // MARK: - Network ingest
@@ -245,28 +254,38 @@ let package = Package(
             cSettings: [.headerSearchPath("upstream")]
         ),
 
-        // LAME, vendored. **LGPL** — the only non-permissive code in this
-        // package. See Sources/CLAME/VENDORING.md.
-        .target(
-            name: "CLAME",
-            path: "Sources/CLAME",
-            exclude: [
-                "refresh-upstream.sh",
-                "upstream/COPYING",
-                "upstream/README-VENDORED.txt",
-            ],
-            sources: ["upstream/libmp3lame"],
-            publicHeadersPath: "include",
-            cSettings: [
-                .headerSearchPath("upstream"),
-                .headerSearchPath("upstream/libmp3lame"),
-                .headerSearchPath("include"),
-                .define("HAVE_CONFIG_H"),
-                // LAME's own sources warn heavily under modern clang, and none
-                // of it is actionable without patching upstream — which this
-                // package does not do, so that a version bump stays a copy.
-                .unsafeFlags(["-Wno-everything"]),
-            ]
+        // LAME. **LGPL** — the only non-permissive code in this package — and
+        // therefore the one dependency that is a BINARY target, where libwebp
+        // above is source.
+        //
+        // The LGPL expects that whoever receives an application can replace
+        // the library with their own build of it. Compiled into the app as
+        // source, LAME cannot be replaced; shipped as its own dynamic framework
+        // inside the app bundle — the arrangement ffmpeg-kit's LGPL builds use —
+        // it can. `lame.framework` holds LAME's C and nothing else: no Swift, no
+        // LatheCore.
+        //
+        // The source it is built from stays in this repository, uncompiled by
+        // SwiftPM, at Vendor/LAME/upstream: that is the LGPL's "corresponding
+        // source" — the pinned upstream tarball byte for byte, plus one written
+        // config.h — and
+        // `Scripts/build-lame-xcframework.sh` turns it into exactly this
+        // framework. See Vendor/LAME/VENDORING.md.
+        //
+        // ─── RELEASE: switch this to the published asset ───────────────────
+        // While this points at a local path, the zip must be built before
+        // anything resolves this package (CI does; see ci.yml), because a
+        // missing binary target fails every build, not only LatheMP3's. Once
+        // the zip is attached to a GitHub release, replace the line below with
+        //
+        //   url: "https://github.com/<owner>/Lathe/releases/download/<tag>/lame.xcframework.zip",
+        //   checksum: "<swift package compute-checksum lame.xcframework.zip>"
+        //
+        // and drop the "Build the LAME framework" steps from the workflows.
+        // ────────────────────────────────────────────────────────────────────
+        .binaryTarget(
+            name: "LAME",
+            path: "Artifacts/lame.xcframework.zip"
         ),
 
         // MARK: - Test support

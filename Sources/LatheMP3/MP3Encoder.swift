@@ -1,7 +1,7 @@
 import AVFoundation
-import CLAME
 import Foundation
 import LatheCore
+import lame
 
 /// MP3 encoding.
 ///
@@ -18,7 +18,9 @@ import LatheCore
 /// the manifest rather than at the binary. `LatheAudio` does not depend on this,
 /// and the `Lathe` umbrella does not re-export it.
 ///
-/// See `Sources/CLAME/VENDORING.md` before depending on this.
+/// LAME itself is linked as its own dynamic framework, `lame.framework`, so an
+/// app can meet the LGPL by letting it be replaced. See `Vendor/LAME/VENDORING.md`
+/// before depending on this.
 ///
 /// ## And a word on whether you want it
 ///

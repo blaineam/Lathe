@@ -1,6 +1,6 @@
-import CLAME
 import Foundation
 import LatheCore
+import lame
 
 /// A configured LAME encoder, and the only place this package touches its C API.
 ///

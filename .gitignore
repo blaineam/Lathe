@@ -47,3 +47,8 @@ TestResults/
 App/Vendor/Tor/tor.xcframework/
 App/Vendor/Tor/*.zip
 docs/__pycache__/
+
+# LAME's dynamic framework is built from Vendor/LAME/upstream by
+# Scripts/build-lame-xcframework.sh and published as a release asset; the
+# binary is never committed. See Vendor/LAME/VENDORING.md.
+Artifacts/

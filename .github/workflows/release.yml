@@ -69,6 +69,20 @@ jobs:
           xcode-select -p
           xcodebuild -version
           swift --version
+
+      # LAME's dynamic framework. While Package.swift points the `LAME` binary
+      # target at a local path, nothing in this package resolves until the zip
+      # exists — not even products that never touch MP3. Once the target is a
+      # release URL, SwiftPM downloads it and this step has nothing to do.
+      # See Vendor/LAME/VENDORING.md.
+      - name: Build the LAME framework
+        run: |
+          if grep -q 'path: "Artifacts/lame.xcframework.zip"' Package.swift; then
+            Scripts/build-lame-xcframework.sh
+          else
+            echo "Package.swift fetches LAME from a release; nothing to build."
+          fi
+
       - name: Run the suite
         run: |
           # Serially, and that is not a preference.
@@ -109,6 +123,19 @@ jobs:
           xcode-select -p
           xcodebuild -version
           swift --version
+
+      # LAME's dynamic framework. The app does not link it, but it depends on
+      # this package by path, and while Package.swift points the `LAME` binary
+      # target at a local path the package does not resolve until the zip
+      # exists. Once the target is a release URL this step has nothing to do.
+      # See Vendor/LAME/VENDORING.md.
+      - name: Build the LAME framework
+        run: |
+          if grep -q 'path: "Artifacts/lame.xcframework.zip"' Package.swift; then
+            Scripts/build-lame-xcframework.sh
+          else
+            echo "Package.swift fetches LAME from a release; nothing to build."
+          fi
 
       - name: Build the bundle
         run: |

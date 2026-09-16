@@ -162,8 +162,9 @@ request.lossySources = .skip        <span class="c">// .allow to override</span>
   </div><div class="module" id="lathemp3">
     <h3>LatheMP3</h3>
     <p class="sub"><b>MP3, because the system will not.</b> CoreAudio decodes MP3 and refuses to encode
-   it. LAME is vendored behind its own product boundary so the LGPL stays
-   quarantined — link it only if you want it. mpglib is GPL and is excluded.</p>
+   it. LAME sits behind its own product boundary so the LGPL stays
+   quarantined — link it only if you want it — and ships as its own dynamic
+   <code>lame.framework</code>, so an app can let a user replace it. mpglib is GPL and is excluded.</p>
     <div class="types"><span>MP3Encoder</span><span>MP3Mode</span></div>
     <pre><span class="c">// A separate product. Nothing else in Lathe links LAME, so an app</span>
 <span class="c">// that does not want the LGPL simply does not depend on this.</span>
@@ -243,7 +244,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
             <tr><td class="mod">LatheCore, LatheVideo, LatheImage, LatheAudio, LatheDoc, LatheMeta, LatheLookup</td>
                 <td>System frameworks, libwebp</td><td>Apache-2.0 / BSD</td>
                 <td><span class="pill ok">Yes</span></td></tr>
-            <tr><td class="mod">LatheMP3</td><td>LAME</td><td>LGPL-2.1</td>
+            <tr><td class="mod">LatheMP3</td><td>LAME, as a dynamic framework</td><td>LGPL-2.0-or-later</td>
                 <td><span class="pill no">Opt in</span></td></tr>
             <tr><td class="mod">LatheFetch</td><td>CPython; fetches yt-dlp / gallery-dl at run time</td>
                 <td>PSF; tools not shipped</td><td><span class="pill no">Opt in</span></td></tr>
