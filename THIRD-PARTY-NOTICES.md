@@ -26,12 +26,14 @@ Reproducing this file in your application's acknowledgements satisfies both.
 
 - **Used by:** `LatheImage` (and therefore `Lathe`, `LatheVideo`, `LatheDoc`)
 - **Why:** ImageIO decodes WebP and cannot encode it. libwebp is the WebP
-  encoder; there is no Apple-provided alternative.
+  encoder — still and animated — and its muxer is what writes WebP's EXIF and
+  XMP chunks; there is no Apple-provided alternative.
 - **Upstream:** <https://chromium.googlesource.com/webm/libwebp>
 - **Version:** v1.6.0 (commit `4fa21912338357f89e4fd51cf2368325b59e9bd9`)
 - **Licence:** BSD-3-Clause, with an additional patent grant
-- **Vendored at:** `Sources/CWebP/upstream/` — a partial, unmodified copy of the
-  encoder. See `Sources/CWebP/VENDORING.md` for exactly what was taken, what was
+- **Vendored at:** `Sources/CWebP/upstream/` — a partial, unmodified copy: the
+  encoder, the muxer (`libwebpmux`, including `WebPAnimEncoder`) and the decoder
+  the animation encoder calls internally. No demuxer. See `Sources/CWebP/VENDORING.md` for exactly what was taken, what was
   left out, and how to refresh it.
 - **Modifications:** none. Every vendored file is byte-for-byte upstream.
 

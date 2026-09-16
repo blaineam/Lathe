@@ -42,7 +42,8 @@ import LatheCore
 /// ## ImageIO is not the only backend
 ///
 /// One format is written by Lathe itself rather than by ImageIO: **WebP**, via
-/// the vendored libwebp (see ``WebPEncoder``). That does not make the probe lie
+/// the vendored libwebp (see ``WebPEncoder``) — stills and, through its
+/// `WebPAnimEncoder`, animations (``canEncodeAnimated(_:)``). That does not make the probe lie
 /// about ImageIO. The two questions are kept separate —
 /// ``imageIOEncodableFormats`` is still exactly what ImageIO demonstrated, and
 /// ``EncodeSupport/overReportedTypeIdentifiers`` still names WebP as advertised
@@ -85,6 +86,16 @@ public struct EncodeSupport: Sendable {
     /// correct as ImageIO grows costs nothing: the day it really does encode
     /// WebP, ``backend(for:)`` switches to `.imageIO` on its own.
     public static let builtInFormats: Set<ImageFormat> = [.webp]
+
+    /// Formats this package can write as an **animation** itself — a subset of
+    /// ``builtInFormats``, and today all of it: animated WebP, via the vendored
+    /// libwebp's `WebPAnimEncoder`.
+    ///
+    /// Kept as its own set rather than assumed from ``builtInFormats`` because
+    /// the two were not always equal — the WebP still encoder was vendored
+    /// before the muxer — and a future built-in still encoder need not come
+    /// with an animation encoder.
+    public static let builtInAnimatedFormats: Set<ImageFormat> = [.webp]
 
     /// Every UTI `CGImageDestinationCopyTypeIdentifiers()` reported, verbatim and
     /// in the order given.
@@ -204,6 +215,28 @@ public struct EncodeSupport: Sendable {
     /// Every format this system can encode, by either backend.
     public var supportedFormats: Set<ImageFormat> { supported }
 
+    /// Whether this system can write `format` as an **animation** — what
+    /// ``AnimatedImageWriter`` asks before it creates anything.
+    ///
+    /// Three conditions, all required: the format has somewhere to keep
+    /// per-frame timing (AVIF, for one, does not — see ``AnimatedImageWriter``),
+    /// something here can encode it, and that something can write more than one
+    /// frame. ImageIO's destinations are multi-frame wherever they exist; a
+    /// built-in encoder counts only if it is in ``builtInAnimatedFormats``.
+    public func canEncodeAnimated(_ format: ImageFormat) -> Bool {
+        guard AnimationContainer.holding(format) != nil else { return false }
+        switch backend(for: format) {
+        case .imageIO: return true
+        case .builtIn: return Self.builtInAnimatedFormats.contains(format)
+        case nil: return false
+        }
+    }
+
+    /// Every format ``canEncodeAnimated(_:)`` admits.
+    public var animatedFormats: Set<ImageFormat> {
+        Set(ImageFormat.allCases.filter(canEncodeAnimated))
+    }
+
     /// Every format Lathe knows about that this system cannot encode.
     public var unsupportedFormats: Set<ImageFormat> {
         Set(ImageFormat.allCases).subtracting(supported)
@@ -265,9 +298,11 @@ public struct EncodeSupport: Sendable {
         for format in ImageFormat.allCases.sorted(by: { $0.description < $1.description }) {
             let name = format.description.padding(toLength: width, withPad: " ", startingAt: 0)
             let mark = canEncode(format) ? "encode YES" : "encode no "
+            let animated = canEncodeAnimated(format) ? "animated YES" : "animated no "
             let via = backend(for: format).map { "via \($0.description)" } ?? "—"
             let uti = destinationTypeIdentifier(for: format) ?? format.typeIdentifier
-            lines.append("    \(name)  \(mark)  \(via.padding(toLength: 20, withPad: " ", startingAt: 0))  (\(uti))")
+            lines.append("    \(name)  \(mark)  \(animated)  "
+                         + "\(via.padding(toLength: 20, withPad: " ", startingAt: 0))  (\(uti))")
         }
         return lines.joined(separator: "\n")
     }

@@ -28,7 +28,7 @@ struct AnimatedImageWriterTests {
     /// version check wearing a test's clothes — it would fail on a platform that
     /// legitimately cannot write one of them.
     private static var writableFormats: [ImageFormat] {
-        [.gif, .png, .heics].filter { EncodeSupport.shared.canEncode($0) }
+        [.gif, .png, .webp, .heics].filter { EncodeSupport.shared.canEncodeAnimated($0) }
     }
 
     private func temporaryDirectory(_ label: String) throws -> URL {
@@ -72,7 +72,8 @@ struct AnimatedImageWriterTests {
         #expect(info.pixelSize == PixelSize(width: 64, height: 48))
 
         // And the frames are the frames, in the order given. GIF is palettised
-        // and HEICS is lossy, so the greys are compared with slack — but the
+        // and HEICS and (at this quality) WebP are lossy, so the greys are
+        // compared with slack — but the
         // order is monotonic either way, which a shuffled or duplicated run is
         // not.
         let decoded = try FrameFixtures.decodeFrames(of: output)
@@ -341,33 +342,42 @@ struct AnimatedImageWriterTests {
         }
     }
 
-    /// **WebP is refused for a reason that is not "this system cannot encode
-    /// WebP".** It can — by the vendored libwebp — and saying otherwise would
-    /// send the caller looking at their OS version. What is missing is the
-    /// animation muxer, and the error says so.
-    @Test("animated WebP is refused as a missing muxer, not a missing encoder")
-    func webPIsRefusedForTheRightReason() throws {
+    /// **Animated WebP is written, and by the vendored encoder.** It used to be
+    /// refused — only libwebp's still encoder was vendored — and the refusal is
+    /// gone because `WebPAnimEncoder` now is. The detailed WebP behaviour lives
+    /// in `AnimatedWebPTests`; this pins the routing.
+    @Test("animated WebP is written, by the built-in backend")
+    func webPIsWritten() throws {
         let directory = try temporaryDirectory("webp")
         defer { try? FileManager.default.removeItem(at: directory) }
 
         try FrameFixtures.stills(count: 2, in: directory)
         let frames = try FrameSequence.contentsOfDirectory(directory)
 
-        // Still encodable as a single WebP — the premise of the message.
-        #expect(EncodeSupport.shared.canEncode(.webp))
+        #expect(EncodeSupport.shared.canEncodeAnimated(.webp))
+        #expect(EncodeSupport.shared.backend(for: .webp) == .builtIn)
 
-        let thrown: (any Error)? = {
-            do {
-                try writer.write(
-                    frames, to: directory.appendingPathComponent("out.webp"), format: .webp
-                )
-                return nil
-            } catch { return error }
-        }()
-        guard case .unsupportedOnThisPlatform = thrown as? LatheError else {
-            Issue.record("expected unsupportedOnThisPlatform, got \(String(describing: thrown))")
-            return
+        let output = directory.appendingPathComponent("out.webp")
+        let result = try writer.write(frames, to: output, format: .webp)
+        #expect(result.frameCount == 2)
+        #expect(try inspector.inspect(output).isAnimated)
+    }
+
+    /// A negative loop count is not "forever" in any container; `0` is.
+    @Test("a negative loop count is refused, in every format",
+          arguments: AnimatedImageWriterTests.writableFormats)
+    func negativeLoopCount(_ format: ImageFormat) throws {
+        let directory = try temporaryDirectory("negative-loop-\(format.rawValue)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try FrameFixtures.stills(count: 2, in: directory)
+        let frames = try FrameSequence.contentsOfDirectory(directory)
+        let output = directory.appendingPathComponent("out.\(format.preferredFilenameExtension)")
+
+        #expect(throws: LatheError.self) {
+            try writer.write(frames, to: output, format: format, loopCount: -1)
         }
+        #expect(!FileManager.default.fileExists(atPath: output.path))
     }
 
     /// An extension that contradicts the format is refused rather than

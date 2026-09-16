@@ -15,8 +15,9 @@ import Testing
 /// those two honest.
 ///
 /// Every fixture is generated at run time, as everywhere else in this suite. The
-/// animated WebP is built byte by byte — see `Fixtures.animatedWebP` — because
-/// `ImageEncoder` deliberately cannot write one.
+/// animated WebP here is built byte by byte — see `Fixtures.animatedWebP` — so
+/// that the reader is tested against a container libwebp's muxer did not write;
+/// `AnimatedWebPTests` covers the files it does write.
 @Suite("Image frame inspection", .serialized)
 struct ImageInspectorTests {
 
@@ -125,13 +126,12 @@ struct ImageInspectorTests {
 
     /// An animated WebP, assembled by hand.
     ///
-    /// `ImageEncoder` **cannot write one**, and that is a stated limitation
-    /// rather than an oversight: animation lives in WebP's extended `VP8X`
-    /// container, which only libwebp's muxer produces, and the muxer is not
-    /// vendored (see `Sources/CWebP/VENDORING.md`). Saying "no fixture, skipped"
-    /// would leave the WebP delay key untested forever, so the fixture wraps two
-    /// real `VP8L` frames — produced by the encoder that *is* vendored — in a
-    /// hand-built `ANIM`/`ANMF` container.
+    /// ImageIO is the WebP reader — no demuxer is vendored — and this pins that
+    /// it reports WebP's frames, delays and loop count through
+    /// `kCGImagePropertyWebPDictionary`, the dictionary `AnimationContainer`
+    /// names. The container is built from the spec rather than by the vendored
+    /// `WebPAnimEncoder`, so a reader that only understood libwebp's particular
+    /// layout would fail here; the frames inside are real `VP8L` stills.
     @Test("an animated WebP is animated, with WebP's own delay key")
     func animatedWebP() async throws {
         try await Fixtures.withDirectory { directory in

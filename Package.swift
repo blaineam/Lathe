@@ -215,8 +215,9 @@ let package = Package(
         // its own repository root — so `upstream/` is put on the header search
         // path and the vendored tree keeps upstream's directory shape verbatim.
         // That is what lets `refresh-upstream.sh` be a copy rather than a
-        // rewrite. `include/` holds Lathe's one-line umbrella header, so the
-        // Swift side sees `WebPEncode` and none of libwebp's internals.
+        // rewrite. `include/` holds Lathe's small umbrella header, so the Swift
+        // side sees the encoder and muxer APIs (`WebPEncode`, `WebPAnimEncoder`,
+        // `WebPMux…`) and none of libwebp's internals.
         //
         // ## SIMD
         //

@@ -38,8 +38,8 @@ H.264 and HEVC with constant-quality control; Vision does OCR.
 Lathe is the thin, well-tested layer over those frameworks, plus a small number
 of permissively licensed native libraries for the gaps they leave — of which the
 significant one is **WebP encode**, which ImageIO genuinely cannot do. That gap
-is closed: `LatheImage` vendors libwebp's encoder as C source and writes WebP
-itself, lossy and lossless. It is the only third-party code in the package; see
+is closed: `LatheImage` vendors libwebp as C source and writes WebP itself —
+lossy and lossless, still and animated, with its metadata. It is the only third-party code in the package; see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 It is designed for two kinds of consumer:
@@ -445,12 +445,19 @@ Two consequences worth knowing before you choose WebP as an output format:
   *smaller* than lossy on synthetic images — a generated gradient measures 92
   bytes lossless against 702 lossy — so "lossless costs bytes" is a fact about
   photographs, not about WebP.
-- **A WebP written here carries no metadata at all.** EXIF, XMP and ICC live in
-  WebP's extended `VP8X` container, which only libwebp's muxer writes, and the
-  muxer is deliberately not vendored. Orientation is therefore baked into the
-  pixels rather than dropped — the same rule that already covers every format
-  with nowhere to put a tag — so a rotated photo comes out upright. Animated
-  WebP cannot be written for the same reason; it can be *read*, by ImageIO.
+- **Metadata goes through libwebp's muxer.** EXIF and XMP live in WebP's
+  extended `VP8X` container, which only the muxer writes, so the same
+  policy-filtered properties ImageIO would get are serialised into `EXIF` and
+  `XMP ` chunks instead (ImageIO writes the EXIF block, on a throwaway 1x1 JPEG,
+  so there is one EXIF serialiser in the package rather than two). The
+  orientation tag survives and ImageIO reads it back, so `.preserveTag` is
+  honoured for WebP; `.stripLocation` removes the GPS IFD *and* the IPTC place
+  names that ImageIO mirrors into XMP. An image with nothing to say gets a
+  simple WebP with no chunks. No ICC profile is written — pixels are converted
+  to sRGB on the way in, which is what an untagged WebP means.
+- **Animated WebP is written too**, by libwebp's `WebPAnimEncoder` — see
+  [Animations](#animations-from-stills) below. It is read by ImageIO, timing
+  included; no demuxer is vendored.
 
 ### Frame and animation inspection
 
@@ -490,6 +497,33 @@ Three things that produce a wrong *number* rather than an error, each handled:
 Nothing is decoded: `kCGImageSourceShouldCache: false` on every read, so asking
 about a 200 MB file costs the price of its headers. And "not an image" is an
 error, never `false` — a corrupt file and a still are different answers.
+
+### Animations from stills
+
+`AnimatedImageWriter` is the reverse of frame extraction: a directory of
+numbered stills becomes one GIF, APNG, animated WebP or HEICS.
+
+```swift
+let frames = try FrameSequence.contentsOfDirectory(stills)
+try AnimatedImageWriter().write(frames, to: out, format: .webp,
+                                delays: .perFrame([0.1, 0.25, 0.1]), loopCount: 0,
+                                quality: .lossless)
+```
+
+Delays are clamped exactly as `ImageInspector` clamps them on the way back, the
+loop count is a file property (`0` is forever), and frames of different sizes
+are fitted onto one canvas with transparent margins. Whether a format can be
+written as an animation is `EncodeSupport.canEncodeAnimated(_:)`; AVIF is
+refused because ImageIO gives it nowhere to keep a delay.
+
+GIF, APNG and HEICS go through ImageIO. **WebP goes through the vendored
+`WebPAnimEncoder`**, which stores only the rectangle that changed between frames
+and so beats the GIF on size. Its differences are stated, not hidden: `.lossless`
+is honoured; consecutive identical frames are merged into one longer frame, so
+the result's `frameCount` is the file's, not the request's; a loop count above
+65535 is refused; and when a smaller frame's transparent margin exists only
+through disposal, the `VP8X` alpha flag is set so that ImageIO — which reads the
+file back, delays and all — decodes the margin as transparent rather than black.
 
 ### Video transcoding
 

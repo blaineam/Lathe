@@ -8,9 +8,9 @@ release tag. It is the only third-party code in this package.
 | Upstream | <https://chromium.googlesource.com/webm/libwebp> |
 | Tag | `v1.6.0` |
 | Commit | `4fa21912338357f89e4fd51cf2368325b59e9bd9` |
-| Vendored | 2026-09-14 |
+| Vendored | 2026-09-14 (encoder); 2026-09-16 (muxer and decoder added, same tag) |
 | Licence | BSD-3-Clause, plus an additional patent grant |
-| Size | 82 `.c` + 42 `.h`, ~1.9 MB |
+| Size | 99 `.c` + 48 `.h`, ~2.2 MB of source (~320 KB of arm64 code and data, release) |
 
 ## Refreshing it
 
@@ -44,57 +44,75 @@ upstream bump is a source refresh rather than a rebuild-and-republish.
 
 ## What was taken, and what was not
 
-Only what an **encoder** needs. libwebp is four libraries in one tree — encoder,
-decoder, demuxer, muxer — and ImageIO already decodes WebP perfectly well, so
-three of them are dead weight here.
+What an **encoder** and an **animation encoder** need. libwebp is four
+libraries in one tree — encoder, decoder, demuxer, muxer — and this package
+takes three of them, one only because another calls it.
 
 | Directory | Taken | Left behind |
 |---|---|---|
-| `src/webp` | `encode.h`, `types.h`, `format_constants.h`, `mux_types.h`, `decode.h` | `demux.h`, `mux.h` |
+| `src/webp` | `encode.h`, `mux.h`, `types.h`, `format_constants.h`, `mux_types.h`, `decode.h` | `demux.h` |
 | `src/enc` | everything except `picture_psnr_enc.c` | `picture_psnr_enc.c` |
+| `src/mux` | every `.c` and `.h` (`anim_encode.c`, `muxedit.c`, `muxinternal.c`, `muxread.c`, `animi.h`, `muxi.h`) | build files |
+| `src/dec` | every `.c` and `.h` | build files |
 | `src/dsp` | every kernel in C, NEON, SSE2, SSE4.1 and AVX2 | all `*_mips*`, all `*_msa*` |
-| `src/utils` | the encoder-side utilities | `bit_reader_utils.c`, `huffman_utils.c`, `quant_levels_dec_utils.*` |
-| `src/dec` | **headers only** (5 files) | every `.c` |
+| `src/utils` | every `.c` and `.h` | build files |
 | `sharpyuv` | all of it | — |
-| `src/demux`, `src/mux` | nothing | all |
+| `src/demux` | nothing | all |
 | `examples`, `extras`, `imageio`, `swig`, `tests`, `webp_js` | nothing | all |
 
-Notes on the less obvious lines:
+`include/CWebP.h` exposes `encode.h` and `mux.h` to Swift and nothing else.
 
-- **`src/dec` headers with no `src/dec` sources.** The encoder and the decoder
-  share struct definitions — `VP8LTransform`, `VP8Io`, the common coefficient
-  tables in `common_dec.h` — and the *shared* DSP kernels (`src/dsp/lossless.c`,
-  `src/dsp/dec.c`, `src/dsp/yuv.h`) name those types in their signatures. Five
-  headers satisfy that; no decoder implementation is compiled.
-- **`src/dsp/dec*.c`, `ssim*.c` and `upsampling*.c` are *not* decoder-only,
-  whatever their names say.** This was the one real surprise in assembling the
+### History
+
+The first vendoring (2026-09-14) took the encoder alone, with five decoder
+*headers* and no decoder sources, and left the muxer out on purpose: a second
+library to store an orientation tag was a poor trade when `ImageEncoder`
+could bake orientation into the pixels. Two things changed that trade. Animated
+WebP cannot be written without `WebPAnimEncoder`, which lives in the muxer; and
+once the muxer is in, WebP's `EXIF` and `XMP ` chunks cost nothing more, so
+WebP output now carries metadata and keeps its orientation tag. The tag, the
+commit and the upstream files already vendored are unchanged; the second pass
+only added files.
+
+### Notes on the less obvious lines
+
+- **The decoder is here for the muxer, not for reading.** `WebPAnimEncoder`
+  decodes its own sub-frames back onto a canvas when it rewrites a frame as a
+  keyframe (`anim_encode.c` → `WebPDecode`), and the muxer sizes a bitstream
+  with `VP8GetInfo`/`VP8LGetInfo` (`src/dec/vp8_dec.c`, `vp8l_dec.c`). Both are
+  link-time dependencies, so the whole of `src/dec` is compiled — about 290 KB
+  of source. Nothing in Swift calls it: `decode.h` is deliberately absent from
+  `include/CWebP.h`. **Reading WebP stays ImageIO's job**, animated files
+  included — ImageIO reports every frame, each frame's delay
+  (`kCGImagePropertyWebPUnclampedDelayTime`) and the loop count, and composites
+  sub-rectangle frames correctly; `AnimatedWebPTests` checks all of that against
+  files this encoder wrote.
+- **No demuxer**, for the same reason. `libwebpdemux` is what a reader needs,
+  and ImageIO is the reader.
+- **`src/utils` is now whole.** `bit_reader_utils.c`, `huffman_utils.c` and
+  `quant_levels_dec_utils.*` used to be left out as decoder-only; the decoder
+  now has a caller, so they have one too.
+- **`src/dsp/dec*.c`, `ssim*.c` and `upsampling*.c` were needed even before
+  the decoder was.** This was the one real surprise in assembling the first
   allow-list, and it is recorded here so nobody repeats the experiment: the
   encoder runs the loop filters to simulate what a decoder will produce
   (`filter_enc.c` → `VP8HFilter16i`), scores candidate filter strengths with
   SSIM (`VP8SSIMGetClipped`), reconstructs with the decoder's `VP8TransformWHT`,
-  and takes YUV input through the upsamplers (`WebPGetLinePairConverter`).
-  Leaving any of the three out compiles cleanly and fails at link. If a future
-  refresh link-errors on an unfamiliar `VP8…` symbol, this is almost certainly
-  the shape of the problem: find which `src/dsp` file defines it and add that
-  file to `DSP_FILES`.
-- **`bit_reader_utils.h` and `huffman_utils.h` without their `.c`.** Same
-  reason: `src/dec/vp8li_dec.h` embeds those structs by value, so the layouts
-  are needed and the functions are not.
+  and takes YUV input through the upsamplers (`WebPGetLinePairConverter`). If a
+  future refresh link-errors on an unfamiliar `VP8…` symbol, find which
+  `src/dsp` file defines it and add that file to `DSP_FILES`.
 - **`picture_psnr_enc.c`.** Distortion metrics: `WebPPictureDistortion` is
   declared in `encode.h` but measures an encode rather than performing one. The
   declaration remains in the header, so calling it is a link error rather than a
   silent wrong answer — and `CWebP` is not a package product, so no code outside
-  this package can reach it in the first place. (Its `src/dsp/ssim*.c`
-  dependency stays, for the reason in the previous bullet.)
+  this package can reach it in the first place. `WebPAnimEncoder` does not call
+  it.
 - **MIPS and MSA kernels.** No Apple platform has ever run on either.
-- **The muxer.** This is the consequential omission and it is deliberate. WebP
-  keeps EXIF, XMP and ICC in the chunks of the *extended* (`VP8X`) file format,
-  which only `libwebpmux` writes. Vendoring a second library to store an
-  orientation tag is a poor trade when `ImageEncoder` already bakes orientation
-  into the pixels for any format that cannot hold a tag. The consequence —
-  WebP output carries no metadata at all — is documented on `WebPEncoder` and on
-  `ImageEncoder`, not just here. It is also why **animated WebP cannot be
-  written**: an animation is a muxer feature.
+- **What the muxer is used for.** Two things, both in `LatheImage`:
+  `WebPAnimationEncoder` (animated WebP, via `WebPAnimEncoder`) and
+  `WebPEncoder`'s metadata path (`WebPMuxSetChunk` for `EXIF` and `XMP `). No
+  `ICCP` chunk is written: pixels are converted to sRGB before encoding, which is
+  what an untagged WebP means.
 
 ## Patches
 
@@ -140,7 +158,8 @@ compiled and the SIMD path is off.
 single-threaded form. The encoder's own `thread_level` defaults to 0 regardless,
 and `ImageEncoder` is called from inside `LatheWork`'s queue — often once per
 image across a batch — so worker threads inside a single still encode would
-contend with the caller's own parallelism rather than add to it.
+contend with the caller's own parallelism rather than add to it. The same holds
+for the decoder's threaded filter path, which nothing here would use anyway.
 
 ## Licence
 
