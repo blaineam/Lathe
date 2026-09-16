@@ -405,13 +405,26 @@ struct PDFTextLayerTests {
         // run stacked in the bottom-left corner.
         #expect(word.minX > 1 || word.minY > 1)
 
-        // The word must sit inside the inked region, with a tolerance of a few
-        // points for the difference between a glyph's outline and Vision's box.
+        // The word must sit ON the inked region — measured as overlap, not as
+        // strict containment.
+        //
+        // Containment with a fixed slack was tuned on one machine and failed on
+        // another by a single point: a glyph's outline and the box a text layer
+        // reports for it are not the same rectangle, and how far apart they are
+        // depends on the rasteriser. Chasing that with a bigger constant is
+        // guessing at somebody else's renderer.
+        //
+        // Overlap keeps what the test is actually for. The failure it exists to
+        // catch — a dropped transform, which stacks every run in the bottom-left
+        // corner — produces approximately zero intersection, not ninety-five
+        // percent of one.
         let slack: CGFloat = 12
         let generous = ink.insetBy(dx: -slack, dy: -slack)
+        let shared = generous.intersection(word)
+        let covered = shared.isNull ? 0 : (shared.width * shared.height) / (word.width * word.height)
         #expect(
-            generous.contains(word.insetBy(dx: 1, dy: 1)),
-            "the run for \"Lathe\" is at \(word) but the page's ink is at \(ink)"
+            covered > 0.9,
+            "the run for \"Lathe\" is at \(word), the page's ink is at \(ink), and only \(Int(covered * 100))% of the run sits on it"
         )
     }
 
