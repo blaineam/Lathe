@@ -26,7 +26,7 @@ import PDFKit
 ///
 /// | Store | How | What is copied |
 /// |---|---|---|
-/// | MP4 family | `AVAssetExportSession` at the passthrough preset | Every sample, bit for bit |
+/// | MP4 family | `AVAssetExportSession` at the passthrough preset, and ``ChapterWriter`` when the export drops the chapters | Every sample, bit for bit |
 /// | Stills | `CGImageDestinationAddImageFromSource` | The encoded image data, DCT coefficients included |
 /// | PDF | PDFKit document attributes | The page tree |
 ///
@@ -59,10 +59,15 @@ public struct MetadataWriter: Sendable {
 
         var unrepresented: [String] = []
         var removedTrailingV1 = false
+        var restoredChapters = 0
+        var droppedTracks: [String] = []
         let outputBytes: UInt64
         switch store {
         case .iTunesAtoms:
-            outputBytes = try await writeContainer(metadata, source: source, destination: destination)
+            let written = try await writeContainer(metadata, source: source, destination: destination)
+            outputBytes = written.bytes
+            restoredChapters = written.restoredChapters
+            droppedTracks = written.droppedTracks
         case .imageProperties:
             outputBytes = try writeImage(metadata, source: source, destination: destination)
         case .pdfInfo:
@@ -83,7 +88,9 @@ public struct MetadataWriter: Sendable {
             inputByteCount: UInt64(inputBytes),
             outputByteCount: outputBytes,
             unrepresentedFields: unrepresented,
-            removedTrailingID3v1: removedTrailingV1
+            removedTrailingID3v1: removedTrailingV1,
+            restoredChapterCount: restoredChapters,
+            droppedTracks: droppedTracks
         )
     }
 
@@ -105,9 +112,42 @@ public struct MetadataWriter: Sendable {
     // MARK: - MP4 family
 
     #if canImport(AVFoundation)
+    /// What a container write produced beyond its size: chapters it had to put
+    /// back, and tracks that putting them back could not carry.
+    private struct ContainerWrite {
+        var bytes: UInt64
+        var restoredChapters = 0
+        var droppedTracks: [String] = []
+    }
+
+    /// The passthrough export, and the chapter list it may lose.
+    ///
+    /// ## The trap
+    ///
+    /// `AVAssetExportSession` at the passthrough preset copies every sample and
+    /// writes the new tags — and, for `.mp4` and `.m4a` output, silently leaves
+    /// the chapter track behind. `.mov` and `.m4v` keep theirs. So an ordinary
+    /// title edit deleted an audiobook's or a film's chapters, and nothing said
+    /// so: the chapter track is a separate text track with a `chap` reference
+    /// (see ``LatheCore/ChapterTrack``), and it is simply not in the output.
+    ///
+    /// ## The fix, and why this shape
+    ///
+    /// The chapters are read from the source first. The export runs as it
+    /// always did — a file with no chapters pays nothing — and its output is
+    /// then asked for its chapters. Only when they are gone is the export's
+    /// output remuxed by ``ChapterWriter`` with the source's list and the same
+    /// tags. Detecting the loss rather than listing the containers that cause
+    /// it means a system that fixes (or extends) the export needs no change
+    /// here, and a file whose chapters survived is never copied twice.
+    ///
+    /// The cost is a second copy of a chaptered `.mp4` or `.m4a`, which is
+    /// seconds for an audiobook. Remuxing straight from the source instead
+    /// would save that copy and give up everything else the export carries
+    /// that a remux does not.
     private func writeContainer(
         _ metadata: MediaMetadata, source: URL, destination: URL
-    ) async throws -> UInt64 {
+    ) async throws -> ContainerWrite {
         let asset = AVURLAsset(url: source)
         guard let session = AVAssetExportSession(
             asset: asset, presetName: AVAssetExportPresetPassthrough
@@ -117,33 +157,99 @@ public struct MetadataWriter: Sendable {
 
         let fileType = try await Self.outputFileType(for: asset, source: source, session: session)
         let items = MetadataItemBuilder.items(for: metadata)
+        let chapters = await ChapterTrack.read(from: asset)
+        let ext = destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension
 
-        return try MetaFiles.writingAtomically(
-            to: destination,
-            pathExtension: destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension,
-            stage: "metadata-passthrough"
-        ) { scratch in
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var failure: Error?
-            session.outputURL = scratch
-            session.outputFileType = fileType
-            session.metadata = items
-            session.exportAsynchronously {
-                if session.status != .completed {
-                    failure = session.error ?? LatheError.encodingFailed(
-                        stage: "metadata-passthrough", code: nil,
-                        reason: "the export ended in state \(session.status.rawValue)"
-                    )
-                }
-                semaphore.signal()
+        guard !chapters.isEmpty else {
+            let bytes = try MetaFiles.writingAtomically(
+                to: destination, pathExtension: ext, stage: "metadata-passthrough"
+            ) { scratch in
+                try Self.export(session, to: scratch, fileType: fileType, metadata: items)
             }
-            semaphore.wait()
-            if let failure {
-                throw LatheError.encodingFailed(
+            return ContainerWrite(bytes: bytes)
+        }
+
+        // The export goes to a scratch file of the container's own extension,
+        // because ``ChapterWriter`` chooses its container by extension.
+        let exported = TrackRemux.scratchURL(
+            beside: destination, prefix: ".lathe-"
+        ).deletingPathExtension().appendingPathExtension(Self.pathExtension(for: fileType) ?? ext)
+        defer { try? FileManager.default.removeItem(at: exported) }
+        try Self.export(session, to: exported, fileType: fileType, metadata: items)
+
+        let kept = await ChapterTrack.read(from: AVURLAsset(url: exported))
+        if kept.map(\.title) == chapters.map(\.title) {
+            let bytes = try MetaFiles.writingAtomically(
+                to: destination, pathExtension: ext, stage: "metadata-passthrough"
+            ) { scratch in
+                try? FileManager.default.removeItem(at: scratch)
+                try FileManager.default.moveItem(at: exported, to: scratch)
+            }
+            return ContainerWrite(bytes: bytes)
+        }
+
+        let restored: ChapterWriteResult
+        let rewritten = exported.deletingLastPathComponent()
+            .appendingPathComponent(".lathe-chapters-restored-" + exported.lastPathComponent)
+        defer { try? FileManager.default.removeItem(at: rewritten) }
+        do {
+            restored = try await ChapterWriter().write(
+                chapters, into: exported, writingTo: rewritten, metadata: items, progress: .ignoring()
+            )
+        } catch let error as ChapterError {
+            throw LatheError.encodingFailed(
+                stage: "metadata-chapters", code: nil,
+                reason: "the export dropped the file's \(chapters.count) chapters and they could not "
+                    + "be put back: \(error.description)"
+            )
+        }
+        let bytes = try MetaFiles.writingAtomically(
+            to: destination, pathExtension: ext, stage: "metadata-chapters"
+        ) { scratch in
+            try? FileManager.default.removeItem(at: scratch)
+            try FileManager.default.moveItem(at: rewritten, to: scratch)
+        }
+        return ContainerWrite(
+            bytes: bytes,
+            restoredChapters: restored.chapters.count,
+            droppedTracks: restored.droppedTracks
+        )
+    }
+
+    /// Runs the passthrough export to `url`, blocking until it ends.
+    private static func export(
+        _ session: AVAssetExportSession, to url: URL, fileType: AVFileType, metadata: [AVMetadataItem]
+    ) throws {
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var failure: Error?
+        session.outputURL = url
+        session.outputFileType = fileType
+        session.metadata = metadata
+        session.exportAsynchronously {
+            if session.status != .completed {
+                failure = session.error ?? LatheError.encodingFailed(
                     stage: "metadata-passthrough", code: nil,
-                    reason: (failure as NSError).localizedDescription
+                    reason: "the export ended in state \(session.status.rawValue)"
                 )
             }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        if let failure {
+            throw LatheError.encodingFailed(
+                stage: "metadata-passthrough", code: nil,
+                reason: (failure as NSError).localizedDescription
+            )
+        }
+    }
+
+    private static func pathExtension(for fileType: AVFileType) -> String? {
+        switch fileType {
+        case .mp4: "mp4"
+        case .m4v: "m4v"
+        case .m4a: "m4a"
+        case .mov: "mov"
+        default: nil
         }
     }
 
@@ -169,9 +275,15 @@ public struct MetadataWriter: Sendable {
         )
     }
     #else
+    private struct ContainerWrite {
+        var bytes: UInt64
+        var restoredChapters = 0
+        var droppedTracks: [String] = []
+    }
+
     private func writeContainer(
         _ metadata: MediaMetadata, source: URL, destination: URL
-    ) async throws -> UInt64 {
+    ) async throws -> ContainerWrite {
         throw LatheError.encodeUnavailable(format: "container metadata needs AVFoundation")
     }
     #endif
@@ -279,13 +391,25 @@ public struct MetadataWriteResult: Sendable, Equatable {
     /// and reported because it is a change beyond the one that was asked for.
     public var removedTrailingID3v1: Bool
 
+    /// Chapters the passthrough export dropped and the write put back — the
+    /// source's whole list when it did, zero when nothing was lost. Reported
+    /// because putting them back is a second copy of the file.
+    public var restoredChapterCount: Int
+
+    /// Tracks the chapter-restoring remux could not carry, each with the
+    /// reason. Empty unless ``restoredChapterCount`` is non-zero, and empty for
+    /// any ordinary MP4 or M4A even then.
+    public var droppedTracks: [String]
+
     public init(
         output: URL,
         store: MetadataStore,
         inputByteCount: UInt64,
         outputByteCount: UInt64,
         unrepresentedFields: [String] = [],
-        removedTrailingID3v1: Bool = false
+        removedTrailingID3v1: Bool = false,
+        restoredChapterCount: Int = 0,
+        droppedTracks: [String] = []
     ) {
         self.output = output
         self.store = store
@@ -293,5 +417,7 @@ public struct MetadataWriteResult: Sendable, Equatable {
         self.outputByteCount = outputByteCount
         self.unrepresentedFields = unrepresentedFields
         self.removedTrailingID3v1 = removedTrailingID3v1
+        self.restoredChapterCount = restoredChapterCount
+        self.droppedTracks = droppedTracks
     }
 }
