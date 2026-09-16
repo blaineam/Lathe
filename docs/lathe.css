@@ -323,6 +323,72 @@ code{
   .bar-row .value{text-align:left;min-width:0}
 }
 
+/* ---------- the app, drawn ----------
+   A rendering of the interface, not a screenshot. Built out of the page's own
+   type and colours so it stays legible at any width and in either theme, and
+   so it cannot go stale in the way an exported PNG does — though it can go
+   WRONG, which is why the caption says plainly what it is. */
+.appframe{
+  border:1px solid var(--rule);border-radius:12px;overflow:hidden;
+  background:var(--card);box-shadow:0 18px 50px -30px rgba(21,25,30,.55);
+}
+.appbar{
+  display:flex;align-items:center;gap:8px;padding:11px 14px;
+  background:var(--sunk);border-bottom:1px solid var(--rule);
+}
+.appbar .dot{width:11px;height:11px;border-radius:50%;background:var(--rule-strong)}
+.appbar .dot.r{background:#ff5f57}
+.appbar .dot.y{background:#febc2e}
+.appbar .dot.g{background:#28c840}
+.appbar .title{
+  flex:1;text-align:center;font-size:12.5px;font-weight:600;color:var(--fg-soft);
+}
+.appbody{padding:16px;display:flex;flex-direction:column;gap:14px}
+.appfield{
+  display:flex;gap:10px;align-items:center;border:1px solid var(--rule-strong);
+  border-radius:8px;padding:9px 12px;background:var(--paper);
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--fg-soft);
+}
+.appfield .caret{width:1.5px;height:15px;background:var(--edge)}
+.appbtn{
+  background:var(--edge);color:#fff;border-radius:7px;padding:8px 15px;
+  font-size:13px;font-weight:600;white-space:nowrap;
+}
+.appbtn.quiet{background:var(--sunk);color:var(--fg-soft);border:1px solid var(--rule)}
+.approw{
+  display:grid;grid-template-columns:26px 1fr 84px;gap:12px;align-items:center;
+  padding:11px 12px;border:1px solid var(--rule);border-radius:9px;background:var(--paper);
+}
+.approw .glyph{
+  width:26px;height:26px;border-radius:6px;background:var(--sunk);
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+}
+.approw .what{display:flex;flex-direction:column;gap:5px;min-width:0}
+.approw .name{
+  font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;
+}
+.approw .meta{
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--fg-faint);
+}
+.appprogress{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden}
+.appprogress i{display:block;height:100%;background:var(--edge);border-radius:2px}
+.approw .state{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:right;
+  color:var(--fg-faint);
+}
+.approw .state.done{color:#2f6b4f}
+.apptabs{display:flex;gap:6px;flex-wrap:wrap}
+.apptab{
+  font-size:12px;padding:5px 11px;border-radius:999px;background:var(--sunk);
+  color:var(--fg-soft);border:1px solid transparent;
+}
+.apptab.on{background:var(--edge);color:#fff}
+.appcaption{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--fg-faint);
+  margin-top:12px;
+}
+
 /* ---------- tables ---------- */
 .tablewrap{
   overflow-x:auto;border:1px solid var(--rule);border-radius:var(--radius);

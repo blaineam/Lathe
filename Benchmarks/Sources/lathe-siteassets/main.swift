@@ -23,6 +23,30 @@ import LatheCore
 import LatheImage
 import UniformTypeIdentifiers
 
+/// A fixed-seed generator, so running this twice produces the same picture.
+///
+/// The scene is randomised — the texture and the ridge — and with the system
+/// generator every run wrote different bytes. The images are committed, so
+/// that made regenerating the site a diff of five binary files that nobody
+/// could review and nothing had actually changed in.
+///
+/// SplitMix64: a handful of lines, well-distributed, and — the point here —
+/// specified, so the sequence is a property of the algorithm rather than of
+/// the toolchain that happened to compile it.
+struct Seeded: RandomNumberGenerator {
+    private var state: UInt64
+
+    init(seed: UInt64 = 0x1A7E_5EED_0000_0001) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
 // MARK: - Where things go
 
 let root = URL(fileURLWithPath: #filePath)
@@ -61,7 +85,7 @@ func drawSource(into context: CGContext) {
 
     // Fine high-frequency texture. What a low bitrate smears into mush, and
     // the reason "smaller" and "the same" are different claims.
-    var generator = SystemRandomNumberGenerator()
+    var generator = Seeded()
     context.saveGState()
     context.clip(to: CGRect(x: 0, y: 0, width: w, height: h * 0.34))
     for _ in 0..<26_000 {
@@ -158,41 +182,62 @@ struct Encoded: Codable {
     let file: String
     let bytes: Int
     let quality: Double
+    /// Which of the two settings this is. The site leads with the one people
+    /// would actually ship.
+    let tier: String
     /// Whether a browser will actually display it. HEIC will not, and a page
     /// that silently shows nothing is worse than one that reports the number
     /// and says so.
     let displayable: Bool
 }
 
-/// Deliberately aggressive. At a quality nobody would complain about there is
-/// nothing to see, and a comparison slider showing two identical images is an
-/// advertisement for not bothering.
-let quality = 0.32
+/// Two settings, because they answer different questions and only showing one
+/// of them misleads.
+///
+/// **Visually lossless** is the honest sales pitch: the setting somebody would
+/// really use, where the point is that you look hard and cannot find the
+/// damage — and it is still a large saving. A slider that only ever showed
+/// obvious artefacts would be advertising how small a file can get while
+/// quietly conceding it looks worse.
+///
+/// **Pushed hard** is what the same encoder does when told to stop caring. It
+/// earns its place by showing where each format breaks first, which is the
+/// thing a comparison is actually good for — and it is labelled, so nobody
+/// mistakes it for the recommended setting.
+let tiers: [(name: String, quality: Double)] = [
+    ("Visually lossless", 0.80),
+    ("Pushed hard", 0.32),
+]
 
-let targets: [(ImageFormat, String, String, Bool)] = [
-    (.jpeg, "JPEG", "comparison-jpeg.jpg", true),
-    (.webp, "WebP", "comparison-webp.webp", true),
-    (.avif, "AVIF", "comparison-avif.avif", true),
-    (.heic, "HEIC", "comparison-heic.heic", false),
+let formats: [(ImageFormat, String, String, Bool)] = [
+    (.avif, "AVIF", "avif", true),
+    (.webp, "WebP", "webp", true),
+    (.jpeg, "JPEG", "jpg", true),
+    (.heic, "HEIC", "heic", false),
 ]
 
 var encoded: [Encoded] = []
 let encoder = ImageEncoder()
 
-for (format, label, filename, displayable) in targets {
-    guard EncodeSupport.shared.canEncode(format) else {
-        FileHandle.standardError.write(Data("skipped \(label): not encodable here\n".utf8))
-        continue
+for tier in tiers {
+    for (format, label, ext, displayable) in formats {
+        guard EncodeSupport.shared.canEncode(format) else {
+            FileHandle.standardError.write(Data("skipped \(label): not encodable here\n".utf8))
+            continue
+        }
+        let slug = tier.name.lowercased().replacingOccurrences(of: " ", with: "-")
+        let filename = "comparison-\(ext)-\(slug).\(ext)"
+        let output = mediaDirectory.appendingPathComponent(filename)
+        _ = try await encoder.encode(
+            source: originalURL, to: output, format: format,
+            quality: .quality(tier.quality), resize: ResizeTarget.none, metadata: .stripAll)
+        let bytes = (try output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        encoded.append(Encoded(
+            format: String(describing: format), label: label, file: filename,
+            bytes: bytes, quality: tier.quality, tier: tier.name,
+            displayable: displayable))
+        print("\(tier.name) \(label): \(bytes) bytes")
     }
-    let output = mediaDirectory.appendingPathComponent(filename)
-    _ = try await encoder.encode(
-        source: originalURL, to: output, format: format,
-        quality: .quality(quality), resize: ResizeTarget.none, metadata: .stripAll)
-    let bytes = (try output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-    encoded.append(Encoded(
-        format: String(describing: format), label: label, file: filename,
-        bytes: bytes, quality: quality, displayable: displayable))
-    print("\(label): \(bytes) bytes")
 }
 
 let originalBytes = (try originalURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
@@ -203,7 +248,7 @@ struct Manifest: Codable {
     let height: Int
     let originalFile: String
     let originalBytes: Int
-    let quality: Double
+    let tiers: [String]
     let encodings: [Encoded]
     let generatedAt: String
 }
@@ -211,7 +256,7 @@ struct Manifest: Codable {
 let manifest = Manifest(
     width: width, height: height,
     originalFile: originalURL.lastPathComponent, originalBytes: originalBytes,
-    quality: quality, encodings: encoded,
+    tiers: tiers.map(\.name), encodings: encoded,
     generatedAt: ISO8601DateFormatter().string(from: Date()))
 
 let encoderJSON = JSONEncoder()

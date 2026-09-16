@@ -144,15 +144,16 @@
     <h2>The same picture, four ways</h2>
   </div>
   <div class="prose" style="margin-bottom:22px">
-    <p>Drag the handle. Left is the lossless original; right is what Lathe wrote at <b>quality 0.32</b> — deliberately low, because at a setting nobody would complain about there is nothing to look at.</p>
+    <p>Drag the handle. Left is the lossless original; right is what Lathe wrote. The default is the setting you would actually ship — <b>look for the damage, and then look at the file size</b>. The second setting is the same encoder told to stop caring, which is where you find out how each format fails.</p>
   </div>
 
-  <div class="formats" id="formats" role="group" aria-label="Output format"></div>
+  <div class="formats" id="tiers" role="group" aria-label="Quality"></div>
+  <div class="formats" id="formats" role="group" aria-label="Output format" style="margin-top:0"></div>
 
   <figure class="compare" id="compare" style="margin:0">
     <img id="before" src="media/comparison-original.png" alt="The original, uncompressed" width="1440" height="900">
     <div class="after" id="after">
-      <img id="afterImage" src="media/comparison-avif.avif" alt="The same image after compression">
+      <img id="afterImage" src="media/comparison-avif-visually-lossless.avif" alt="The same image after compression">
     </div>
     <div class="handle" aria-hidden="true"></div>
     <div class="grip" aria-hidden="true">◀ ▶</div>
@@ -293,6 +294,7 @@
   const beforeLabel = document.getElementById("beforeLabel");
   const range = document.getElementById("split");
   const formats = document.getElementById("formats");
+  const tiers = document.getElementById("tiers");
   const savingLine = document.getElementById("savingLine");
   if (!compare) return;
 
@@ -329,28 +331,58 @@
     .then((manifest) => {
       beforeLabel.textContent = "PNG original · " + kb(manifest.originalBytes);
 
-      const show = (entry) => {
+      let tier = manifest.tiers[0];
+      let format = "AVIF";
+
+      const entryFor = (t, f) =>
+        manifest.encodings.find((e) => e.tier === t && e.label === f);
+
+      const render = () => {
+        const entry = entryFor(tier, format) ||
+          manifest.encodings.find((e) => e.tier === tier && e.displayable);
+        if (!entry) return;
+        format = entry.label;
+
         afterImage.src = "media/" + entry.file;
         afterLabel.textContent = entry.label + " · " + kb(entry.bytes);
         const saved = Math.round((1 - entry.bytes / manifest.originalBytes) * 100);
-        savingLine.innerHTML =
-          "<b>" + entry.label + " at quality " + entry.quality + "</b> is " +
-          kb(entry.bytes) + " against the original's " + kb(manifest.originalBytes) +
-          " — <b>" + saved + "% smaller</b>. Every figure is the real size of the " +
-          "real file, written by the encoder that produced it.";
+        const lead = entry.tier === manifest.tiers[0]
+          ? "At the setting you would actually ship, <b>" + entry.label + "</b> is "
+          : "Told to stop caring, <b>" + entry.label + "</b> is ";
+        savingLine.innerHTML = lead + kb(entry.bytes) +
+          " against the original's " + kb(manifest.originalBytes) +
+          " — <b>" + saved + "% smaller</b>. Every figure is the real size of " +
+          "the real file, written by the encoder that produced it.";
+
+        for (const button of tiers.children) {
+          button.setAttribute("aria-pressed", String(button.dataset.tier === tier));
+        }
         for (const button of formats.children) {
-          button.setAttribute("aria-pressed", String(button.dataset.file === entry.file));
+          button.setAttribute("aria-pressed", String(button.dataset.format === format));
+          const forThisTier = entryFor(tier, button.dataset.format);
+          if (forThisTier) button.textContent = button.dataset.format + " · " + kb(forThisTier.bytes);
         }
       };
 
-      for (const entry of manifest.encodings) {
+      for (const name of manifest.tiers) {
         const button = document.createElement("button");
         button.type = "button";
-        button.dataset.file = entry.file;
-        button.setAttribute("aria-pressed", "false");
-        button.textContent = entry.label + " · " + kb(entry.bytes);
+        button.dataset.tier = name;
+        button.textContent = name;
+        button.addEventListener("click", () => { tier = name; render(); });
+        tiers.appendChild(button);
+      }
+
+      const labels = [];
+      for (const entry of manifest.encodings) {
+        if (labels.includes(entry.label)) continue;
+        labels.push(entry.label);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.format = entry.label;
+        button.textContent = entry.label;
         if (entry.displayable) {
-          button.addEventListener("click", () => show(entry));
+          button.addEventListener("click", () => { format = entry.label; render(); });
         } else {
           // HEIC is in the manifest because its size is a real result, and no
           // browser will render it. Reporting the number and refusing to
@@ -361,8 +393,7 @@
         formats.appendChild(button);
       }
 
-      const first = manifest.encodings.find((e) => e.displayable);
-      if (first) show(first);
+      render();
     })
     .catch(() => {
       afterLabel.textContent = "AVIF";
