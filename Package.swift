@@ -61,6 +61,12 @@ let package = Package(
         // depending on it.
         .library(name: "LatheMP3", targets: ["LatheMP3"]),
 
+        // AV1 encoding. Its own product, and not part of the umbrella, because
+        // it is a CPU encoder several megabytes large that only an app which
+        // offers AV1 should carry. SVT-AV1 is BSD-3-Clause-Clear with the
+        // AOMedia patent licence; see Sources/LatheAV1/VENDORING.md.
+        .library(name: "LatheAV1", targets: ["LatheAV1"]),
+
         // Salvage, not processing, and deliberately not in the umbrella. See
         // the target below for the argument.
         .library(name: "LatheSWF", targets: ["LatheSWF"]),
@@ -151,6 +157,15 @@ let package = Package(
         .target(
             name: "LatheMP3",
             dependencies: ["LatheCore", "LAME"]
+        ),
+
+        // No Apple device encodes AV1 in hardware, so AV1 output is SVT-AV1 on
+        // the CPU. The Swift is a static target like every other; the encoder
+        // itself is a static-library binary target, below.
+        .target(
+            name: "LatheAV1",
+            dependencies: ["LatheCore", "SvtAv1Enc"],
+            exclude: ["VENDORING.md"]
         ),
 
         // MARK: - Salvage
@@ -373,6 +388,17 @@ let package = Package(
             checksum: "262ff9a8a8f10cdce75d7521f8c6e353db90f5b198ea13a98f9c60d1bb284daf"
         ),
 
+        // SVT-AV1, built by Scripts/build-svtav1-xcframework.sh from a pinned
+        // upstream tag and published as a release asset, for the reason LAME's
+        // is: a missing local binary would fail every build in the package.
+        // Static, not dynamic: the licence is permissive and asks for no
+        // replaceability, so nothing is gained by a framework in the bundle.
+        .binaryTarget(
+            name: "SvtAv1Enc",
+            url: "https://github.com/blaineam/Lathe/releases/download/svt-av1-4.2.0/SvtAv1Enc.xcframework.zip",
+            checksum: "6b3fe67ce31a1650c12a20d44922f8750c79ecaafa7c43f046a7c5dc1783e50b"
+        ),
+
         // MARK: - Test support
 
         // Test fixtures are *generated*, never committed: `AVAssetWriter` and
@@ -412,6 +438,7 @@ let package = Package(
         .testTarget(name: "LatheSWFTests", dependencies: ["LatheSWF"]),
         .testTarget(name: "LatheSWFRenderTests", dependencies: ["LatheSWFRender"]),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
+        .testTarget(name: "LatheAV1Tests", dependencies: ["LatheAV1", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,
         // and records a known issue naming the reason when there is none —
