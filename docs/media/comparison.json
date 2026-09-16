@@ -33,6 +33,7 @@
       "file" : "comparison-heic-visually-lossless.heic",
       "format" : "HEIC",
       "label" : "HEIC",
+      "preview" : "comparison-heic-visually-lossless-decoded.png",
       "quality" : 0.8,
       "tier" : "Visually lossless"
     },
@@ -69,11 +70,12 @@
       "file" : "comparison-heic-pushed-hard.heic",
       "format" : "HEIC",
       "label" : "HEIC",
+      "preview" : "comparison-heic-pushed-hard-decoded.png",
       "quality" : 0.32,
       "tier" : "Pushed hard"
     }
   ],
-  "generatedAt" : "2026-09-16T01:45:50Z",
+  "generatedAt" : "2026-09-16T21:50:05Z",
   "height" : 900,
   "originalBytes" : 137663,
   "originalFile" : "comparison-original.png",

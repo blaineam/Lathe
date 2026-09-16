@@ -103,7 +103,7 @@
       <span class="tag right" id="afterLabel">AVIF</span>
     </figure>
     <input class="compare-range" id="split" type="range" min="0" max="100" value="50" aria-label="Reveal more of the compressed image">
-    <p class="fig-caption">Fig. 1 — a generated test card, built from what codecs find hardest: a slow gradient that bands, fine texture that smears, hard type that rings, and saturated edges that bleed. <b>Every size is the real size of the real file.</b></p>
+    <p class="fig-caption">Fig. 1 — a generated test card, built from what codecs find hardest: a slow gradient that bands, fine texture that smears, hard type that rings, and saturated edges that bleed. <b>Every size is the real size of the real file.</b> Safari shows the HEIC file itself; browsers that cannot read HEIC show its pixels, decoded losslessly and marked “decoded”.</p>
     <p class="verdict" id="savingLine">Every figure here is the real size of the real file, written by the encoder that produced it.</p>
   </div>
 </section>
@@ -262,9 +262,20 @@
   range.addEventListener("input", () => setSplit(Number(range.value)));
 
   const kb = (n) => (n / 1024).toFixed(1) + " kB";
+  // Safari reads HEIC and every other browser refuses it. Ask by loading the
+  // smallest one, rather than guessing from the browser's name.
+  let heicShows = false;
+  const heicProbe = (file) => new Promise((resolve) => {
+    const probe = new Image();
+    probe.onload = () => resolve(probe.naturalWidth > 0);
+    probe.onerror = () => resolve(false);
+    probe.src = "media/" + file;
+  });
   fetch("media/comparison.json")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((manifest) => {
+    .then(async (manifest) => {
+      const heic = manifest.encodings.filter((e) => e.preview).sort((a, b) => a.bytes - b.bytes)[0];
+      if (heic) heicShows = await heicProbe(heic.file);
       beforeLabel.textContent = "PNG original · " + kb(manifest.originalBytes);
       let tier = manifest.tiers[0];
       let format = "AVIF";
@@ -273,8 +284,9 @@
         const entry = entryFor(tier, format) || manifest.encodings.find((e) => e.tier === tier && e.displayable);
         if (!entry) return;
         format = entry.label;
-        afterImage.src = "media/" + entry.file;
-        afterLabel.textContent = entry.label + " · " + kb(entry.bytes);
+        const decoded = !entry.displayable && !(heicShows && entry.preview);
+        afterImage.src = "media/" + (entry.displayable || heicShows || !entry.preview ? entry.file : entry.preview);
+        afterLabel.textContent = entry.label + " · " + kb(entry.bytes) + (decoded ? " · decoded" : "");
         const saved = Math.round((1 - entry.bytes / manifest.originalBytes) * 100);
         const lead = entry.tier === manifest.tiers[0]
           ? "At the setting you would ship, <b>" + entry.label + "</b> is "
@@ -300,13 +312,15 @@
         seen.push(entry.label);
         const b = document.createElement("button");
         b.type = "button"; b.dataset.format = entry.label; b.textContent = entry.label;
-        if (entry.displayable) {
+        if (entry.displayable || entry.preview) {
           b.addEventListener("click", () => { format = entry.label; render(); });
+          if (!entry.displayable) {
+            b.title = "Safari shows the HEIC file itself. Other browsers cannot read HEIC, so they show " +
+              "its pixels, decoded and saved losslessly. The size is always the HEIC file's.";
+          }
         } else {
-          // Its size is a real result, and no browser shows it; say so
-          // rather than leave a pane silently empty.
           b.disabled = true;
-          b.title = "No browser displays HEIC — the size is measured, the picture cannot be shown here.";
+          b.title = "This browser cannot display " + entry.label + ". The size is still measured.";
         }
         formats.appendChild(b);
       }
