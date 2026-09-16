@@ -101,8 +101,28 @@ public struct MetadataReader: Sendable {
         var show = ShowInfo()
         var track = TrackInfo()
 
-        for item in items {
+        // 3GPP user data is read last, and only into fields the iTunes tags
+        // left empty: AVFoundation often writes both spellings of one fact,
+        // and reading both would list an artist twice.
+        let isoFirst: (AVMetadataItem) -> Bool = { $0.identifier?.rawValue.hasPrefix("uiso/") == true }
+        let ordered = items.filter { !isoFirst($0) } + items.filter(isoFirst)
+        var iso = MediaMetadata()
+
+        for item in ordered {
             guard let key = try? await AVMetadataItemKey(item: item) else { continue }
+            if isoFirst(item) {
+                let value = try await item.stringValue()
+                switch key {
+                case .title: iso.title = iso.title ?? value
+                case .summary: iso.summary = iso.summary ?? value
+                case .artist: if let value { iso.creators.append(value) }
+                case .genre: iso.genre = iso.genre ?? value
+                case .copyright: iso.copyrightNotice = iso.copyrightNotice ?? value
+                case .albumName: if let value, track.albumName == nil { track.albumName = value }
+                default: break
+                }
+                continue
+            }
             switch key {
             case .title: meta.title = try await item.stringValue()
             case .summary: meta.summary = try await item.stringValue()
@@ -134,6 +154,12 @@ public struct MetadataReader: Sendable {
                 if let value = try await item.stringValue() { meta.custom[identifier] = value }
             }
         }
+
+        meta.title = meta.title ?? iso.title
+        meta.summary = meta.summary ?? iso.summary
+        meta.genre = meta.genre ?? iso.genre
+        meta.copyrightNotice = meta.copyrightNotice ?? iso.copyrightNotice
+        if meta.creators.isEmpty { meta.creators = iso.creators }
 
         if show != ShowInfo() { meta.show = show }
         if track != TrackInfo() { meta.track = track }

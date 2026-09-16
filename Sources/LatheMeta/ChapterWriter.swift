@@ -215,8 +215,7 @@ public struct ChapterWriter: Sendable {
 
             let isLastAttempt = index == attempts.count - 1
             if isLastAttempt { break }
-            let kept = (try? await AVURLAsset(url: scratch).load(.metadata))?.count ?? 0
-            if kept >= tags.count { break }
+            if await TagSurvival.allKept(tags, in: scratch) { break }
         }
 
         try TrackRemux.moveIntoPlace(scratch, at: destination)

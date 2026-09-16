@@ -230,9 +230,10 @@ public struct MetadataWriter: Sendable {
 
     /// Exports as each file type in `attempts` until one keeps the tags.
     ///
-    /// Every attempt but the last is read back, and accepted when it holds at
-    /// least as many tags as were written; the last is accepted as it is, so a
-    /// system that loses tags either way still gets the best file it can make.
+    /// Every attempt but the last is read back, and accepted when every tag is
+    /// there under the identifier it was written with; the last is accepted as
+    /// it is, so a system that loses tags either way still gets the best file
+    /// it can make.
     /// A session runs once, so each retry makes its own.
     private static func export(
         asset: AVURLAsset, first: AVAssetExportSession, to url: URL,
@@ -251,8 +252,7 @@ public struct MetadataWriter: Sendable {
             }
             try export(session, to: url, fileType: fileType, metadata: metadata)
             guard index < attempts.count - 1 else { return }
-            let kept = (try? await AVURLAsset(url: url).load(.metadata).count) ?? 0
-            if kept >= metadata.count { return }
+            if await TagSurvival.allKept(metadata, in: url) { return }
         }
     }
 

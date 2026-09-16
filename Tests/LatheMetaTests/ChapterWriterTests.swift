@@ -124,6 +124,33 @@ struct ChapterWriterTests {
         #expect(leftovers.isEmpty, "scratch files were left: \(leftovers)")
     }
 
+    /// **3GPP tags read as the fields they are.** What macOS 26 writes for a
+    /// plain MPEG-4 export, and what other tools write, reads the same as the
+    /// iTunes spelling. The survival check does not accept it as kept.
+    @Test("an .mp4 tagged in the 3GPP keyspace reads its title and artist")
+    func isoUserDataTags() async throws {
+        guard let source = await movie("chapters-base-movie.mov") else { return }
+        let output = await scratch("iso-tags.mp4")
+        func item(_ identifier: String, _ value: String) -> AVMetadataItem {
+            let item = AVMutableMetadataItem()
+            item.identifier = AVMetadataIdentifier(identifier)
+            item.value = value as NSString
+            item.extendedLanguageTag = "und"
+            return item
+        }
+        let tags = [item("uiso/titl", "A Title"), item("uiso/perf", "A Performer")]
+        try await ChapterWriter().write([], into: source, writingTo: output, metadata: tags, progress: .ignoring())
+
+        let found = try await AVURLAsset(url: output).load(.metadata).compactMap { $0.identifier?.rawValue }
+        try #require(found.contains("uiso/perf"), "this system did not write 3GPP tags: \(found)")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "A Title")
+        #expect(back.creators == ["A Performer"])
+
+        let itunes = MetadataItemBuilder.items(for: MediaMetadata(title: "A Title", creators: ["A Performer"]))
+        #expect(await TagSurvival.allKept(itunes, in: output) == false)
+    }
+
     /// The fast path stays fast: a file with no chapters is exported once and
     /// never remuxed.
     @Test("a file with no chapters is not remuxed by a tag write")

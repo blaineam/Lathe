@@ -107,6 +107,17 @@ enum AVMetadataItemKey: Equatable {
         "id3/TCMP": .compilation,
         "id3/TDRC": .creationDate,
         "id3/TYER": .creationDate,
+
+        // 3GPP / ISO user data. Not what LatheMeta writes, but what macOS 26
+        // turns some tags into when an export is typed plain MPEG-4, and what
+        // other tools write — so a file written either way reads the same.
+        "uiso/titl": .title,
+        "uiso/dscp": .summary,
+        "uiso/perf": .artist,
+        "uiso/auth": .artist,
+        "uiso/gnre": .genre,
+        "uiso/cprt": .copyright,
+        "uiso/albm": .albumName,
     ]
 
     static let byCommonKey: [AVMetadataKey: AVMetadataItemKey] = [
@@ -202,3 +213,20 @@ extension AVMetadataItem {
 }
 
 #endif
+
+/// Whether a written file still carries its tags.
+enum TagSurvival {
+    /// True when every identifier in `written` is present in the file at
+    /// `url` under that same identifier.
+    ///
+    /// A count is not enough: on macOS 26 a plain MPEG-4 export keeps the
+    /// artist but moves it from `itsk/©ART` to the 3GPP `uiso/perf`, which
+    /// players that read iTunes tags do not show. The number of tags is right
+    /// and the file is still wrong.
+    static func allKept(_ written: [AVMetadataItem], in url: URL) async -> Bool {
+        let wanted = Set(written.compactMap { $0.identifier?.rawValue })
+        guard let items = try? await AVURLAsset(url: url).load(.metadata) else { return wanted.isEmpty }
+        let found = Set(items.compactMap { $0.identifier?.rawValue })
+        return wanted.isSubset(of: found)
+    }
+}
