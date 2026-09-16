@@ -173,7 +173,15 @@ public struct ProviderCredentials: Sendable, Equatable {
 }
 
 /// What goes wrong with a lookup, separated by what the caller should do next.
-public enum LookupError: Error, Equatable, CustomStringConvertible {
+/// What goes wrong with a lookup.
+///
+/// `LocalizedError` as well as `CustomStringConvertible`, and the conformance
+/// is not decoration: an `Error` without it reports through
+/// `localizedDescription` as "The operation couldn't be completed.
+/// (LatheLookup.LookupError error 4.)" — a case index, in an alert, in front
+/// of somebody who now has to count enum cases to find out that their app
+/// could not reach the network.
+public enum LookupError: Error, Equatable, CustomStringConvertible, LocalizedError {
     /// No key. The caller should offer to configure one, not report a failure.
     case notConfigured(provider: String, requirement: String)
     /// The provider rejected the credentials.
@@ -204,6 +212,30 @@ public enum LookupError: Error, Equatable, CustomStringConvertible {
             return "could not reach \(provider): \(detail)"
         case .emptyQuery:
             return "nothing to search for"
+        }
+    }
+
+    public var errorDescription: String? { description }
+
+    /// What the person reading this can actually do about it.
+    public var recoverySuggestion: String? {
+        switch self {
+        case .notConfigured(_, let requirement):
+            return "Add \(requirement)."
+        case .unauthorised:
+            return "Check the key, and that it is the right one of the two the "
+                + "provider issues — an API key and a read access token are not "
+                + "interchangeable."
+        case .rateLimited:
+            return "Wait a little and try again."
+        case .malformedResponse:
+            return "This usually means the provider changed its API."
+        case .transport:
+            return "Check the network connection. A sandboxed application also "
+                + "needs the outgoing-connections entitlement, without which "
+                + "every request fails here no matter what the credentials are."
+        case .emptyQuery:
+            return "Type something to search for."
         }
     }
 }

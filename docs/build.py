@@ -66,6 +66,60 @@ def markup(cell):
     return cell
 
 
+def speed_chart(rows):
+    """The speed column, drawn.
+
+    Same numbers as the table — this does not introduce a figure the table
+    does not already carry. It exists because "108.7x faster" and "2.2x
+    slower" sitting in adjacent cells of a monospace column do not read as
+    the enormous difference they are, and a ratio is the one thing a bar
+    shows better than text.
+
+    Slower rows are drawn too, in a muted colour. A chart of only the wins
+    would be advertising, and the page's whole claim is that the losses are
+    in the table.
+    """
+    parsed = []
+    for cells in rows:
+        task, tool, _lathe, _other, speed = cells[0], cells[1], cells[2], cells[3], cells[4]
+        match = re.search(r"([\d.]+)\s*×\s*(faster|slower)", speed.replace("**", ""))
+        if not match:
+            continue
+        factor = float(match.group(1))
+        faster = match.group(2) == "faster"
+        parsed.append((task, tool, factor, faster))
+    if not parsed:
+        return ""
+
+    widest = max(f for _, _, f, _ in parsed)
+    bars = []
+    for task, tool, factor, faster in parsed:
+        # Square-rooted purely for drawing. One row is 108x and the rest are
+        # single digits; on a linear scale every other bar is a sliver. The
+        # NUMBER printed beside each bar is the real one, which is what a
+        # reader takes away.
+        width = max((factor / widest) ** 0.5 * 100, 2)
+        label = f"{factor:g}× {'faster' if faster else 'slower'}"
+        muted = "" if faster else " muted"
+        short = strip_tags(markup(task))
+        bars.append(
+            f'<div class="bar-row">'
+            f'<div class="name">{short}</div>'
+            f'<div class="bar-track"><div class="bar-fill{muted}" '
+            f'style="width:{width:.1f}%">{label}</div></div>'
+            f'<div class="value">vs {strip_tags(markup(tool))}</div>'
+            f"</div>")
+    return f'''<div class="bars">{"".join(bars)}</div>
+  <p class="chart-note">Bars are drawn on a square-root scale so the 108× row
+  does not flatten every other one into a sliver; the figure on each bar is the
+  real ratio. Rows where Lathe is slower are drawn in grey — they are measured
+  results too.</p>'''
+
+
+def strip_tags(text):
+    return re.sub(r"<[^>]+>", "", text)
+
+
 def benchmarks_page(data):
     if not data:
         body = '''<div class="empty">
@@ -88,7 +142,9 @@ def benchmarks_page(data):
             f"<li><b>{markup(task)}</b> — {markup(note)}</li>"
             for task, note in data["notes"].items())
         versions = "".join(f"<li>{markup(v)}</li>" for v in data["versions"])
-        body = f'''<div class="tablewrap">
+        body = f'''{speed_chart(data["rows"])}
+
+  <div class="tablewrap" style="margin-top:34px">
     <table class="bench">
       <thead>{header}</thead>
       <tbody>{"".join(body_rows)}</tbody>

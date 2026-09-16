@@ -102,7 +102,18 @@ public struct FrameVideoResult: Sendable, Equatable {
 /// which is not going anywhere.
 public struct FrameVideoWriter: Sendable {
 
-    public init() {}
+    /// How long to wait for the encoder to accept the next frame before
+    /// deciding it is not going to.
+    ///
+    /// Generous on purpose: a large frame on a loaded machine can legitimately
+    /// keep the input busy for a while, and turning a slow encode into a
+    /// failure would be worse than the hang this replaces. It exists to put a
+    /// ceiling on *never*, not to police *slow*.
+    public var stallTimeout: Duration
+
+    public init(stallTimeout: Duration = .seconds(30)) {
+        self.stallTimeout = stallTimeout
+    }
 
     /// Writes `frames` as a video.
     ///
@@ -241,10 +252,29 @@ public struct FrameVideoWriter: Sendable {
             for (index, url) in urls.enumerated() {
                 try progress.checkCancellation()
 
+                // The encoder is behind. Yielding rather than spinning, and
+                // the sleep is short enough not to become the bottleneck for a
+                // fast codec on a small frame.
+                //
+                // Bounded, because "behind" and "never going to be ready" look
+                // identical from here and only one of them ends. A machine
+                // whose VideoToolbox cannot start a session — a virtualised
+                // host with no GPU is the usual one — leaves this flag false
+                // forever, and an unbounded loop then hangs the caller with no
+                // error and nothing in a log. That is not hypothetical: it sat
+                // in a CI job for six hours until the runner killed it, which
+                // is indistinguishable from a queue that never cleared.
+                let deadline = ContinuousClock.now + stallTimeout
                 while !input.isReadyForMoreMediaData {
-                    // The encoder is behind. Yielding rather than spinning, and
-                    // the sleep is short enough not to become the bottleneck for
-                    // a fast codec on a small frame.
+                    if ContinuousClock.now >= deadline {
+                        throw LatheError.encodingFailed(
+                            stage: "encode", code: nil,
+                            reason: "the \(codec.rawValue) encoder never became ready for "
+                                + "frame \(index + 1) of \(urls.count) within "
+                                + "\(stallTimeout). On a machine with no usable video "
+                                + "encoder this never clears."
+                        )
+                    }
                     try await Task.sleep(nanoseconds: 1_000_000)
                     try progress.checkCancellation()
                 }
@@ -294,7 +324,12 @@ public struct FrameVideoWriter: Sendable {
         writer.endSession(
             atSourceTime: CMTimeMultiply(frameDuration, multiplier: Int32(urls.count))
         )
-        await writer.finishWriting()
+        // Bounded for the same reason the ready-loop is. A wedged encoder does
+        // not refuse to finish — it simply never calls back, and awaiting that
+        // is another way to hang with nothing to show for it. The flush is
+        // given longer than a single frame's wait because it is draining
+        // everything still in the encoder.
+        try await Self.finish(writer, within: stallTimeout * 4)
 
         guard writer.status == .completed else {
             throw LatheError.wrapping(writer.error ?? LatheError.encodingFailed(
@@ -436,6 +471,44 @@ public struct FrameVideoWriter: Sendable {
         ))
 
         return buffer
+    }
+
+    /// Waits for the writer to flush, or gives up and says so.
+    ///
+    /// `finishWriting()` has no timeout of its own and no way to be cancelled,
+    /// so the losing branch here abandons the wait rather than stopping it —
+    /// the call is still out there, attached to a writer nothing will read
+    /// again. That is the honest trade: a leaked continuation on a machine
+    /// that was already never going to produce a file, against a caller hung
+    /// forever on the same machine.
+    private static func finish(_ writer: AVAssetWriter, within timeout: Duration) async throws {
+        // `AVAssetWriter` is not Sendable, and the compiler is right to ask.
+        // It is safe here for a reason specific to this call: the writer was
+        // created inside `write`, has never been handed to anything else, and
+        // by this point the only work left on it is the flush. The timeout
+        // branch touches it not at all — it only reports that the flush did
+        // not land — so there is exactly one task using the writer.
+        nonisolated(unsafe) let flushing = writer
+        let finished = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await flushing.finishWriting()
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        guard finished else {
+            throw LatheError.encodingFailed(
+                stage: "encode", code: nil,
+                reason: "the encoder did not finish writing within \(timeout). On a "
+                    + "machine with no usable video encoder this never completes."
+            )
+        }
     }
 }
 

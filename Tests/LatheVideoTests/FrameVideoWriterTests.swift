@@ -350,4 +350,39 @@ struct FrameVideoWriterTests {
             .filter { $0.hasPrefix(".lathe-") }
         #expect(leftovers.isEmpty, "a cancelled encode left \(leftovers) behind")
     }
+
+    /// **A stalled encoder has to end in an error, not in a hang.**
+    ///
+    /// `isReadyForMoreMediaData` staying false is what a machine with no
+    /// usable video encoder looks like from in here, and it is
+    /// indistinguishable from an encoder that is merely behind. The
+    /// unbounded version of this loop sat in a CI job for six hours before
+    /// the runner killed it, reporting nothing — the failure mode a timeout
+    /// exists to convert into a sentence.
+    ///
+    /// A timeout of zero forces the decision on the first frame that is not
+    /// instantly accepted, which is the only way to exercise the path without
+    /// a machine that genuinely cannot encode.
+    @Test("a stalled encoder is reported rather than waited on forever")
+    func stallTimeoutIsEnforced() async throws {
+        let directory = try temporaryDirectory("stall")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try FrameFixtures.stills(count: 40, in: directory, size: CGSize(width: 96, height: 64))
+        let frames = try FrameSequence.contentsOfDirectory(directory)
+        let output = directory.appendingPathComponent("out.mp4")
+
+        let writer = FrameVideoWriter(stallTimeout: .zero)
+        do {
+            _ = try await writer.write(frames, to: output, codec: .h264, frameRate: 30)
+            // Accepting every frame without ever going busy is a legitimate
+            // outcome on a fast machine, so this is not a failure — the
+            // assertion that matters is that it finished at all.
+        } catch let error as LatheError {
+            // And if it did go busy, the message has to name the cause rather
+            // than being a bare timeout.
+            #expect(String(describing: error).contains("never became ready"))
+        }
+    }
+
 }

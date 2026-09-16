@@ -235,6 +235,160 @@ code{
   border:1px solid var(--rule);
 }
 
+/* ---------- the comparison slider ----------
+   The page's one piece of evidence. Everything else here describes what the
+   library does; this shows it, with the byte counts underneath read from the
+   same manifest the encoder wrote. */
+.compare{
+  position:relative;border:1px solid var(--rule);border-radius:var(--radius);
+  overflow:hidden;background:var(--sunk);touch-action:pan-y;
+  user-select:none;-webkit-user-select:none;cursor:ew-resize;
+}
+.compare img{
+  display:block;width:100%;height:auto;pointer-events:none;
+  -webkit-user-drag:none;
+}
+/* The compressed copy sits on top and is revealed from the right. Clipped
+   rather than resized, so both halves stay at identical scale — a slider whose
+   two sides are scaled differently compares nothing. */
+.compare .after{
+  position:absolute;inset:0;
+  clip-path:inset(0 0 0 var(--split, 50%));
+}
+.compare .after img{position:absolute;inset:0;width:100%;height:100%}
+.compare .handle{
+  position:absolute;top:0;bottom:0;left:var(--split, 50%);width:2px;
+  background:var(--edge);transform:translateX(-1px);pointer-events:none;
+}
+.compare .handle::after{
+  content:"";position:absolute;top:50%;left:50%;width:38px;height:38px;
+  transform:translate(-50%,-50%);border-radius:50%;
+  background:var(--edge);
+  box-shadow:0 2px 10px rgba(0,0,0,.35);
+}
+.compare .grip{
+  position:absolute;top:50%;left:var(--split, 50%);
+  transform:translate(-50%,-50%);pointer-events:none;
+  font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;
+  color:#fff;letter-spacing:-.04em;z-index:2;
+}
+.compare figcaption{
+  position:absolute;bottom:0;left:0;right:0;display:flex;
+  justify-content:space-between;gap:12px;padding:10px 14px;
+  background:linear-gradient(transparent, rgba(0,0,0,.72));
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:#fff;pointer-events:none;
+}
+/* Keyboard access. The pointer drag is the nice way to use this; the range is
+   the way it works at all without a mouse. */
+.compare-range{width:100%;margin-top:10px;accent-color:var(--edge)}
+
+.formats{display:flex;flex-wrap:wrap;gap:8px;margin-block:18px 14px}
+.formats button{
+  font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.06em;
+  padding:7px 13px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--rule-strong);background:var(--card);color:var(--fg-soft);
+}
+.formats button[aria-pressed="true"]{
+  background:var(--edge);border-color:var(--edge);color:#fff;
+}
+.formats button[disabled]{opacity:.45;cursor:not-allowed}
+
+/* ---------- bar charts ----------
+   The benchmark table stays — it is the record. These are the same numbers
+   shaped so a ratio is visible without arithmetic. */
+.bars{display:flex;flex-direction:column;gap:14px;margin-block:8px 4px}
+.bar-row{display:grid;grid-template-columns:150px 1fr auto;gap:14px;align-items:center}
+.bar-row .name{
+  font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--fg-soft);
+  text-align:right;
+}
+.bar-track{background:var(--sunk);border-radius:4px;height:26px;overflow:hidden}
+.bar-fill{
+  height:100%;border-radius:4px;background:var(--edge);
+  display:flex;align-items:center;justify-content:flex-end;padding-right:9px;
+  color:#fff;font-family:"IBM Plex Mono",monospace;font-size:11.5px;
+  min-width:3px;
+}
+.bar-fill.muted{background:var(--rule-strong);color:var(--fg)}
+.bar-row .value{
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;
+  font-variant-numeric:tabular-nums;color:var(--fg);min-width:82px;text-align:right;
+}
+.chart-note{font-size:13.5px;color:var(--fg-faint);margin-top:10px}
+
+@media (max-width:620px){
+  .bar-row{grid-template-columns:1fr;gap:4px}
+  .bar-row .name{text-align:left}
+  .bar-row .value{text-align:left;min-width:0}
+}
+
+/* ---------- the app, drawn ----------
+   A rendering of the interface, not a screenshot. Built out of the page's own
+   type and colours so it stays legible at any width and in either theme, and
+   so it cannot go stale in the way an exported PNG does — though it can go
+   WRONG, which is why the caption says plainly what it is. */
+.appframe{
+  border:1px solid var(--rule);border-radius:12px;overflow:hidden;
+  background:var(--card);box-shadow:0 18px 50px -30px rgba(21,25,30,.55);
+}
+.appbar{
+  display:flex;align-items:center;gap:8px;padding:11px 14px;
+  background:var(--sunk);border-bottom:1px solid var(--rule);
+}
+.appbar .dot{width:11px;height:11px;border-radius:50%;background:var(--rule-strong)}
+.appbar .dot.r{background:#ff5f57}
+.appbar .dot.y{background:#febc2e}
+.appbar .dot.g{background:#28c840}
+.appbar .title{
+  flex:1;text-align:center;font-size:12.5px;font-weight:600;color:var(--fg-soft);
+}
+.appbody{padding:16px;display:flex;flex-direction:column;gap:14px}
+.appfield{
+  display:flex;gap:10px;align-items:center;border:1px solid var(--rule-strong);
+  border-radius:8px;padding:9px 12px;background:var(--paper);
+  font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--fg-soft);
+}
+.appfield .caret{width:1.5px;height:15px;background:var(--edge)}
+.appbtn{
+  background:var(--edge);color:#fff;border-radius:7px;padding:8px 15px;
+  font-size:13px;font-weight:600;white-space:nowrap;
+}
+.appbtn.quiet{background:var(--sunk);color:var(--fg-soft);border:1px solid var(--rule)}
+.approw{
+  display:grid;grid-template-columns:26px 1fr 84px;gap:12px;align-items:center;
+  padding:11px 12px;border:1px solid var(--rule);border-radius:9px;background:var(--paper);
+}
+.approw .glyph{
+  width:26px;height:26px;border-radius:6px;background:var(--sunk);
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+}
+.approw .what{display:flex;flex-direction:column;gap:5px;min-width:0}
+.approw .name{
+  font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;
+}
+.approw .meta{
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--fg-faint);
+}
+.appprogress{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden}
+.appprogress i{display:block;height:100%;background:var(--edge);border-radius:2px}
+.approw .state{
+  font-family:"IBM Plex Mono",monospace;font-size:11px;text-align:right;
+  color:var(--fg-faint);
+}
+.approw .state.done{color:#2f6b4f}
+.apptabs{display:flex;gap:6px;flex-wrap:wrap}
+.apptab{
+  font-size:12px;padding:5px 11px;border-radius:999px;background:var(--sunk);
+  color:var(--fg-soft);border:1px solid transparent;
+}
+.apptab.on{background:var(--edge);color:#fff}
+.appcaption{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--fg-faint);
+  margin-top:12px;
+}
+
 /* ---------- tables ---------- */
 .tablewrap{
   overflow-x:auto;border:1px solid var(--rule);border-radius:var(--radius);

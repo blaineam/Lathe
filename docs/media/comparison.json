@@ -1,0 +1,85 @@
+{
+  "encodings" : [
+    {
+      "bytes" : 13676,
+      "displayable" : true,
+      "file" : "comparison-avif-visually-lossless.avif",
+      "format" : "AVIF",
+      "label" : "AVIF",
+      "quality" : 0.8,
+      "tier" : "Visually lossless"
+    },
+    {
+      "bytes" : 18158,
+      "displayable" : true,
+      "file" : "comparison-webp-visually-lossless.webp",
+      "format" : "WebP",
+      "label" : "WebP",
+      "quality" : 0.8,
+      "tier" : "Visually lossless"
+    },
+    {
+      "bytes" : 81293,
+      "displayable" : true,
+      "file" : "comparison-jpg-visually-lossless.jpg",
+      "format" : "JPEG",
+      "label" : "JPEG",
+      "quality" : 0.8,
+      "tier" : "Visually lossless"
+    },
+    {
+      "bytes" : 22619,
+      "displayable" : false,
+      "file" : "comparison-heic-visually-lossless.heic",
+      "format" : "HEIC",
+      "label" : "HEIC",
+      "quality" : 0.8,
+      "tier" : "Visually lossless"
+    },
+    {
+      "bytes" : 6426,
+      "displayable" : true,
+      "file" : "comparison-avif-pushed-hard.avif",
+      "format" : "AVIF",
+      "label" : "AVIF",
+      "quality" : 0.32,
+      "tier" : "Pushed hard"
+    },
+    {
+      "bytes" : 11492,
+      "displayable" : true,
+      "file" : "comparison-webp-pushed-hard.webp",
+      "format" : "WebP",
+      "label" : "WebP",
+      "quality" : 0.32,
+      "tier" : "Pushed hard"
+    },
+    {
+      "bytes" : 38805,
+      "displayable" : true,
+      "file" : "comparison-jpg-pushed-hard.jpg",
+      "format" : "JPEG",
+      "label" : "JPEG",
+      "quality" : 0.32,
+      "tier" : "Pushed hard"
+    },
+    {
+      "bytes" : 9536,
+      "displayable" : false,
+      "file" : "comparison-heic-pushed-hard.heic",
+      "format" : "HEIC",
+      "label" : "HEIC",
+      "quality" : 0.32,
+      "tier" : "Pushed hard"
+    }
+  ],
+  "generatedAt" : "2026-09-16T01:45:50Z",
+  "height" : 900,
+  "originalBytes" : 137663,
+  "originalFile" : "comparison-original.png",
+  "tiers" : [
+    "Visually lossless",
+    "Pushed hard"
+  ],
+  "width" : 1440
+}
