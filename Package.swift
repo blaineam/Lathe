@@ -272,20 +272,17 @@ let package = Package(
         // `Scripts/build-lame-xcframework.sh` turns it into exactly this
         // framework. See Vendor/LAME/VENDORING.md.
         //
-        // ─── RELEASE: switch this to the published asset ───────────────────
-        // While this points at a local path, the zip must be built before
-        // anything resolves this package (CI does; see ci.yml), because a
-        // missing binary target fails every build, not only LatheMP3's. Once
-        // the zip is attached to a GitHub release, replace the line below with
-        //
-        //   url: "https://github.com/<owner>/Lathe/releases/download/<tag>/lame.xcframework.zip",
-        //   checksum: "<swift package compute-checksum lame.xcframework.zip>"
-        //
-        // and drop the "Build the LAME framework" steps from the workflows.
-        // ────────────────────────────────────────────────────────────────────
+        // Published as a release asset rather than committed or built on
+        // resolve. A local path meant the zip had to exist before anything
+        // could resolve this package — and a missing binary target fails every
+        // build in it, not only LatheMP3's. The asset is tied to the
+        // `lame-3.100` release, which also carries the corresponding source.
+        // Rebuilding the framework (a new LAME, a different toolchain) means a
+        // new release and a new checksum here, never an edit to the old asset.
         .binaryTarget(
             name: "LAME",
-            path: "Artifacts/lame.xcframework.zip"
+            url: "https://github.com/blaineam/Lathe/releases/download/lame-3.100/lame.xcframework.zip",
+            checksum: "262ff9a8a8f10cdce75d7521f8c6e353db90f5b198ea13a98f9c60d1bb284daf"
         ),
 
         // MARK: - Test support

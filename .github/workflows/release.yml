@@ -75,13 +75,6 @@ jobs:
       # exists — not even products that never touch MP3. Once the target is a
       # release URL, SwiftPM downloads it and this step has nothing to do.
       # See Vendor/LAME/VENDORING.md.
-      - name: Build the LAME framework
-        run: |
-          if grep -q 'path: "Artifacts/lame.xcframework.zip"' Package.swift; then
-            Scripts/build-lame-xcframework.sh
-          else
-            echo "Package.swift fetches LAME from a release; nothing to build."
-          fi
 
       - name: Run the suite
         run: |
@@ -129,13 +122,6 @@ jobs:
       # target at a local path the package does not resolve until the zip
       # exists. Once the target is a release URL this step has nothing to do.
       # See Vendor/LAME/VENDORING.md.
-      - name: Build the LAME framework
-        run: |
-          if grep -q 'path: "Artifacts/lame.xcframework.zip"' Package.swift; then
-            Scripts/build-lame-xcframework.sh
-          else
-            echo "Package.swift fetches LAME from a release; nothing to build."
-          fi
 
       - name: Build the bundle
         run: |
