@@ -70,7 +70,21 @@ jobs:
           xcodebuild -version
           swift --version
       - name: Run the suite
-        run: swift test --scratch-path "$SCRATCH_PATH"
+        run: |
+          # Serially, and that is not a preference.
+          #
+          # Swift Testing runs suites in parallel by default. LatheFetch
+          # bootstraps ONE embedded CPython for the whole process — Py_Initialize
+          # happens once per process, so it must be shared — and a shared
+          # interpreter under the GIL, reached from several suites at once, is a
+          # deadlock waiting for the right machine. It found one here: every
+          # suite announced itself, and then the job sat in silence until the
+          # runner killed it.
+          #
+          # Serial execution also makes the log usable. In parallel, "started"
+          # lines from thirty suites interleave and the last one printed is not
+          # the one that hung; run in order, the final line names it.
+          swift test --scratch-path "$SCRATCH_PATH" --no-parallel
 
   app:
     name: Mac app
