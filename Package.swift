@@ -301,7 +301,10 @@ let package = Package(
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
         .testTarget(name: "LatheMetaTests", dependencies: ["LatheMeta", "LatheFixtures"]),
-        .testTarget(name: "LatheLookupTests", dependencies: ["LatheLookup"]),
+        .testTarget(
+            name: "LatheLookupTests",
+            dependencies: ["LatheLookup", "LatheMeta", "LatheFixtures"]
+        ),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,

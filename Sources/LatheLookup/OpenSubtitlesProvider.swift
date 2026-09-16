@@ -304,30 +304,6 @@ public struct SubtitleDocument: Sendable, Equatable {
     }
 }
 
-public enum SubtitleFormat: String, Sendable, Equatable, CaseIterable {
-    case subRip = "srt"
-    case webVTT = "vtt"
-    case substationAlpha = "ass"
-    case unknown = "sub"
-
-    /// The format, from the filename and then from the contents.
-    ///
-    /// Contents second and authoritative-ish: a `.txt` holding SubRip is common,
-    /// and the cue arrow is unmistakable.
-    public init(filename: String, contents: Data) {
-        let ext = (filename as NSString).pathExtension.lowercased()
-        if let byName = SubtitleFormat(rawValue: ext), byName != .unknown {
-            self = byName
-            return
-        }
-        let head = String(decoding: contents.prefix(256), as: UTF8.self)
-        if head.hasPrefix("WEBVTT") { self = .webVTT }
-        else if head.contains("[Script Info]") { self = .substationAlpha }
-        else if head.contains("-->") { self = .subRip }
-        else { self = .unknown }
-    }
-}
-
 // MARK: - Wire types
 
 struct OSSearchResponse: Decodable {
