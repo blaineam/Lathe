@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Refreshes Sources/CLAME/upstream/ from a pinned LAME release.
+# Refreshes Vendor/LAME/upstream/ from a pinned LAME release.
 #
 #   ./refresh-upstream.sh          # re-vendor the pinned version
 #   ./refresh-upstream.sh 3.100    # vendor a different one
@@ -9,8 +9,9 @@
 # this script WRITES rather than copies is config.h, because LAME's own is
 # produced by autoconf and this package does not run autoconf.
 #
-# If you bump the version, update VENDORING.md with what this prints, then run
-# `swift build && swift test`.
+# This refreshes the SOURCE. What LatheMP3 links is the dynamic framework
+# Scripts/build-lame-xcframework.sh builds from it; see VENDORING.md for the
+# release step that follows a version bump.
 set -euo pipefail
 
 LAME_VERSION="${1:-3.100}"
@@ -136,7 +137,8 @@ Source: ${LAME_URL}
 SHA-256 of the tarball: ${SHA}
 
 Licence: LGPL (see COPYING). This is the ONLY non-permissive code in Lathe and
-it is confined to its own product, LatheMP3, for exactly that reason.
+it is confined to its own product, LatheMP3, for exactly that reason, and is
+linked as its own dynamic framework (lame.framework) so it can be replaced.
 TXTEOF
 
 echo
@@ -144,5 +146,6 @@ echo "==> vendored LAME ${LAME_VERSION}"
 echo "    tarball sha256: ${SHA}"
 echo "    .c files:       $(ls "$DEST"/libmp3lame/*.c | wc -l | tr -d ' ')"
 echo
-echo "Update VENDORING.md with the version and hash above, then:"
-echo "    swift build && swift test"
+echo "Update VENDORING.md with the version and hash above, then rebuild the"
+echo "framework and follow VENDORING.md, \"Updating\":"
+echo "    Scripts/build-lame-xcframework.sh"

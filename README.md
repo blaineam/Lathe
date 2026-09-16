@@ -39,7 +39,8 @@ Lathe is the thin, well-tested layer over those frameworks, plus a small number
 of permissively licensed native libraries for the gaps they leave — of which the
 significant one is **WebP encode**, which ImageIO genuinely cannot do. That gap
 is closed: `LatheImage` vendors libwebp as C source and writes WebP itself —
-lossy and lossless, still and animated, with its metadata. It is the only third-party code in the package; see
+lossy and lossless, still and animated, with its metadata. It is the only third-party code compiled into
+Lathe's own modules — LAME, for MP3, is a separate dynamic framework behind its own product; see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 It is designed for two kinds of consumer:
@@ -66,7 +67,7 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheAudio`** | Audio. Inspection (duration, codec, bitrate, lossless-or-not), loudness and audibility analysis, and transcoding to AAC or Apple Lossless with a rule against pointless re-encoding. | Chapters are preserved through a transcode: a chapter list is a separate text track plus a track association, not metadata, so carrying it needs a second muxed input.
 | **`LatheMeta`** | Metadata: reading and editing what a file *says about itself* — iTunes-style atoms (MP4/M4V/M4A/MOV), EXIF/IPTC/XMP stills, PDF document attributes — in one normalised model. Injection never re-encodes the media. ID3v2 is read (v2.2/2.3/2.4) and written (v2.4) by this module's own parser, so an MP3 tag edit copies the audio rather than re-muxing it. **Subtitles:** SubRip and WebVTT parsed from hostile input (BOM, CRLF, legacy encodings, bad timings), written into MP4/M4V/MOV as selectable `tx3g` tracks with language, title, forced and SDH flags — several languages per file, video and audio copied untouched — and extracted back to SubRip. Depends on `LatheCore` alone. |
 | **`LatheLookup`** | Online metadata: TMDb for film and television, OpenSubtitles for subtitles, each with the **user's own API key** — none ships here. `SubtitleInstaller` searches for a film's subtitles, downloads the best per language, and writes them into the file. Includes the filename parser that turns a release name into a searchable title and year, which needs no key at all. Separate from `LatheFetch`: this fetches a synopsis for a file you already have, not the file. |
-| **`LatheMP3`** | MP3 encoding, via vendored LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Sources/CLAME/VENDORING.md`. |
+| **`LatheMP3`** | MP3 encoding, via LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. LAME is linked as its own **dynamic** `lame.framework` (the `LAME` binary target, built from the source in `Vendor/LAME` by `Scripts/build-lame-xcframework.sh`) so an app can let it be replaced; `LatheMP3` itself stays static, so its errors are the same `LatheError` as everyone else's. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Vendor/LAME/VENDORING.md` for what an app shipping it must include. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 
@@ -1155,8 +1156,17 @@ ruled out by it:
 - Popular video encoders are GPL. Lathe uses VideoToolbox.
 
 A permissively licensed library may be vendored or linked statically. An
-LGPL component, if one is ever added, must be dynamically linked and kept in a
-separate repository — it does not go in this one.
+LGPL component must be **dynamically linked, as its own framework containing
+nothing but that component**, behind its own product and out of the umbrella.
+There is exactly one:
+
+**LAME** (LGPL-2.0-or-later), for `LatheMP3`, because Apple ships no MP3
+encoder and there is no permissive one. Its source is kept in this repository —
+`Vendor/LAME/upstream`, uncompiled by SwiftPM — because it is the corresponding
+source for the `lame.framework` binary that `Scripts/build-lame-xcframework.sh`
+builds from it, and which `Package.swift` consumes as a binary target.
+`Vendor/LAME/VENDORING.md` says why dynamic, how a user replaces the framework,
+and what an app shipping it has to include.
 
 **What is actually linked today: libwebp** (BSD-3-Clause, plus a patent grant),
 vendored as source under `Sources/CWebP/upstream/` and compiled by SwiftPM — no
