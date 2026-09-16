@@ -556,7 +556,7 @@ struct ImageEncoderTests {
             }
 
             // The policy layer, where the guarantee actually lives.
-            let restored = try ImageMetadata.properties(
+            let restored = ImageMetadata.properties(
                 for: .stripAll,
                 from: Fixtures.properties(of: source),
                 forcePreserve: .default,
@@ -567,31 +567,46 @@ struct ImageEncoderTests {
         }
     }
 
-    /// `MetadataKey`'s normalised namespace has no ImageIO mapping yet, so the
-    /// allow-list policy refuses by name rather than silently keeping or dropping
-    /// the keys it does not understand.
-    @Test("a custom allow-list refuses, by name")
-    func customPolicyIsNotImplemented() async throws {
+    /// An allow-list starts from nothing: what is named survives, and nothing
+    /// else does — including keys nobody thought to name.
+    @Test("a custom allow-list keeps exactly the named keys")
+    func customPolicyKeepsOnlyTheNamedKeys() async throws {
         try await Fixtures.withDirectory { directory in
             let source = try Fixtures.taggedImage(in: directory)
             let destination = directory.appendingPathComponent("custom.jpg")
 
-            do {
-                _ = try await encoder.encode(
-                    source: source, to: destination,
-                    format: .jpeg, quality: .quality(0.9), resize: nil,
-                    metadata: .custom(allowList: [MetadataKey("exif.DateTimeOriginal")])
-                )
-                Issue.record("expected a refusal")
-            } catch let error as LatheError {
-                guard case let .notImplemented(feature) = error else {
-                    Issue.record("expected .notImplemented, got \(error)")
-                    return
-                }
-                #expect(feature.contains("custom"))
-            }
-            #expect(!FileManager.default.fileExists(atPath: destination.path))
+            _ = try await encoder.encode(
+                source: source, to: destination,
+                format: .jpeg, quality: .quality(0.9), resize: nil,
+                metadata: .custom(allowList: [
+                    MetadataKey("exif.DateTimeOriginal"),
+                    MetadataKey("tiff.Make"),
+                ])
+            )
+
+            let out = Fixtures.properties(of: destination)
+            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+                    == Fixtures.dateTimeOriginal)
+            #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
+            #expect(Fixtures.tiff(out, kCGImagePropertyTIFFModel) == nil)
+            #expect(Fixtures.gpsLatitude(out) == nil)
         }
+    }
+
+    @Test("an allow-list can name a whole dictionary, and ignores keys it cannot map")
+    func customPolicyWholeDictionary() throws {
+        let source = [
+            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 51.5] as [CFString: Any],
+            kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Maker"] as [CFString: Any],
+        ] as [CFString: Any]
+
+        let kept = ImageMetadata.properties(
+            for: .custom(allowList: [MetadataKey("gps.*"), MetadataKey("xmp.dc.title"), MetadataKey("bogus")]),
+            from: source, forcePreserve: MetadataForcePreserve(), orientation: nil)
+
+        let gps = try #require(kept[kCGImagePropertyGPSDictionary] as? [CFString: Any])
+        #expect(gps[kCGImagePropertyGPSLatitude] as? Double == 51.5)
+        #expect(kept[kCGImagePropertyTIFFDictionary] == nil)
     }
 
     // MARK: - Progress and cancellation

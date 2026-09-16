@@ -17,8 +17,9 @@ public enum MetadataClass: String, Sendable, Hashable, CaseIterable {
 /// A single normalised metadata key — `exif.DateTimeOriginal`, `gps.Latitude`,
 /// `pdf.info.Title`, and so on.
 ///
-/// Namespaces: `exif.*`, `iptc.*`, `xmp.*`, `gps.*`, `qt.*`, `png.*`,
-/// `pdf.info.*`, `pdf.xmp.*`.
+/// Namespaces: `exif.*`, `gps.*`, `iptc.*`, `tiff.*`, `png.*` and the other
+/// ImageIO dictionaries for stills; `qt.*` and the other AVFoundation
+/// keyspaces for video and audio.
 public struct MetadataKey: Sendable, Hashable, RawRepresentable, CustomStringConvertible {
     public let rawValue: String
     public init(rawValue: String) { self.rawValue = rawValue }
@@ -31,12 +32,11 @@ public struct MetadataKey: Sendable, Hashable, RawRepresentable, CustomStringCon
     }
 }
 
-/// What to do with the source's metadata.
+/// What to do with the source's metadata when a file is re-encoded.
 ///
-/// Not yet implemented. Stills will use `CGImageDestinationCopyImageSource`,
-/// which rewrites metadata **without re-encoding a single DCT coefficient**;
-/// video will use `AVAssetWriter.metadata`; PDF needs a third-party writer for
-/// the XMP `/Metadata` stream, which PDFKit cannot reach.
+/// Honoured by ``ImageEncoder``, ``AnimatedImageWriter``, ``VideoTranscoder``
+/// and ``AudioTranscoder``. Orientation is never governed by a policy: dropping
+/// it rotates the picture rather than anonymising it.
 public enum MetadataPolicy: Sendable, Equatable {
     /// Copy everything through. The right default for a compression tool — the
     /// user asked for smaller, not anonymous.
@@ -50,6 +50,11 @@ public enum MetadataPolicy: Sendable, Equatable {
     case strip(Set<MetadataClass>)
 
     /// Keep only the named keys.
+    ///
+    /// For stills a key is `namespace.Entry` using ImageIO's entry names —
+    /// `exif.DateTimeOriginal`, `gps.Latitude`, `tiff.Make` — or
+    /// `namespace.*` for a whole dictionary. For video and audio it is the
+    /// metadata item's identifier, as ``MetadataKey`` documents.
     case custom(allowList: Set<MetadataKey>)
 
     /// Shorthand for the most-requested policy.
@@ -62,8 +67,6 @@ public enum MetadataPolicy: Sendable, Equatable {
 /// The motivating case is paired still/video capture: strip the maker-note
 /// content identifier and the two halves stop being recognised as one item. This
 /// is why the policy model has a floor at all.
-///
-/// TODO: populate from real-world capture formats as each encoder lands.
 public struct MetadataForcePreserve: Sendable, Equatable {
     public var keys: Set<MetadataKey>
 

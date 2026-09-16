@@ -29,7 +29,7 @@ struct ChapterTests {
             Chapter(startSeconds: 0, durationSeconds: 100, title: "One"),
             Chapter(startSeconds: 60, durationSeconds: 60, title: "Two"),
         ]
-        let normalised = chapters.normalisedChapters()
+        let normalised = chapters.normalizedChapters()
 
         #expect(normalised.count == 2)
         #expect(normalised[0].startSeconds == 0)
@@ -45,7 +45,7 @@ struct ChapterTests {
             Chapter(startSeconds: 90, durationSeconds: 0, title: "Empty"),
             Chapter(startSeconds: -5, durationSeconds: 10, title: "Impossible"),
         ]
-        let normalised = chapters.normalisedChapters()
+        let normalised = chapters.normalizedChapters()
         #expect(normalised.map(\.title) == ["First", "Second"])
     }
 
@@ -54,7 +54,7 @@ struct ChapterTests {
     @Test("the last chapter is closed by the file's duration")
     func lastChapterIsClosedByDuration() {
         let chapters = [Chapter(startSeconds: 10, durationSeconds: 0, title: "Only")]
-        let normalised = chapters.normalisedChapters(totalDuration: 40)
+        let normalised = chapters.normalizedChapters(totalDuration: 40)
         #expect(normalised.count == 1)
         #expect(normalised[0].durationSeconds == 30)
     }

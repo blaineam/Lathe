@@ -54,8 +54,8 @@ import LatheCore
 ///
 /// - ``QualityTarget/lossless`` **is honoured for WebP** and refused for
 ///   everything else. For an ImageIO format "re-encode nothing" is a
-///   contradiction in terms for an encoder — it is
-///   ``ImageMetadataRewriter``'s job. libwebp, uniquely here, has a genuine
+///   contradiction in terms for an encoder — that is a metadata rewrite, which
+///   Lathe does not offer. libwebp, uniquely here, has a genuine
 ///   lossless coder, so `.lossless` selects it and the pixels survive exactly.
 /// - **A WebP's metadata goes through libwebp's muxer**, not ImageIO: the same
 ///   policy-filtered dictionary is serialised into `EXIF`/`XMP ` chunks. The
@@ -117,7 +117,7 @@ public struct ImageEncoder: Sendable {
     /// > ``ImageEncodeResult/inputByteCount`` and
     /// > ``ImageEncodeResult/outputByteCount`` let a caller keep the smaller of
     /// > the two. If the intent is genuinely "do not re-encode", that is a
-    /// > metadata rewrite, not an encode — see ``ImageMetadataRewriter``.
+    /// > metadata rewrite, not an encode, and not something this type does.
     @discardableResult
     public func encode(
         source: URL,
@@ -184,8 +184,8 @@ public struct ImageEncoder: Sendable {
             throw LatheError.invalidConfiguration(
                 reason: "QualityTarget.lossless means \"re-encode nothing\", which an ImageIO "
                     + "encode cannot honour. Copying encoded data through while rewriting "
-                    + "metadata is ImageMetadataRewriter's job "
-                    + "(CGImageDestinationCopyImageSource); this is CGImageDestinationAddImage, "
+                    + "metadata is a rewrite (CGImageDestinationCopyImageSource), not an encode; "
+                    + "this is CGImageDestinationAddImage, "
                     + "and it re-encodes by definition. (WebP is the exception: libwebp has a "
                     + "real lossless coder, so .lossless selects it.)"
             )
@@ -278,7 +278,7 @@ public struct ImageEncoder: Sendable {
         // the WebP encoder serialises it into EXIF/XMP chunks. One policy
         // resolver, so `.stripLocation` removes the same things from a WebP as
         // from a HEIC.
-        let properties = try ImageMetadata.properties(
+        let properties = ImageMetadata.properties(
             for: request.metadata,
             from: sourceProperties,
             forcePreserve: request.forcePreserve,
@@ -298,7 +298,7 @@ public struct ImageEncoder: Sendable {
                 throw LatheError.encodeUnavailable(format: request.format.description)
             }
             var properties = properties
-            if request.format.isLossyByDefault, let normalised = request.quality.normalisedQuality {
+            if request.format.isLossyByDefault, let normalised = request.quality.normalizedQuality {
                 properties[kCGImageDestinationLossyCompressionQuality] = normalised
             }
             outputByteCount = try writingAtomically(
@@ -342,7 +342,7 @@ public struct ImageEncoder: Sendable {
                 \(LatheLog.publicPath(request.destination), privacy: .public) grew: \
                 \(inputByteCount, privacy: .public) → \(outputByteCount, privacy: .public) bytes \
                 at \(request.format.description, privacy: .public) \
-                quality \(request.quality.normalisedQuality ?? -1, privacy: .public)
+                quality \(request.quality.normalizedQuality ?? -1, privacy: .public)
                 """
             )
         }
@@ -355,7 +355,7 @@ public struct ImageEncoder: Sendable {
             outputByteCount: outputByteCount,
             wallTime: Date().timeIntervalSince(started),
             // Always false here, and that is the honest answer: this path
-            // re-encodes pixels. The flag belongs to `ImageMetadataRewriter`.
+            // re-encodes pixels. The flag is for a future lossless rewrite.
             wasLosslessRewrite: false
         )
     }

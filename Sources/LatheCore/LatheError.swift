@@ -12,14 +12,6 @@ import Foundation
 /// captured description rather than on identity.
 public enum LatheError: Error, Sendable, Equatable {
 
-    // MARK: Scaffolding
-
-    /// The API exists but has no implementation yet.
-    ///
-    /// Every stub in this package throws exactly this, so a missing
-    /// implementation is a named refusal rather than a crash or a silent no-op.
-    case notImplemented(feature: String)
-
     // MARK: Cancellation
 
     /// The operation stopped because the progress callback returned `false`, or
@@ -85,8 +77,6 @@ public enum LatheError: Error, Sendable, Equatable {
 extension LatheError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case let .notImplemented(feature):
-            "\(feature) is not implemented yet."
         case let .cancelled(unit):
             unit.map { "Cancelled after unit \($0)." } ?? "Cancelled."
         case let .encodeUnavailable(format):
@@ -117,11 +107,6 @@ extension LatheError: LocalizedError {
 }
 
 extension LatheError {
-    /// Convenience for the stubs: `throw LatheError.todo("HEIC transcode")`.
-    public static func todo(_ feature: String) -> LatheError {
-        .notImplemented(feature: feature)
-    }
-
     /// `true` for the cancellation case, so callers can suppress user-facing
     /// error reporting in one check.
     public var isCancellation: Bool {

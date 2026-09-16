@@ -102,7 +102,7 @@ public struct PDFTextLayerResult: Sendable, Equatable {
     /// text layer never adds or drops a page.
     public var pageCount: Int
     /// Pages Vision was run over.
-    public var pagesRecognised: Int
+    public var pagesRecognized: Int
     /// Pages left alone because they already had text. See
     /// ``PDFTextLayerOptions/skipPagesWithText``.
     public var pagesSkipped: Int
@@ -123,7 +123,7 @@ public struct PDFTextLayerResult: Sendable, Equatable {
     public init(
         output: URL,
         pageCount: Int,
-        pagesRecognised: Int,
+        pagesRecognized: Int,
         pagesSkipped: Int,
         textRunCount: Int,
         recognitionLanguages: [String],
@@ -134,7 +134,7 @@ public struct PDFTextLayerResult: Sendable, Equatable {
     ) {
         self.output = output
         self.pageCount = pageCount
-        self.pagesRecognised = pagesRecognised
+        self.pagesRecognized = pagesRecognized
         self.pagesSkipped = pagesSkipped
         self.textRunCount = textRunCount
         self.recognitionLanguages = recognitionLanguages
@@ -150,7 +150,7 @@ public struct PDFTextLayerResult: Sendable, Equatable {
 ///
 /// ```swift
 /// let result = try await PDFTextLayerWriter().addTextLayer(source: scan, to: searchable)
-/// print(result.pagesRecognised, result.textRunCount)
+/// print(result.pagesRecognized, result.textRunCount)
 /// ```
 ///
 /// Takes a PDF, a still image, or a ZIP comic archive; always writes a PDF.
@@ -349,7 +349,7 @@ public struct PDFTextLayerWriter: Sendable {
         return PDFTextLayerResult(
             output: destination,
             pageCount: pages.count,
-            pagesRecognised: recognised,
+            pagesRecognized: recognised,
             pagesSkipped: skipped,
             textRunCount: runCount,
             recognitionLanguages: languages,

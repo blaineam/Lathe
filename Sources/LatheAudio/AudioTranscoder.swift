@@ -276,7 +276,7 @@ public struct AudioTranscoder: Sendable {
         // MARK: Reader.
         let asset = try await AudioFiles.asset(at: request.source)
         let sourceChapters = await ChapterTrack.read(from: asset)
-            .normalisedChapters(totalDuration: info.duration)
+            .normalizedChapters(totalDuration: info.duration)
         guard let track = try await AudioFiles.firstAudioTrack(of: asset) else {
             throw LatheError.invalidInput(reason: "\(info.fileName) has no audio track to transcode")
         }

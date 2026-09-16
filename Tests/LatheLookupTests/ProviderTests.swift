@@ -284,11 +284,11 @@ struct ProviderTests {
             }
         }
 
-        let unauthorised = await search(
+        let unauthorized = await search(
             status: 401, body: #"{"status_message":"Invalid API key."}"#
         )
-        guard case .unauthorised(_, let detail)? = unauthorised as? LookupError else {
-            Issue.record("401 gave \(String(describing: unauthorised))")
+        guard case .unauthorized(_, let detail)? = unauthorized as? LookupError else {
+            Issue.record("401 gave \(String(describing: unauthorized))")
             return
         }
         #expect(detail.contains("Invalid API key"), "the provider's own message is more use than the status")
@@ -528,7 +528,7 @@ struct ProviderTests {
     /// wrapped in `try?`, so a 401 became two empty arrays and the caller
     /// reported "nothing matched" — which sends someone to edit their search
     /// text when the actual problem is their credentials.
-    @Test("a rejected key surfaces as unauthorised, not as an empty result")
+    @Test("a rejected key surfaces as unauthorized, not as an empty result")
     func rejectedKeyIsNotSilent() async throws {
         let transport = ScriptedTransport(byPath: [
             "/search/movie": .init(
@@ -574,7 +574,7 @@ struct ProviderTests {
     func errorsAreReadable() {
         let cases: [LookupError] = [
             .notConfigured(provider: "TMDb", requirement: "a key"),
-            .unauthorised(provider: "TMDb", detail: "401"),
+            .unauthorized(provider: "TMDb", detail: "401"),
             .rateLimited(provider: "TMDb", retryAfter: 30),
             .malformedResponse(provider: "TMDb", detail: "no results field"),
             .transport(provider: "TMDb", detail: "offline"),

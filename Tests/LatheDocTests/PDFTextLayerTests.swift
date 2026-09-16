@@ -25,7 +25,7 @@ struct PDFTextLayerTests {
     func roundTrip() throws {
         try withScan { _, output, result in
             #expect(result.pageCount == 1)
-            #expect(result.pagesRecognised == 1)
+            #expect(result.pagesRecognized == 1)
             #expect(result.pagesSkipped == 0)
             #expect(result.textRunCount > 0)
 
@@ -103,7 +103,7 @@ struct PDFTextLayerTests {
         try withScan(
             mediaBoxOrigin: CGPoint(x: 36, y: 72), rotation: rotation
         ) { input, output, result in
-            #expect(result.pagesRecognised == 1)
+            #expect(result.pagesRecognized == 1)
 
             // The output is normalised: zero origin, no /Rotate, and the size a
             // viewer of the source saw.
@@ -146,7 +146,7 @@ struct PDFTextLayerTests {
         )
         #expect(skipped.pageCount == 2)
         #expect(skipped.pagesSkipped == 2)
-        #expect(skipped.pagesRecognised == 0)
+        #expect(skipped.pagesRecognized == 0)
         #expect(skipped.textRunCount == 0)
 
         // The text it already had survives the redraw.
@@ -158,7 +158,7 @@ struct PDFTextLayerTests {
             source: input, to: directory.appendingPathComponent("digital-forced.pdf"),
             options: PDFTextLayerOptions(skipPagesWithText: false), progress: .ignoring()
         )
-        #expect(forced.pagesRecognised == 2)
+        #expect(forced.pagesRecognized == 2)
         #expect(forced.pagesSkipped == 0)
     }
 
@@ -178,7 +178,7 @@ struct PDFTextLayerTests {
             progress: .ignoring()
         )
         #expect(result.pagesSkipped == 0)
-        #expect(result.pagesRecognised == 1)
+        #expect(result.pagesRecognized == 1)
     }
 
     // MARK: - Other inputs
@@ -359,7 +359,7 @@ struct PDFTextLayerTests {
     private func requireVision(
         _ result: PDFTextLayerResult, _ body: () throws -> Void
     ) throws {
-        guard result.textRunCount > 0 || result.pagesRecognised == 0 else {
+        guard result.textRunCount > 0 || result.pagesRecognized == 0 else {
             let message = "Vision recognised nothing on this machine "
                 + "(revision \(result.recognitionRevision)); the OCR assertions cannot run here"
             Issue.record(Comment(rawValue: message))

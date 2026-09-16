@@ -99,7 +99,7 @@ enum Snippets {
         // SVT-AV1 on the CPU — no Apple device encodes AV1 in hardware.
         let result = try await AV1Encoder().encode(
             source: source, to: out,
-            options: AV1EncodeOptions(maxWidth: 1920, maxHeight: 1080, bitrate: 2_500_000))
+            options: AV1EncodeOptions(resize: .fit(PixelSize(width: 1920, height: 1080)), bitrate: 2_500_000))
         print(result.frameCount, result.isTenBit)
         // end
     }

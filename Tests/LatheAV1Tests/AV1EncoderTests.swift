@@ -68,7 +68,7 @@ struct AV1EncoderTests {
         // coded landscape frame becomes 480x270.
         let result = try await AV1Encoder().encode(
             source: clip, to: output,
-            options: AV1EncodeOptions(maxWidth: 854, maxHeight: 480, bitrate: 400_000))
+            options: AV1EncodeOptions(resize: .fit(PixelSize(width: 854, height: 480)), bitrate: 400_000))
         #expect(result.pixelSize == PixelSize(width: 480, height: 270))
         #expect(!result.hasAudio)
 

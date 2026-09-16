@@ -256,7 +256,7 @@ public struct SWFOmission: Sendable, Equatable, Codable {
         /// ActionScript bytecode, in either virtual machine. Never executed.
         case script
         /// A tag code outside the published specification.
-        case unrecognisedTag
+        case unrecognizedTag
     }
 
     public let what: String
@@ -298,7 +298,7 @@ public enum SWFVerdict: String, Sendable, Equatable, Codable, CustomStringConver
     case vectorOrScriptOnly
     /// Neither media nor recognisable content: mostly or entirely tag codes
     /// outside the specification.
-    case unrecognisedContent
+    case unrecognizedContent
     /// A structurally valid SWF with essentially nothing in it.
     case empty
 
@@ -307,7 +307,7 @@ public enum SWFVerdict: String, Sendable, Equatable, Codable, CustomStringConver
         case .mediaRecovered: "media recovered"
         case .mediaFoundButUnrecoverable: "media found, none recoverable"
         case .vectorOrScriptOnly: "vector art and script only"
-        case .unrecognisedContent: "unrecognised content"
+        case .unrecognizedContent: "unrecognised content"
         case .empty: "empty"
         }
     }
@@ -381,7 +381,7 @@ public struct SWFCaptureReport: Sendable, Equatable, Codable {
             return opening
                 + " There are no bitmap, sound or video tags in this file at all: it is vector "
                 + "artwork and/or ActionScript, which needs a Flash renderer, not an extractor."
-        case .unrecognisedContent:
+        case .unrecognizedContent:
             return opening + " Most of its tags are outside the published specification."
         case .empty:
             return opening + " The file is structurally valid and contains almost nothing."

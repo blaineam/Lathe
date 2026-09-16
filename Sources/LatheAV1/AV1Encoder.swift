@@ -5,11 +5,11 @@ import LatheCore
 /// How an AV1 encode should come out.
 public struct AV1EncodeOptions: Sendable, Equatable {
 
-    /// The largest the picture may be *as displayed*, in pixels. The video is
-    /// scaled down to fit, keeping its shape; it is never enlarged. `nil`
-    /// keeps the source's size.
-    public var maxWidth: Int?
-    public var maxHeight: Int?
+    /// How to size the picture, measured *as displayed* — a portrait phone
+    /// video is tall here even though its frames are stored wide. The shape is
+    /// kept and the video is never enlarged, the same rule as every other
+    /// encoder in Lathe.
+    public var resize: ResizeTarget
 
     /// Frames per second to tell the encoder. `nil` uses the source's
     /// nominal rate. The frames keep the source's own timestamps either way;
@@ -25,14 +25,12 @@ public struct AV1EncodeOptions: Sendable, Equatable {
     public var preset: Int
 
     public init(
-        maxWidth: Int? = nil,
-        maxHeight: Int? = nil,
+        resize: ResizeTarget = .none,
         frameRate: Double? = nil,
         bitrate: Int,
         preset: Int = AV1Encoder.defaultPreset
     ) {
-        self.maxWidth = maxWidth
-        self.maxHeight = maxHeight
+        self.resize = resize
         self.frameRate = frameRate
         self.bitrate = bitrate
         self.preset = preset
@@ -136,9 +134,10 @@ public struct AV1Encoder: Sendable {
         let scratch = directory.appendingPathComponent(".lathe-\(UUID().uuidString).mp4")
         defer { try? FileManager.default.removeItem(at: scratch) }
 
+        let box = try await Self.displayBox(for: asset, resize: options.resize)
         let config = AV1Engine.Configuration(
-            width: options.maxWidth ?? Int.max / 4,
-            height: options.maxHeight ?? Int.max / 4,
+            width: box.width,
+            height: box.height,
             frameRate: Float(options.frameRate ?? 0),
             bitrate: options.bitrate,
             preset: min(max(options.preset, 0), 13))
@@ -172,5 +171,23 @@ public struct AV1Encoder: Sendable {
             hasAudio: summary.hasAudio,
             outputByteCount: bytes,
             wallTime: Date().timeIntervalSince(started))
+    }
+
+    /// The box the engine fits the picture into: the resolved target, or no
+    /// limit at all.
+    static func displayBox(for asset: AVAsset, resize: ResizeTarget) async throws -> PixelSize {
+        let unlimited = PixelSize(width: Int.max / 4, height: Int.max / 4)
+        guard resize != .none else { return unlimited }
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let (natural, transform) = try? await track.load(.naturalSize, .preferredTransform)
+        else {
+            // The engine refuses a source without video, with a better message.
+            return unlimited
+        }
+        let shown = CGRect(origin: .zero, size: natural).applying(transform).size
+        let display = PixelSize(
+            width: Int(abs(shown.width).rounded()), height: Int(abs(shown.height).rounded()))
+        let target = resize.resolve(from: display)
+        return target.isEmpty ? unlimited : target
     }
 }

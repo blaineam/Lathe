@@ -42,7 +42,7 @@ enum HTTPStatus {
         case 200...299:
             return
         case 401, 403:
-            throw LookupError.unauthorised(
+            throw LookupError.unauthorized(
                 provider: provider, detail: Self.detail(body) ?? "status \(response.statusCode)"
             )
         case 429:

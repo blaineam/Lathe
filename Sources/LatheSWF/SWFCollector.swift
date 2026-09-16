@@ -629,7 +629,7 @@ final class SWFCollector {
             switch tag.kind {
             case .vectorOrTimeline: reason = .vectorArtwork
             case .script: reason = .script
-            case .unrecognised: reason = .unrecognisedTag
+            case .unrecognized: reason = .unrecognizedTag
             case .media, .structural: continue
             }
             result.append(
@@ -692,12 +692,12 @@ final class SWFCollector {
         for (code, value) in census {
             switch SWFTagCode(rawValue: code).kind {
             case .vectorOrTimeline, .script: vectorOrScript += value.count
-            case .unrecognised: unrecognised += value.count
+            case .unrecognized: unrecognised += value.count
             case .media, .structural: break
             }
         }
         if vectorOrScript > 0 { return .vectorOrScriptOnly }
-        if unrecognised > 0 { return .unrecognisedContent }
+        if unrecognised > 0 { return .unrecognizedContent }
         return .empty
     }
 }

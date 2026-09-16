@@ -103,7 +103,7 @@ public struct ChapterWriter: Sendable {
     ///   - chapters: the new list, replacing any the file has. An empty list
     ///     removes them. The list is sorted, overlaps are trimmed, and the last
     ///     chapter is clipped to the file — see
-    ///     `normalisedChapters(totalDuration:)`.
+    ///     `normalizedChapters(totalDuration:)`.
     ///   - destination: its extension chooses the container; see
     ///     ``support(for:)``. Must not be `source`.
     ///   - progress: reported against the file's duration under the stage

@@ -624,12 +624,12 @@ struct SWFCaptureTests {
         let data = SWFFixtures.swf(tags: [SWFFixtures.tag(200, Data(repeating: 0, count: 10))])
         let report = try capture.run(data, name: "odd.swf", writingTo: nil)
 
-        #expect(report.verdict == .unrecognisedContent)
+        #expect(report.verdict == .unrecognizedContent)
         let census = try #require(report.tagCensus.first { $0.code == 200 })
         #expect(census.name == nil)
         #expect(census.count == 1)
         let omission = try #require(report.omissions.first { $0.what == "tag 200" })
-        #expect(omission.reason == .unrecognisedTag)
+        #expect(omission.reason == .unrecognizedTag)
     }
 
     @Test("recovering anything at all is the verdict that outranks the rest")

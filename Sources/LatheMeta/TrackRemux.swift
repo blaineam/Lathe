@@ -245,7 +245,7 @@ final class TrackRemux {
     ///   a failure (a chapter write) or a note (a subtitle write).
     @discardableResult
     func attachChapters(_ list: [Chapter]) -> ChapterTrack.Attachment {
-        let normalised = list.normalisedChapters(totalDuration: duration.isNumeric ? duration.seconds : nil)
+        let normalised = list.normalizedChapters(totalDuration: duration.isNumeric ? duration.seconds : nil)
         guard let anchor = chapterAnchor else {
             return .refused(reason: "there is no video or audio track to hang chapters on")
         }
