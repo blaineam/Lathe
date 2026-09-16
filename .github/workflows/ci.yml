@@ -248,7 +248,13 @@ jobs:
             # simulator run by hand, and run in full on macOS in the job above.
             # Leaving them in turns this job into the six-hour silence the
             # timeouts were added to end.
+            #
+            # Serial, as `swift test --no-parallel` is on macOS: run in
+            # parallel, the suites that share the embedded Python deadlock,
+            # and this job sat for its whole 40 minutes after a trivial test
+            # had already taken 51 seconds to finish.
             xcodebuild test \
+              -parallel-testing-enabled NO \
               -scheme "${{ steps.scheme.outputs.scheme }}" \
               -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
               -resultBundlePath "$SCRATCH_PATH/ios-results.xcresult" \
@@ -269,7 +275,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-simulator-results
-          path: TestResults.xcresult
+          path: ${{ env.SCRATCH_PATH }}/ios-results.xcresult
           if-no-files-found: ignore
           retention-days: 7
 
