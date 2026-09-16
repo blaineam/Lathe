@@ -69,6 +69,8 @@ storage; it takes a file and a target and gives you a file back.
 | **`LatheLookup`** | Online metadata: TMDb for film and television, OpenSubtitles for subtitles, each with the **user's own API key** — none ships here. `SubtitleInstaller` searches for a film's subtitles, downloads the best per language, and writes them into the file. Includes the filename parser that turns a release name into a searchable title and year, which needs no key at all. Separate from `LatheFetch`: this fetches a synopsis for a file you already have, not the file. |
 | **`LatheMP3`** | MP3 encoding, via LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. LAME is linked as its own **dynamic** `lame.framework` (the `LAME` binary target, built from the source in `Vendor/LAME` by `Scripts/build-lame-xcframework.sh`) so an app can let it be replaced; `LatheMP3` itself stays static, so its errors are the same `LatheError` as everyone else's. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Vendor/LAME/VENDORING.md` for what an app shipping it must include. |
 | **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
+| **`LatheSWF`** | **Not in the umbrella.** Salvage for Adobe Flash `.swf`: walks the tag stream and recovers the embedded JPEG, PNG, GIF, MP3 and PCM, with a manifest naming what was found *and what was left behind*. It does not render vector art and does not execute ActionScript, and says so. A hand-written parser for hostile input, which is why it is opt-in by product. |
+| **`LatheSWFRender`** | **Not in the umbrella.** The other half of Flash: plays a `.swf` with a bundled WebAssembly build of **Ruffle** inside a `WKWebView` and captures the frames — vector art, timeline and ActionScript included — handing back a `FrameSequence` the composers assemble. Capture is real time. It interprets untrusted bytecode, so it is opt-in by product. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
 
 Import the umbrella for convenience, or a single module to keep your binary
@@ -91,6 +93,8 @@ print(Lathe.capabilityReport)   // what this system can actually encode
 .product(name: "Lathe",      package: "Lathe")   // all five, via one import
 
 .product(name: "LatheFetch", package: "Lathe")   // embedded CPython — NOT in the umbrella
+.product(name: "LatheSWF",   package: "Lathe")   // Flash salvage — NOT in the umbrella
+.product(name: "LatheSWFRender", package: "Lathe") // Flash *rendering* — NOT in the umbrella
 ```
 
 The `Lathe` umbrella product is **media processing only, permanently**. Modules
@@ -117,6 +121,30 @@ list is how such an app proves it has none of it.
 still filters the whole package out of a host's logs — and on nothing else in
 this package. The dependency runs in that direction only: `import LatheCore`
 links no Python.
+
+**`LatheSWF` is the second, and it is kept out for a different reason.** Not
+licence, and not network: it is the only module in this package that walks an
+untrusted binary container **by hand**. Everything else here hands bytes to
+Apple's own frameworks, which are hardened and patched by somebody else; this
+one parses tag codes, declared lengths, bit-packed fields and recursive sprites
+belonging to a format whose last security update was a very long time ago, in
+files that come from wherever surviving Flash files come from. That is real
+attack surface, and an application that never opens a `.swf` should be able to
+prove it links none of it by naming its products. It is also not media
+*processing*: it is one-way salvage, and what it produces — a folder of JPEGs and
+MP3s — is an input to the other modules rather than an output of one.
+
+**`LatheSWFRender` is the third, and the one to weigh hardest.** It bundles
+Ruffle — a Flash Player compiled to WebAssembly — and runs it over a
+user-supplied file inside a `WKWebView`. That means **interpreting untrusted
+ActionScript on the user's device**. It happens inside WebKit, which is the
+sanctioned place for exactly that; nothing is fetched at run time; and the host
+WebView refuses navigation to any scheme but its own, so a movie calling `getURL`
+cannot make it fetch anything. It is still a judgement an App Store submission
+should make deliberately rather than inherit, and this README is not the place
+that judgement gets made. It also costs about 15 MB of bundled resource (about
+5 MB of an App Store download) and needs WebKit, neither of which `LatheSWF` does. Depending on `LatheSWF` alone
+ships none of it.
 
 ---
 
@@ -1038,6 +1066,171 @@ Cancellation is carried on the progress callback's return value, the same
 contract `ProgressSink` already has, which makes `yt-dlp` raise its own
 `DownloadCancelled` and unwind through the paths it already has for a user
 pressing `^C`.
+
+### SWF capture, and what it honestly cannot do
+
+`SWFCapture` recovers the standard media embedded in an Adobe Flash `.swf`.
+
+```swift
+let report = try SWFCapture().extract(movie, to: outputDirectory)
+print(report.summary)
+// intro.swf: SWF 6, zlib (CWS), 550×400, 240 frames at 12.00 fps —
+// recovered 14 images, 2 sounds. 612 tag(s) were left behind; see omissions.
+
+report.verdict        // .mediaRecovered / .vectorOrScriptOnly / …
+report.omissions      // what was found and not written, and why
+report.tagCensus      // every tag code seen, named where the spec names it
+```
+
+**It does not play, render or convert a Flash movie, and no amount of further
+work on this module would get there.** That is the first thing to say, because
+it is the thing people want from a `.swf`. A SWF's animation is vector artwork
+driven by a display list: rendering one frame means shape records in four tag
+versions, morph shapes interpolated between two definitions, a depth-ordered
+display list with transforms, colour transforms, clipping, blend modes and
+filters, and a rasteriser with a non-zero winding rule. That is a renderer, and a
+renderer is a project measured in person-years — Ruffle does it, and Ruffle is
+very large. Much Flash content has no fixed timeline to render at all, because it
+is *driven by ActionScript* in one of two unrelated virtual machines; executing
+untrusted bytecode from a dead platform inside somebody's photo application is
+not a feature with a defensible risk story at any price.
+
+So this does the tractable thing, which is also most of what anybody actually
+wants out of an old SWF: **the art and the audio somebody put into it.** Those
+are stored as ordinary files inside a tag stream that can be walked without
+understanding one thing about Flash.
+
+| Tag | Result |
+|---|---|
+| `DefineBits` + `JPEGTables` | `.jpg`, reassembled from the two halves |
+| `DefineBitsJPEG2` | `.jpg`, `.png` or `.gif` — whatever it really held |
+| `DefineBitsJPEG3` / `JPEG4` | `.png`, the JPEG composed with its alpha channel |
+| `DefineBitsLossless` / `2` | `.png`, decoded from five possible pixel layouts |
+| `DefineSound` (MP3 / PCM) | `.mp3` / `.wav` |
+| `SoundStreamBlock` (MP3) | one `.mp3` **per timeline**, sprites included |
+| `DefineBinaryData` | the embedded file, named by what its bytes actually are |
+
+Each of those has a trap, and the traps are the work. `DefineBits` holds JPEG
+scan data whose Huffman tables live in a *different tag*, and the join that works
+drops the tables' `EOI` and the image's `SOI` — concatenating them gives a
+two-image stream ImageIO refuses. Flash's own authoring tool wrote a bogus
+`FFD9 FFD8` pair at the **front** of JPEG payloads, so a naive extractor produces
+`.jpg` files that will not open. `DefineBitsJPEG3` carries its transparency in a
+separate zlib block, and writing the JPEG alone yields a correct-looking
+rectangle where a cut-out sprite belongs — the worst available failure, because
+nothing about it looks broken. `PIX24` is **four** bytes per pixel, not three.
+Lossless rows are padded to a 32-bit boundary, which is invisible at widths that
+are multiples of four and shears the image at every other width. A `DefineSound`
+MP3 is preceded by two bytes; a `SoundStreamBlock` MP3 by four.
+
+**What it will not do is guess.** `ZWS` (LZMA) files are refused *by name*, with
+the reason: a SWF's LZMA body is a raw LZMA1 stream, Apple's `COMPRESSION_LZMA`
+is the xz container — a buffer it produces begins `FD 37 7A 58 5A 00` — and there
+is no way to present one to the other. Adding an LZMA library would breach the
+licence policy, and hand-writing a range decoder would add exactly the class of
+bug this module is otherwise arranged to avoid, so the error tells you to
+decompress the file elsewhere and hand back an `FWS`. Adobe ADPCM, Nellymoser and
+Speex audio, and Sorenson H.263, VP6 and Screen video, are reported with their
+codec named and not written: a hand-rolled decoder that is subtly wrong produces
+a file full of noise that still opens, which looks like success. Tag codes
+outside the published specification are reported **by number** and never given a
+name on a guess.
+
+**The verdict is the point of the report.** An empty asset list has three
+completely different meanings, and only one of them is a dead end:
+
+```swift
+switch report.verdict {
+case .mediaRecovered:             // files are in the folder
+case .mediaFoundButUnrecoverable: // it has audio; it is ADPCM
+case .vectorOrScriptOnly:         // it is a cartoon. You need a renderer.
+case .unrecognisedContent:        // tags outside the specification
+case .empty:                      // valid, and has nothing in it
+}
+```
+
+`inspect` does all of the same work and writes nothing, so a file of unknown
+provenance can be vetted before it is allowed to create anything.
+
+**Hostile input is the design assumption**, because a `.swf` is a binary file
+from a platform nobody patches any more. Every length in the file is a claim that
+is checked before it is acted on, every read is bounds-checked, the cursor cannot
+move backwards, sprite recursion is depth-bounded (stack exhaustion is not a
+catchable error in Swift — it is a crash in the host app), and `SWFLimits` caps
+every allocation the file could otherwise size: a bitmap's dimensions are two
+`UInt16`s, so a malformed tag can ask for 65535 × 65535, which is sixteen
+gigabytes. A malformed file produces a thrown `LatheError`, never a crash and
+never a loop. One distinction inside that: **broken framing is fatal and broken
+contents are not** — once a declared length does not fit, everything after it is
+noise presented as data, but a single bitmap that fails to inflate says nothing
+about the next tag, so it is recorded as a malformed omission and the file still
+gives up its other eleven images.
+
+### Rendering a Flash movie, with Ruffle
+
+The section above says a renderer is out of scope, and it is — **writing** one
+is. `LatheSWFRender` does not write one. It bundles
+[Ruffle](https://github.com/ruffle-rs/ruffle), which is a mature Flash Player
+compiled to WebAssembly, runs it in an offscreen `WKWebView`, and captures the
+frames it draws.
+
+```swift
+let render = try await SWFRenderer().render(movie, to: frames)
+
+try AnimatedImageWriter().write(              // → GIF, APNG, HEICS
+    render.frames, to: gif, format: .gif,
+    delays: .framesPerSecond(render.framesPerSecond))
+
+try await FrameVideoWriter().write(           // → H.264 / HEVC
+    render.frames, to: mp4, frameRate: render.framesPerSecond)
+```
+
+**It stops at frames on purpose.** The output is a `FrameSequence` and a frame
+rate, which is exactly what `AnimatedImageWriter`, `FrameVideoWriter` and
+`FrameDocumentWriter` already take — so this module writes no encoder of its own
+and gains GIF, APNG, HEICS, H.264, HEVC, PDF and CBZ for free.
+
+This does **not** replace `SWFCapture`. Extraction pulls out the embedded JPEGs
+and MP3s at original quality with no WebView, no WebAssembly and nothing
+executed, and works on files Ruffle refuses. Rendering re-rasterises the movie
+as pixels and works on files with no embedded media at all — which is to say, on
+exactly the files extraction reports as `.vectorOrScriptOnly`. Neither answers
+the other's question.
+
+**Capture is real time. A thirty-second movie takes about thirty seconds.**
+Ruffle is an emulator playing at wall-clock speed and there is no public way to
+step its clock, so frames are *sampled* from a live performance rather than
+rendered on demand. If the machine cannot keep up, the recording is **decimated,
+not slowed** — playback carries on regardless, so the missed frames are content
+that is simply gone and the result plays back fast.
+`SWFRenderResult.achievedFramesPerSecond` and `.keptUp` report that rather than
+hiding it.
+
+Frames are read from Ruffle's `<canvas>` rather than with
+`WKWebView.takeSnapshot(with:)`. Snapshotting photographs the *view*: it wants
+the view onscreen, returns images in the display's scale factor rather than the
+movie's, and goes through the window server every frame. Reading the canvas —
+copied through a 2D canvas and scaled from device pixels back to the movie's
+size — gives the pixels Ruffle drew, with no compositor round trip.
+
+**The thing to know about hosting it:** WebKit suspends rendering updates for
+content it considers not visible — which includes the offscreen window this
+renders in — and `requestAnimationFrame` is the casualty. Ruffle's own player
+loop runs on that callback, so left alone the movie would not advance. The
+render host page races every frame request against its own 60 Hz clock, and
+creates WebGL contexts that keep their picture between draws, so an invisible
+render still plays and still reads back.
+`SWFRenderResult.renderingUpdatesObserved` says which clock carried it.
+
+Ruffle **is committed to this repository** — five files from the pinned v0.6.0
+release, byte-identical to upstream's, 14.8 MB — and it is the one binary
+artifact in the package. It has to be: SwiftPM gives an application only the
+resources in the package, so anything fetched at development time would reach
+no application at all. `Sources/LatheSWFRender/fetch-upstream.sh --verify`
+checks every file against its recorded SHA-256. The suite plays a synthesised
+movie through it and checks every captured frame. Ruffle is dual-licensed Apache-2.0 or MIT — the same licence as Lathe, with nothing to
+reconcile — and it is a clean-room implementation containing no Adobe code. See
+`Sources/LatheSWFRender/VENDORING.md` and `THIRD-PARTY-NOTICES.md`.
 
 ### The capability probe
 

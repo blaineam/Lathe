@@ -1,0 +1,564 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Lathe SWF render host</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  #stage { position: absolute; top: 0; left: 0; }
+  #stage > * { width: 100%; height: 100%; display: block; }
+</style>
+<div id="stage"></div>
+<script>
+// The page Lathe drives to turn a Flash movie into frames.
+//
+// It is deliberately small and deliberately SPLIT IN TWO. Everything below
+// `--- capture ---` knows nothing about Ruffle: it finds a canvas, reads its
+// pixels inside a frame callback, and hands back a data URL. Everything below
+// `--- players ---` puts *something* on the stage, and Ruffle is only one of
+// the two things it can put there.
+//
+// That split is not tidiness, it is testability. The suite drives this exact
+// file, through the exact scheme handler, capture path, PNG decode and frame
+// writer, twice: once with a canvas it animates itself, which isolates the
+// capture path from the player, and once with Ruffle playing a real movie.
+"use strict";
+
+window.latheState = { status: "idle", detail: null, frameCount: 0, renderer: null };
+
+// --- frame clock -------------------------------------------------------------
+
+// `requestAnimationFrame`, made to keep ticking when WebKit stops calling it.
+//
+// WebKit suspends rendering updates for a page it considers not visible — an
+// offscreen or occluded window, or a process with no running application at
+// all, such as a `swift test` bundle. `requestAnimationFrame` is the casualty,
+// and it is not only the capture that depends on it: **Ruffle's player loop is
+// driven by that callback**, so when it stops the movie stops, and every
+// captured frame is the same picture.
+//
+// So every request is raced against a fallback frame. Whichever comes first
+// runs the callback and cancels the other. While real frame callbacks are
+// arriving the fallback is set long enough never to win; once they have
+// stopped it runs at 60 Hz, which is what Ruffle would have had. Fallback
+// frames run every pending callback in registration order, as a real frame
+// does, so a capture requested after Ruffle's own callback is read after
+// Ruffle has drawn — in the same task, which is what makes a WebGL canvas
+// readable at all.
+//
+// ## The trap in the obvious version
+//
+// The obvious fallback is `setTimeout(callback, 16)`, and it plays about ten
+// frames and then freezes. A player loop re-requests its frame from inside the
+// callback, so each timeout is created inside the previous one, and **WebKit
+// aligns deeply nested timers in a hidden page to one-second boundaries** —
+// then lengthens the interval. The movie advances once a second, then not at
+// all. So the fallback timer is never created inside a timer: it is scheduled
+// from a MessageChannel task, which resets the nesting level to zero on every
+// frame.
+//
+// This is installed before `ruffle.js` loads, and replaces the method on
+// `window` itself, because Ruffle's WebAssembly glue looks the method up on the
+// window object at every call.
+(function () {
+  const nativeRequest = window.requestAnimationFrame.bind(window);
+  const nativeCancel = window.cancelAnimationFrame.bind(window);
+  const pending = new Map();  // id -> { callback, nativeID }, in request order
+  let nextID = 1;
+  let lastNative = -Infinity;
+  let lastFallback = 0;
+  let scheduled = false;
+  window.latheFrames = { native: 0, fallback: 0 };
+
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    const nativeIsAlive = performance.now() - lastNative < 250;
+    const due = nativeIsAlive ? 250 : Math.max(0, lastFallback + 1000 / 60 - performance.now());
+    setTimeout(runFallbackFrame, due);
+  };
+
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    channel.port2.postMessage(null);
+  }
+
+  function runFallbackFrame() {
+    scheduled = false;
+    if (performance.now() - lastNative < 250) {
+      // Real frames resumed while this was waiting; they will deliver.
+      if (pending.size) schedule();
+      return;
+    }
+    lastFallback = performance.now();
+    const timestamp = lastFallback;
+    const batch = Array.from(pending.entries());
+    pending.clear();
+    for (const [, entry] of batch) {
+      nativeCancel(entry.nativeID);
+      window.latheFrames.fallback += 1;
+      try {
+        entry.callback(timestamp, false);
+      } catch (error) {
+        console.error("uncaught in a frame callback: " + error);
+      }
+    }
+  }
+
+  window.requestAnimationFrame = function (callback) {
+    const id = nextID++;
+    const entry = { callback, nativeID: 0 };
+    entry.nativeID = nativeRequest((timestamp) => {
+      if (!pending.has(id)) return;
+      pending.delete(id);
+      lastNative = performance.now();
+      window.latheFrames.native += 1;
+      callback(timestamp, true);
+    });
+    pending.set(id, entry);
+    schedule();
+    return id;
+  };
+
+  window.cancelAnimationFrame = function (id) {
+    const entry = pending.get(id);
+    if (!entry) return;
+    pending.delete(id);
+    nativeCancel(entry.nativeID);
+  };
+})();
+
+// --- diagnostics -------------------------------------------------------------
+
+// The last few things anything on the page said to the console. Nobody has a
+// Web Inspector attached to an offscreen WebView, and Ruffle reports most of
+// what goes wrong — a missing WebAssembly feature, a bad response, the cause of
+// a panic — only there. A failure carries these with it.
+//
+// Two lines are also read for meaning. Ruffle announces the renderer it chose
+// only in a log line, and a Rust panic reaches JavaScript first as a console
+// error beginning "panicked at" — before any panic screen, and sometimes before
+// the player has finished loading, when nothing else would notice.
+window.latheLog = [];
+window.lathePanic = null;
+for (const level of ["log", "warn", "error"]) {
+  const original = console[level].bind(console);
+  console[level] = (...parts) => {
+    const text = parts.map((part) =>
+      part instanceof Error ? part.name + ": " + part.message : String(part)).join(" ");
+    const renderer = /Used renderer: ([\w-]+)/.exec(text);
+    if (renderer) window.latheState.renderer = renderer[1];
+    if (level === "error" && text.includes("panicked at")) {
+      window.lathePanic = window.lathePanic || text.slice(0, 600);
+    }
+    if (level !== "log") {
+      window.latheLog.push(level + ": " + text);
+      if (window.latheLog.length > 20) window.latheLog.shift();
+    }
+    original(...parts);
+  };
+}
+
+// Uncaught errors and rejections too: an exception thrown inside a frame
+// callback ends that animation loop without a word anywhere else.
+window.addEventListener("error", (event) => {
+  console.error("uncaught: " + (event.error || event.message));
+});
+window.addEventListener("unhandledrejection", (event) => {
+  console.error("unhandled rejection: " + event.reason);
+});
+
+function fail(detail) {
+  window.latheState.status = "error";
+  const said = window.latheLog.length ? " [console: " + window.latheLog.join(" | ") + "]" : "";
+  window.latheState.detail = String(detail) + said;
+}
+
+// --- capture -----------------------------------------------------------------
+
+// Ruffle renders into a <canvas> inside its custom element's SHADOW root, so a
+// plain document.querySelector("canvas") finds nothing. This walks open shadow
+// roots as well as the light DOM, which also means the self-test canvas — an
+// ordinary child of #stage — is found by the same code path the real one is.
+function findCanvas(root) {
+  root = root || document;
+  const direct = root.querySelector ? root.querySelector("canvas") : null;
+  if (direct) return direct;
+  const all = root.querySelectorAll ? root.querySelectorAll("*") : [];
+  for (const element of all) {
+    if (element.shadowRoot) {
+      const found = findCanvas(element.shadowRoot);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+// A single reusable scratch canvas. Allocating one per frame would make the
+// capture loop's cost grow with the movie's length rather than stay flat.
+let scratch = null;
+function scratchContext(width, height) {
+  if (!scratch) scratch = document.createElement("canvas");
+  if (scratch.width !== width || scratch.height !== height) {
+    scratch.width = width;
+    scratch.height = height;
+  }
+  return scratch.getContext("2d", { willReadFrequently: true });
+}
+
+// The size the caller asked for, set by `latheInit`. Frames are always written
+// at this size, whatever size the player's canvas turns out to be.
+let outputSize = null;
+
+function readCanvas(canvas) {
+  const sourceWidth = canvas.width, sourceHeight = canvas.height;
+  if (!sourceWidth || !sourceHeight) {
+    throw new Error("the stage canvas is " + sourceWidth + "x" + sourceHeight);
+  }
+  // Ruffle sizes its canvas in DEVICE pixels — the stage's CSS size times
+  // `devicePixelRatio` — so on a Retina display a 160×120 movie draws into a
+  // 320×240 canvas. The frames are scaled back to the size that was asked for,
+  // which is what makes "the frames are the movie's size" true on every screen.
+  const width = outputSize ? outputSize.width : sourceWidth;
+  const height = outputSize ? outputSize.height : sourceHeight;
+  const context = scratchContext(width, height);
+  context.clearRect(0, 0, width, height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  // Copy through a 2D canvas rather than calling toDataURL on the source: the
+  // scaling above needs the blit anyway, and it reads every backend the same
+  // way. What makes a WebGL source readable here at all is
+  // `preserveWebGLDrawingBuffers`, below.
+  context.drawImage(canvas, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
+  return scratch.toDataURL("image/png");
+}
+
+// Captures one frame, as a `data:image/png;base64,...` URL.
+//
+// The read happens inside a frame callback, after the player's own callback
+// for the same frame, so what is read is what the player just drew.
+//
+// `requestAnimationFrame` here is the page's own racing version (see the frame
+// clock above), so this callback arrives whether or not WebKit is delivering
+// rendering updates, and it arrives after Ruffle's callback for the same tick.
+// The second argument says which clock delivered it, and that is what
+// `viaFrameCallback` reports.
+//
+// The timeout is a last resort beneath that: if even timers have stopped, the
+// frame is read directly rather than hanging the whole capture.
+function latheCapture(rafTimeoutMs) {
+  return new Promise((resolve, reject) => {
+    const canvas = findCanvas();
+    if (!canvas) { reject(new Error("no canvas on the stage yet")); return; }
+
+    let settled = false;
+    const attempt = (viaFrameCallback) => {
+      if (settled) return;
+      settled = true;
+      try {
+        const url = readCanvas(canvas);
+        window.latheState.frameCount += 1;
+        resolve({ dataURL: url, viaFrameCallback: viaFrameCallback });
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    const timer = setTimeout(() => attempt(false), rafTimeoutMs || 250);
+    requestAnimationFrame((timestamp, viaNative) => {
+      clearTimeout(timer);
+      attempt(viaNative === true);
+    });
+  });
+}
+window.latheCapture = latheCapture;
+
+// --- players -----------------------------------------------------------------
+
+function stage() { return document.getElementById("stage"); }
+
+function sizeStage(width, height) {
+  const element = stage();
+  element.style.width = width + "px";
+  element.style.height = height + "px";
+  document.body.style.width = width + "px";
+  document.body.style.height = height + "px";
+}
+
+// A canvas Lathe animates itself, standing in for Ruffle so that the capture
+// path can be tested apart from the player. It draws a band that
+// moves with the frame number, so a test can tell one captured frame from the
+// next — identical frames could not distinguish a working capture loop from one
+// that returned the same image every time.
+function startSelfTest(config) {
+  const canvas = document.createElement("canvas");
+  canvas.width = config.width;
+  canvas.height = config.height;
+  stage().appendChild(canvas);
+  const context = canvas.getContext("2d");
+
+  let tick = 0;
+  const draw = () => {
+    context.fillStyle = "#101820";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const x = (tick * 7) % Math.max(1, canvas.width);
+    context.fillStyle = "#ff5a1f";
+    context.fillRect(x, 0, Math.max(1, canvas.width / 8), canvas.height);
+    tick += 1;
+  };
+  draw();
+  // Faster than any capture rate, because Ruffle also redraws continuously
+  // rather than at whatever rate somebody is sampling it.
+  setInterval(draw, 16);
+  window.latheState.status = "ready";
+}
+
+// `autoplay: "on"` and `unmuteOverlay: "hidden"` matter more than they look.
+// Ruffle's defaults wait for a user gesture and paint a click-to-unmute overlay
+// across the stage, and there is nobody here to click either of them. A capture
+// that quietly recorded nine hundred frames of an overlay would look exactly
+// like a working one. The splash screen and the letterbox are the same problem
+// in smaller doses.
+//
+// `allowNetworking: "none"` and `openUrlMode: "deny"` are the security half:
+// a movie's `getURL`, `navigateToURL`, `loadMovie` and socket calls are
+// refused inside Ruffle, before they ever reach the WebView — whose own
+// navigation policy refuses them again. `polyfills: false` stops Ruffle
+// scanning this page for <object> tags it has no business with.
+function playerOptions(config) {
+  const options = {
+    autoplay: "on",
+    unmuteOverlay: "hidden",
+    splashScreen: false,
+    letterbox: "off",
+    contextMenu: "off",
+    menu: false,
+    warnOnUnsupportedContent: false,
+    showSwfDownload: false,
+    allowFullscreen: false,
+    allowNetworking: "none",
+    openUrlMode: "deny",
+    polyfills: false,
+    // Ruffle finds its own chunks and `.wasm` relative to the script's URL,
+    // which it reads from `document.currentScript`. Stating it removes the
+    // guess.
+    publicPath: RUFFLE_DIRECTORY,
+    logLevel: "warn",
+  };
+  // Advisory. If this build of Ruffle does not know the renderer it falls back
+  // to its own order, which is why the capture path copies through a 2D canvas
+  // regardless rather than relying on having been handed a 2D backend.
+  if (config.preferredRenderer) options.preferredRenderer = config.preferredRenderer;
+  return options;
+}
+
+const RUFFLE_DIRECTORY = new URL("ruffle/", location.href).href;
+
+// `ruffle.js` is loaded here, on demand, rather than by a <script> tag in the
+// page, so that the self-test never requests it. Loaded by an element, not by
+// `import()`: it is a classic script that installs `window.RufflePlayer`, and
+// it locates its own chunks through `document.currentScript`, which only a
+// script element sets.
+function loadRuffleScript() {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = RUFFLE_DIRECTORY + "ruffle.js";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("ruffle.js could not be loaded from " + script.src));
+    document.head.appendChild(script);
+  });
+}
+
+// A WebGL canvas holds its picture only until the frame that drew it ends,
+// unless its context was created with `preserveDrawingBuffer`. Ruffle does not
+// redraw on every frame callback — only when the movie has advanced, so an
+// 8 fps movie is drawn on roughly one callback in seven — and a capture that
+// lands on any of the other six reads a blank canvas. That is not an
+// intermittent failure: it is most frames, and it looks exactly like a movie
+// with nothing in it.
+//
+// So every WebGL context on this page is created preserving its buffer, which
+// is Ruffle's canvas included since it is created after this runs. The cost is
+// a buffer copy per composite, on a page nobody is looking at.
+//
+// A WebGPU canvas has no such switch. Ruffle 0.6 in WebKit chooses its
+// WebGL-backed wgpu renderer; if a later WebKit offers WebGPU and Ruffle takes
+// it, pass `preferredRenderer: "wgpu-webgl"` and this stays true.
+function preserveWebGLDrawingBuffers() {
+  const original = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, attributes) {
+    if (type === "webgl" || type === "webgl2" || type === "experimental-webgl") {
+      attributes = Object.assign({}, attributes, { preserveDrawingBuffer: true });
+    }
+    return original.call(this, type, attributes);
+  };
+}
+
+// The real thing. `ruffle.js` lazily loads its own core JS and `.wasm` from the
+// directory it was served out of, which is why the scheme handler serves that
+// whole directory rather than three named files — their names carry a content
+// hash that changes with every Ruffle release.
+//
+// ## When the renderer cannot run here
+//
+// Ruffle picks a GPU renderer by default, and "the context was created" is not
+// the same as "its shaders compile". In the iOS Simulator both of Ruffle's
+// WebGL renderers create a context and then panic — one compiling its shaders,
+// the other on a missing capability — and a device or WebKit version could do
+// the same. So when the caller has not chosen a renderer and the player panics
+// before its first frame, it is torn down and started again with Ruffle's
+// canvas renderer, which needs nothing from the GPU. `latheState.renderer`
+// says which one drew the frames. A caller that did choose one gets its
+// choice's failure, not a quiet substitute.
+async function startRuffle(config) {
+  preserveWebGLDrawingBuffers();
+
+  // Set BEFORE the script runs: Ruffle reads its global configuration from a
+  // `window.RufflePlayer` object that already exists when it loads.
+  window.RufflePlayer = window.RufflePlayer || {};
+  window.RufflePlayer.config = Object.assign({}, window.RufflePlayer.config, playerOptions(config));
+
+  try {
+    await loadRuffleScript();
+  } catch (error) {
+    fail(error.message);
+    return;
+  }
+  if (!window.RufflePlayer || typeof window.RufflePlayer.newest !== "function") {
+    fail("ruffle.js loaded but did not install window.RufflePlayer");
+    return;
+  }
+
+  const renderers = config.preferredRenderer ? [config.preferredRenderer] : [null, "canvas"];
+  for (let index = 0; index < renderers.length; index += 1) {
+    const outcome = await playWith(config, renderers[index]);
+    if (outcome.ready) return;
+    if (!outcome.panicked || index === renderers.length - 1) {
+      fail(outcome.detail);
+      return;
+    }
+    console.warn("Ruffle panicked starting its " + (window.latheState.renderer || "default")
+      + " renderer; starting again with " + renderers[index + 1]);
+  }
+}
+
+// One attempt: a fresh player, the movie, and a watch that settles once — ready,
+// panicked, or failed — and keeps watching for a panic after it is ready.
+function playWith(config, renderer) {
+  return new Promise((settle) => {
+    window.lathePanic = null;
+    window.latheState.renderer = null;
+    const options = playerOptions(Object.assign({}, config, { preferredRenderer: renderer }));
+    window.RufflePlayer.config = Object.assign({}, window.RufflePlayer.config, options);
+
+    let player;
+    try {
+      player = window.RufflePlayer.newest().createPlayer();
+    } catch (error) {
+      settle({ ready: false, panicked: false, detail: "could not create a Ruffle player: " + error });
+      return;
+    }
+    stage().appendChild(player);
+
+    // For the suite: a panic on the first attempt, reported exactly the way a
+    // real one arrives, so the retry can be tested on a system whose renderer
+    // works.
+    const hooks = config.testHooks || {};
+    if ((hooks.panicFirstRenderer && renderer === null)
+        || (hooks.panicChosenRenderer && renderer !== null)) {
+      setTimeout(() => console.error("panicked at lathe-test: simulated renderer panic"), 0);
+    }
+
+    let settled = false;
+    let movieLoaded = false;
+    let drawnAfter = null;
+    let poll = null;
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (!outcome.ready) {
+        clearInterval(poll);
+        // Disconnecting the element destroys its Ruffle instance.
+        player.remove();
+      }
+      settle(outcome);
+    };
+    const panicDetail = () => {
+      const screen = player.shadowRoot && player.shadowRoot.querySelector("#panic");
+      if (window.lathePanic) return "Ruffle panicked: " + window.lathePanic;
+      if (screen) return "Ruffle panicked: " + (screen.textContent || "").trim().slice(0, 400);
+      return null;
+    };
+
+    player.addEventListener("error", (event) => {
+      const detail = "Ruffle error: "
+        + ((event && event.error) || (event && event.message) || "unknown");
+      if (settled) fail(detail);
+      else finish({ ready: false, panicked: panicDetail() !== null, detail: panicDetail() || detail });
+    });
+    player.addEventListener("loadeddata", () => { movieLoaded = true; });
+
+    // Passed per player as well as globally: the two are not equivalent across
+    // Ruffle versions, and a silently ignored setting here is a capture of a
+    // click-to-play overlay. Not awaited: after a panic this promise may never
+    // settle, and the watch below is what decides.
+    Promise.resolve()
+      .then(() => player.ruffle().load(Object.assign({ url: config.movieURL }, options)))
+      .catch((error) => {
+        const panic = panicDetail();
+        finish({ ready: false, panicked: panic !== null, detail: panic || "Ruffle refused the movie: " + error });
+      });
+
+    // Ready means the movie's data has loaded AND the player has since had ten
+    // frame callbacks without panicking. Neither half alone is enough:
+    //
+    // * Ruffle sizes its buffer and draws on the callback AFTER the load, so a
+    //   capture taken at the load reads an empty stage. (A canvas with a size
+    //   proves nothing — a new canvas is 300×150 before anyone touches it.)
+    // * A GPU renderer builds its shader pipelines on that first draw, which is
+    //   where the iOS Simulator's panic comes from. Reporting ready before it
+    //   would start the capture on a player that is about to die, and forfeit
+    //   the retry with the canvas renderer.
+    //
+    // Ten callbacks is a sixth of a second when frames are flowing.
+    //
+    // The watch keeps running after that, because a panic mid-movie replaces
+    // the stage and fires no event; without this it would surface as "no
+    // canvas", naming the symptom rather than the cause.
+    poll = setInterval(() => {
+      if (window.latheState.status === "error") { clearInterval(poll); return; }
+      const panic = panicDetail();
+      if (panic) {
+        if (settled) { fail(panic); clearInterval(poll); }
+        else finish({ ready: false, panicked: true, detail: panic });
+        return;
+      }
+      if (settled) return;
+      const loaded = movieLoaded || player.readyState === 2;
+      if (!loaded || !findCanvas(player.shadowRoot)) return;
+      const frames = window.latheFrames.native + window.latheFrames.fallback;
+      if (drawnAfter === null) { drawnAfter = frames + 10; return; }
+      if (frames < drawnAfter) return;
+      window.latheState.status = "ready";
+      finish({ ready: true });
+    }, 20);
+  });
+}
+
+// Called from Swift once, with everything the page needs. Returns immediately;
+// readiness is polled through `latheState`, because a movie's first frame can
+// take a while and blocking here would only move the wait.
+window.latheInit = function (config) {
+  try {
+    window.latheState.status = "loading";
+    sizeStage(config.width, config.height);
+    outputSize = { width: config.width, height: config.height };
+    if (config.mode === "selftest") {
+      startSelfTest(config);
+    } else {
+      startRuffle(config).catch(fail);
+    }
+  } catch (error) {
+    fail(error);
+  }
+  return window.latheState.status;
+};
+</script>

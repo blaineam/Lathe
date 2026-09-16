@@ -18,6 +18,7 @@ public enum LatheLog {
     public static let video = Logger(subsystem: subsystem, category: "video")
     public static let doc = Logger(subsystem: subsystem, category: "doc")
     public static let audio = Logger(subsystem: subsystem, category: "audio")
+    public static let swf = Logger(subsystem: subsystem, category: "swf")
     public static let capability = Logger(subsystem: subsystem, category: "capability")
 
     /// The last path component only — still useful for correlating a failure

@@ -61,6 +61,15 @@ let package = Package(
         // depending on it.
         .library(name: "LatheMP3", targets: ["LatheMP3"]),
 
+        // Salvage, not processing, and deliberately not in the umbrella. See
+        // the target below for the argument.
+        .library(name: "LatheSWF", targets: ["LatheSWF"]),
+
+        // Rendering a Flash movie, as opposed to salvaging what is inside one.
+        // Its own product for a reason worth choosing deliberately; see the
+        // target.
+        .library(name: "LatheSWFRender", targets: ["LatheSWFRender"]),
+
         // Network ingest, and the first module the rule above was written for.
         // `LatheFetch` embeds a CPython interpreter and installs Python packages
         // the user asks for at run time. It is a separate product precisely so
@@ -142,6 +151,85 @@ let package = Package(
         .target(
             name: "LatheMP3",
             dependencies: ["LatheCore", "LAME"]
+        ),
+
+        // MARK: - Salvage
+        //
+        // `LatheSWF` recovers the embedded JPEG, PNG, GIF, MP3 and PCM out of
+        // Adobe Flash `.swf` files. It is NOT in the `Lathe` umbrella, and the
+        // reason is not the licence one that keeps `LatheMP3` out, nor the
+        // network one that keeps `LatheFetch` out. It is a third reason, and it
+        // deserves its own entry in the contract:
+        //
+        // * **It is a parser for hostile input, and nothing else here is.**
+        //   Every other module in this package hands bytes to Apple's own
+        //   frameworks, which are hardened, sandboxed where it matters, and
+        //   patched by somebody else. This module walks an untrusted binary
+        //   container by hand — tag codes, declared lengths, bit-packed fields,
+        //   recursive sprites — for a format whose last security update was a
+        //   long time ago and whose surviving files come from wherever old
+        //   Flash files come from. That is real attack surface, and an
+        //   application that never opens a `.swf` should be able to prove it
+        //   links none of it by naming its products, rather than by auditing an
+        //   import graph after a version bump handed it one.
+        //
+        // * **It salvages; it does not process.** The umbrella's standing
+        //   promise is media processing: read a file, write a file, in formats
+        //   the system understands. SWF capture is archaeology — a one-way
+        //   recovery of what is left inside a container nothing can play any
+        //   more. It produces inputs *for* the media modules rather than being
+        //   one of them, and the output of an extraction is an ordinary folder
+        //   of JPEGs and MP3s that `LatheImage` and `LatheAudio` then handle
+        //   with no knowledge that Flash was ever involved.
+        //
+        // It depends on `LatheCore` alone — the error taxonomy and the logging
+        // subsystem — and deliberately not on `LatheImage`, even though it
+        // writes PNGs. It writes them through ImageIO, which is a system
+        // framework; depending on `LatheImage` to reuse one format enum would
+        // link libwebp and a full encoder into every consumer that only wanted
+        // to open a Flash file.
+        .target(name: "LatheSWF", dependencies: ["LatheCore"]),
+
+        // Rendering, which is a different thing from the salvage above and
+        // carries a different set of consequences.
+        //
+        // `LatheSWF` reads a container. `LatheSWFRender` runs a WebAssembly
+        // build of Ruffle inside a `WKWebView` and captures the frames it draws
+        // — which means it executes the ActionScript inside a user-supplied file.
+        // It is a separate product, and not in the umbrella, because that is a
+        // decision an application has to make rather than inherit:
+        //
+        // * **It interprets untrusted bytecode.** Inside WebKit, which is the
+        //   sanctioned place for it on Apple's platforms, and with nothing
+        //   fetched at run time — but an App Store submission should weigh it
+        //   deliberately, and an app that only salvages bitmaps should be able to
+        //   prove it ships none of it.
+        // * **It costs about 15 MB.** The Ruffle build is a bundled resource —
+        //   14.8 MB installed, about 5 MB of an App Store download — so an app
+        //   that links this carries it whether it renders anything or not.
+        // * **It needs WebKit**, which `LatheSWF` does not, and which an
+        //   extension or a command-line tool may not want.
+        //
+        // It depends on `LatheImage` for `FrameSequence`, which is how its output
+        // reaches `AnimatedImageWriter`, `FrameVideoWriter` and
+        // `FrameDocumentWriter` without this target growing an encoder of its
+        // own.
+        //
+        // The Ruffle build IS committed, under `RenderHost/ruffle/` — the one
+        // binary artifact in this package, and deliberately so: SwiftPM hands a
+        // consumer only the resources that are in the package at build time, so
+        // a fetch-at-development-time script would ship every application an
+        // empty folder. `fetch-upstream.sh` records where the five files came
+        // from and verifies them against upstream's hashes; see
+        // Sources/LatheSWFRender/VENDORING.md.
+        .target(
+            name: "LatheSWFRender",
+            dependencies: ["LatheCore", "LatheSWF", "LatheImage"],
+            exclude: [
+                "VENDORING.md",
+                "fetch-upstream.sh",
+            ],
+            resources: [.copy("RenderHost")]
         ),
 
         // MARK: - Network ingest
@@ -321,6 +409,8 @@ let package = Package(
             name: "LatheLookupTests",
             dependencies: ["LatheLookup", "LatheMeta", "LatheFixtures"]
         ),
+        .testTarget(name: "LatheSWFTests", dependencies: ["LatheSWF"]),
+        .testTarget(name: "LatheSWFRenderTests", dependencies: ["LatheSWFRender"]),
         .testTarget(name: "LatheMP3Tests", dependencies: ["LatheMP3", "LatheFixtures"]),
 
         // The Python suite runs against whatever CPython the host machine has,

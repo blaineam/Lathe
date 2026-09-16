@@ -10,6 +10,7 @@ ways** — which changes what you have to do about each:
 | **libwebp** | vendored as source and compiled into `LatheImage` | you do, in your binary |
 | **LAME** | source vendored; built into its own **dynamic** `lame.framework`, which `LatheMP3` links | you do, as a separate framework in your app bundle |
 | **CPython** | bound at run time by `LatheFetch`; **not** in this repository | you do, *if* you embed it |
+| **Ruffle** | vendored, unmodified, as `LatheSWFRender`'s bundled resources | you do, *if* you ship `LatheSWFRender` |
 
 If you ship an application that depends on `LatheImage` (directly, or through the
 `Lathe` umbrella, `LatheVideo` or `LatheDoc`), you are distributing libwebp and
@@ -26,6 +27,12 @@ beyond reproducing its licence you must keep it a separate, replaceable dynamic
 framework and offer its source — see the LAME section below and
 `Vendor/LAME/VENDORING.md`. If you do not depend on `LatheMP3`, none of this
 applies: nothing else in Lathe links LAME.
+
+If you depend on `LatheSWFRender`, you are distributing Ruffle: it is in that
+target's resource bundle, which ships inside your application. Apache-2.0
+requires attribution and a copy of the licence, so its notice applies to you.
+Depending on `LatheSWF` alone distributes no Ruffle and carries no obligation —
+that module has no renderer in it at all.
 
 `LatheCore` and `LatheAudio` link nothing but Apple's own frameworks.
 
@@ -750,3 +757,51 @@ organisation, read it rather than this summary.
 application that does not name it links none of this. And an application that
 does name it still ships no CPython unless it embeds a framework itself — on
 macOS the host's interpreter is used and nothing is redistributed.
+
+
+---
+
+## Ruffle
+
+- **Used by:** `LatheSWFRender` only. **Not** `LatheSWF`, and not the `Lathe`
+  umbrella.
+- **Why:** it is a Flash Player. Rendering a `.swf` means running one, and
+  writing one is a project measured in person-years; Ruffle is the only
+  permissively licensed implementation that works.
+- **Upstream:** <https://github.com/ruffle-rs/ruffle>
+- **Version:** v0.6.0 (released 2026-09-06), asset
+  `ruffle-0.6.0-web-selfhosted.zip`, SHA-256
+  `e8acfacc37443303872379d0e215999af846854d1dd3fa8fac0a765445b43dbf`
+- **Licence:** **Apache-2.0 OR MIT**, at the user's option. Lathe takes it under
+  Apache-2.0, which is Lathe's own licence — so there is nothing to reconcile,
+  no copyleft obligation, and no per-application decision of the kind
+  `LatheMP3`'s LGPL vendoring forces.
+- **Copyright:** Ruffle LLC \<ruffle@ruffle.rs\> and Ruffle contributors
+- **Vendored at:** `Sources/LatheSWFRender/RenderHost/ruffle/` — five files
+  from that asset: `ruffle.js`, one core chunk, one `.wasm`, and upstream's two
+  licence files. `Sources/LatheSWFRender/fetch-upstream.sh --verify` checks each
+  against its recorded hash. See `Sources/LatheSWFRender/VENDORING.md` for what
+  was left out and why.
+- **Modifications:** none. Each shipped file is byte-for-byte upstream's.
+
+Ruffle is a clean-room reimplementation of the Flash Player. It contains no
+Adobe code and needs no licence from Adobe — which is the question people
+usually mean when they ask whether shipping a Flash player is allowed.
+
+### Licence
+
+Apache-2.0 is reproduced in this repository's own `LICENSE`, and applies to
+Ruffle on the same terms. Upstream's `LICENSE_APACHE` and `LICENSE_MIT` — the
+latter carrying the copyright line above — are vendored in
+`Sources/LatheSWFRender/RenderHost/ruffle/` and ship in the resource bundle
+alongside the code.
+
+### The other thing to weigh, which is not a licence question
+
+`LatheSWFRender` runs a WebAssembly interpreter over ActionScript from a
+**user-supplied file**. It does so inside WebKit — the sanctioned place for
+untrusted code on Apple's platforms — with nothing fetched at run time, and with
+the host WebView refusing navigation to any scheme but its own. That is still
+third-party bytecode from an untrusted file executing on a user's device, and an
+App Store submission should weigh it deliberately rather than inherit it. It is
+a separate product so that the decision is one you make.
