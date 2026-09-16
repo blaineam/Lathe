@@ -134,52 +134,25 @@ public struct ImageInspector: Sendable {
 
     /// Where per-frame timing lives, per container.
     ///
-    /// There is no general "delay" key in ImageIO: each animated format keeps its
-    /// own, inside its own sub-dictionary, and the set has grown with the SDK
-    /// (WebP's arrived in macOS 11 / iOS 14, HEICS's in 10.15 / 13). All four are
-    /// below this package's deployment floor, so no availability check is needed
-    /// or wanted — see ``EncodeSupport`` on why this file contains no `#available`.
-    ///
-    /// The unclamped key is preferred and the clamped one is the fallback, so a
-    /// format whose unclamped variant is missing still reports timing rather than
-    /// reading as a still.
-    ///
-    /// Computed rather than stored because `CFString` is not `Sendable`, and
-    /// under Swift 6 a stored static of a non-`Sendable` type is shared mutable
-    /// state whether or not anybody mutates it. Rebuilding four tuples per call
-    /// is not a cost worth an `nonisolated(unsafe)` escape hatch.
-    private static var timingKeys: [(container: CFString, unclamped: CFString, clamped: CFString)] {[
-        (kCGImagePropertyGIFDictionary,
-         kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime),
-        // APNG's delays live in the PNG dictionary; there is no APNG dictionary.
-        (kCGImagePropertyPNGDictionary,
-         kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime),
-        (kCGImagePropertyWebPDictionary,
-         kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime),
-        (kCGImagePropertyHEICSDictionary,
-         kCGImagePropertyHEICSUnclampedDelayTime, kCGImagePropertyHEICSDelayTime),
-    ]}
+    /// One table, shared with the write side — see ``AnimationContainer`` for
+    /// the whole argument, including why the keys are computed rather than
+    /// stored. The unclamped key is preferred here and the clamped one is the
+    /// fallback, so a format whose unclamped variant is missing still reports
+    /// timing rather than reading as a still.
+    private static var timingKeys: [(container: CFString, unclamped: CFString, clamped: CFString)] {
+        AnimationContainer.allCases.map { ($0.dictionaryKey, $0.unclampedDelayKey, $0.delayKey) }
+    }
 
-    /// Where the loop count lives, per container. Same structure, file level
-    /// rather than frame level.
-    private static var loopKeys: [(container: CFString, loop: CFString)] {[
-        (kCGImagePropertyGIFDictionary, kCGImagePropertyGIFLoopCount),
-        (kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGLoopCount),
-        (kCGImagePropertyWebPDictionary, kCGImagePropertyWebPLoopCount),
-        (kCGImagePropertyHEICSDictionary, kCGImagePropertyHEICSLoopCount),
-    ]}
+    /// Where the loop count lives, per container. Same table, file level rather
+    /// than frame level.
+    private static var loopKeys: [(container: CFString, loop: CFString)] {
+        AnimationContainer.allCases.map { ($0.dictionaryKey, $0.loopKey) }
+    }
 
     /// Where the canvas size lives, per container.
-    private static var canvasKeys: [(container: CFString, width: CFString, height: CFString)] {[
-        (kCGImagePropertyGIFDictionary,
-         kCGImagePropertyGIFCanvasPixelWidth, kCGImagePropertyGIFCanvasPixelHeight),
-        (kCGImagePropertyPNGDictionary,
-         kCGImagePropertyAPNGCanvasPixelWidth, kCGImagePropertyAPNGCanvasPixelHeight),
-        (kCGImagePropertyWebPDictionary,
-         kCGImagePropertyWebPCanvasPixelWidth, kCGImagePropertyWebPCanvasPixelHeight),
-        (kCGImagePropertyHEICSDictionary,
-         kCGImagePropertyHEICSCanvasPixelWidth, kCGImagePropertyHEICSCanvasPixelHeight),
-    ]}
+    private static var canvasKeys: [(container: CFString, width: CFString, height: CFString)] {
+        AnimationContainer.allCases.map { ($0.dictionaryKey, $0.canvasWidthKey, $0.canvasHeightKey) }
+    }
 
     // MARK: - Inspecting
 

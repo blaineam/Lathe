@@ -500,7 +500,12 @@ public struct ImageEncoder: Sendable {
     /// A sibling rather than the system temporary directory, because `moveItem`
     /// across volumes is a copy, and the destination is where the caller already
     /// decided there is room.
-    private static func writingAtomically(
+    ///
+    /// Internal rather than private because ``AnimatedImageWriter`` has the same
+    /// destination to protect and the same half-written file to avoid leaving
+    /// behind. Two encoders in one module each owning a copy of this dance is
+    /// how one of them ends up without it.
+    static func writingAtomically(
         to destination: URL,
         format: ImageFormat,
         _ body: (URL) throws -> Void
