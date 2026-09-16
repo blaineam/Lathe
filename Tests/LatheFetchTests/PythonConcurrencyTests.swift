@@ -92,24 +92,32 @@ struct PythonConcurrencyTests {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
 
         let wholeThing = Date()
-        async let slow: PythonOutput = runtime.executeDetached("import time; time.sleep(1.0)")
+        async let slow: Date = {
+            _ = try await runtime.executeDetached("import time; time.sleep(1.5)")
+            return Date()
+        }()
 
-        let tickingStarted = Date()
         var ticks = 0
         while ticks < 20 {
             try await Task.sleep(nanoseconds: 5_000_000)
             ticks += 1
         }
-        let tickingTook = Date().timeIntervalSince(tickingStarted)
+        let tickingEnded = Date()
 
-        _ = try await slow
+        let slowEnded = try await slow
         let everythingTook = Date().timeIntervalSince(wholeThing)
 
+        // Order, not a stopwatch. The first version required the ticks to take
+        // under 0.7 s, and a loaded CI runner coalesced twenty 5 ms sleeps into
+        // 0.71 s — a failure that said nothing about blocking. What blocking
+        // actually changes is the ORDER: if the call held the main actor, no
+        // tick could run until Python returned, so the ticking would finish
+        // after it. Finishing before it is the property, whatever the clock.
         #expect(ticks == 20)
         #expect(
-            tickingTook < 0.7,
-            "the main actor was blocked for \(tickingTook)s while Python ran — the call is not detached")
-        #expect(everythingTook >= 0.9, "the Python call did not actually take the second it slept for")
+            tickingEnded < slowEnded,
+            "the ticks only finished after Python did — the main actor was blocked; the call is not detached")
+        #expect(everythingTook >= 1.4, "the Python call did not actually take the time it slept for")
     }
 
     @Test("many detached calls run concurrently and keep their own answers",

@@ -49,6 +49,46 @@ struct ChapterWriterTests {
         #expect([0, Self.chapters.count].contains(result.restoredChapterCount))
     }
 
+    /// **The fallback for an `.mp4` that loses its tags.**
+    ///
+    /// On macOS 26 the MPEG-4 file type keeps a title and drops the artist, the
+    /// artwork, the track and the episode, so `ChapterWriter` writes such a file
+    /// again with the M4V brand. The machine this was written on does not lose
+    /// the tags, so the fallback never runs by itself here; the writer is told
+    /// to go straight to it, and the output is checked the same way the normal
+    /// path's is. A `.mp4` name and M4V contents is what ships on those systems.
+    @Test("an .mp4 written through the M4V fallback keeps every tag and chapter")
+    func mp4FallbackKeepsTags() async throws {
+        guard let source = await chaptered("mp4") else { return }
+        let png = try DocumentFixtures.solidPNG(gray: 0.4)
+        let art = try #require(Artwork(sniffing: png))
+
+        var meta = MediaMetadata()
+        meta.title = "Through the fallback"
+        meta.creators = ["Someone"]
+        meta.kind = .tvShow
+        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 1, episodeNumber: 4)
+        meta.track = TrackInfo(trackNumber: 3, trackCount: 9)
+        meta.artwork = [art]
+
+        var writer = ChapterWriter()
+        writer.mp4FileTypes = [.m4v]
+        let output = await scratch("fallback-out.mp4")
+        let result = try await writer.write(
+            Self.chapters, into: source, writingTo: output,
+            metadata: MetadataItemBuilder.items(for: meta), progress: .ignoring())
+
+        #expect(output.pathExtension == "mp4", "the fallback renamed the user's file")
+        let back = try await MetadataReader().read(output)
+        #expect(back.title == "Through the fallback")
+        #expect(back.creators == ["Someone"])
+        #expect(back.artwork.first?.data == png)
+        #expect(back.track?.trackNumber == 3)
+        #expect(back.show?.episodeNumber == 4)
+        expectSame(await ChapterTrack.read(from: AVURLAsset(url: output)), Self.chapters)
+        #expect(result.chapters.count == Self.chapters.count)
+    }
+
     /// The fast path stays fast: a file with no chapters is exported once and
     /// never remuxed.
     @Test("a file with no chapters is not remuxed by a tag write")
