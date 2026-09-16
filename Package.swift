@@ -195,18 +195,24 @@ let package = Package(
         //   fetched at run time — but an App Store submission should weigh it
         //   deliberately, and an app that only salvages bitmaps should be able to
         //   prove it ships none of it.
-        // * **It costs about 10 MB.** The Ruffle build is a bundled resource, so
-        //   an app that links this carries it whether it renders anything or not.
+        // * **It costs about 15 MB.** The Ruffle build is a bundled resource —
+        //   14.8 MB installed, about 5 MB of an App Store download — so an app
+        //   that links this carries it whether it renders anything or not.
         // * **It needs WebKit**, which `LatheSWF` does not, and which an
         //   extension or a command-line tool may not want.
         //
         // It depends on `LatheImage` for `FrameSequence`, which is how its output
         // reaches `AnimatedImageWriter`, `FrameVideoWriter` and
         // `FrameDocumentWriter` without this target growing an encoder of its
-        // own. The Ruffle artifact itself is NOT committed — `fetch-upstream.sh`
-        // downloads the pinned release against a recorded SHA-256, exactly as
-        // `LatheFetch` does for CPython. This target builds and tests with it
-        // absent; see Sources/LatheSWFRender/VENDORING.md.
+        // own.
+        //
+        // The Ruffle build IS committed, under `RenderHost/ruffle/` — the one
+        // binary artifact in this package, and deliberately so: SwiftPM hands a
+        // consumer only the resources that are in the package at build time, so
+        // a fetch-at-development-time script would ship every application an
+        // empty folder. `fetch-upstream.sh` records where the five files came
+        // from and verifies them against upstream's hashes; see
+        // Sources/LatheSWFRender/VENDORING.md.
         .target(
             name: "LatheSWFRender",
             dependencies: ["LatheCore", "LatheSWF", "LatheImage"],

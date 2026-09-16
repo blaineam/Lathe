@@ -9,7 +9,7 @@ ways** — which changes what you have to do about each:
 |---|---|---|
 | **libwebp** | vendored as source and compiled into `LatheImage` | you do, in your binary |
 | **CPython** | bound at run time by `LatheFetch`; **not** in this repository | you do, *if* you embed it |
-| **Ruffle** | fetched into `LatheSWFRender`'s resource bundle; **not** in this repository | you do, *if* you ship `LatheSWFRender` |
+| **Ruffle** | vendored, unmodified, as `LatheSWFRender`'s bundled resources | you do, *if* you ship `LatheSWFRender` |
 
 If you ship an application that depends on `LatheImage` (directly, or through the
 `Lathe` umbrella, `LatheVideo` or `LatheDoc`), you are distributing libwebp and
@@ -19,8 +19,8 @@ Depending on `LatheFetch` without embedding one — on macOS, where the host
 supplies the interpreter — distributes no CPython and carries no obligation.
 Reproducing this file in your application's acknowledgements satisfies both.
 
-If you depend on `LatheSWFRender`, you are distributing Ruffle: the fetch script
-puts it in a resource bundle that ships inside your application. Apache-2.0
+If you depend on `LatheSWFRender`, you are distributing Ruffle: it is in that
+target's resource bundle, which ships inside your application. Apache-2.0
 requires attribution and a copy of the licence, so its notice applies to you.
 Depending on `LatheSWF` alone distributes no Ruffle and carries no obligation —
 that module has no renderer in it at all.
@@ -239,13 +239,12 @@ macOS the host's interpreter is used and nothing is redistributed.
   no copyleft obligation, and no per-application decision of the kind
   `LatheMP3`'s LGPL vendoring forces.
 - **Copyright:** Ruffle LLC \<ruffle@ruffle.rs\> and Ruffle contributors
-- **Vendored at:** `Sources/LatheSWFRender/RenderHost/ruffle/` — and **not
-  committed**. `Sources/LatheSWFRender/fetch-upstream.sh` downloads the pinned
-  release, verifies the hash above, and unpacks it, keeping upstream's own
-  licence files beside the code they cover. See
-  `Sources/LatheSWFRender/VENDORING.md`.
-- **Modifications:** none. The unpacked build is byte-for-byte upstream's
-  release asset.
+- **Vendored at:** `Sources/LatheSWFRender/RenderHost/ruffle/` — five files
+  from that asset: `ruffle.js`, one core chunk, one `.wasm`, and upstream's two
+  licence files. `Sources/LatheSWFRender/fetch-upstream.sh --verify` checks each
+  against its recorded hash. See `Sources/LatheSWFRender/VENDORING.md` for what
+  was left out and why.
+- **Modifications:** none. Each shipped file is byte-for-byte upstream's.
 
 Ruffle is a clean-room reimplementation of the Flash Player. It contains no
 Adobe code and needs no licence from Adobe — which is the question people
@@ -254,10 +253,10 @@ usually mean when they ask whether shipping a Flash player is allowed.
 ### Licence
 
 Apache-2.0 is reproduced in this repository's own `LICENSE`, and applies to
-Ruffle on the same terms. Upstream's `LICENSE.md`, which carries both that and
-the MIT alternative together with the copyright line above, is unpacked into
-`Sources/LatheSWFRender/RenderHost/ruffle/` by the fetch script and ships in the
-resource bundle alongside the code.
+Ruffle on the same terms. Upstream's `LICENSE_APACHE` and `LICENSE_MIT` — the
+latter carrying the copyright line above — are vendored in
+`Sources/LatheSWFRender/RenderHost/ruffle/` and ship in the resource bundle
+alongside the code.
 
 ### The other thing to weigh, which is not a licence question
 

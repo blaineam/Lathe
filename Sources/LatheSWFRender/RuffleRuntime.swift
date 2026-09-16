@@ -3,24 +3,23 @@ import LatheCore
 
 /// Where the Ruffle web build lives, and whether it is actually there.
 ///
-/// ## Why this is pluggable rather than simply present
+/// ## Where it comes from
 ///
-/// Ruffle's self-hosted web build is about 10 MB of JavaScript and WebAssembly,
-/// and **it is not committed to this repository**. That is the same arrangement
-/// `LatheFetch` uses for CPython, taken for the same reasons, and it is a house
-/// rule rather than a shortcut: nothing binary lives in this package, so there
-/// is no artifact in git, no checksum drifting out of step with a tag, and no
-/// 10 MB every consumer of every other module pays for.
+/// Ruffle's self-hosted web build is **committed to this repository**, as a
+/// resource of this target, because that is the only way it reaches an
+/// application: SwiftPM gives a package consumer exactly the resources that are
+/// in the package when it builds, and nothing a script would have fetched.
+/// Five files, byte-identical to upstream's release — the entry point, the core
+/// chunk, the WebAssembly module and the two licences — about 14.8 MB on disk.
+/// `fetch-upstream.sh` is how they got there and how to check they still match;
+/// see `VENDORING.md` for the pin, the provenance, the licence, and what was
+/// deliberately left out of the archive.
 ///
-/// `fetch-upstream.sh` downloads the pinned release, verifies it against a
-/// recorded SHA-256, and unpacks it into the bundled `RenderHost/ruffle`
-/// directory. See `VENDORING.md` for the pin, the provenance and the licence.
-///
-/// The consequence a caller has to know about: **`LatheSWFRender` builds, links
-/// and passes its tests with no Ruffle present.** What it cannot do is render,
-/// and it refuses by name — ``LatheError/unsupportedOnThisPlatform(feature:)``
-/// naming the script to run — rather than failing somewhere deep inside a
-/// WebView with a blank page.
+/// This type stays pluggable anyway. A caller can point it at another copy —
+/// a newer Ruffle, or one downloaded on demand to keep it out of the app
+/// bundle — and a copy that is not there is refused by name,
+/// ``LatheError/unsupportedOnThisPlatform(feature:)``, rather than failing
+/// somewhere deep inside a WebView with a blank page.
 ///
 /// ## Why a whole directory, and not three named files
 ///
@@ -55,13 +54,13 @@ public struct RuffleRuntime: Sendable, Equatable {
     /// The file `ruffle.js`, which is the entry point and the presence check.
     public var entryPoint: URL { directory.appendingPathComponent("ruffle.js") }
 
-    /// Whether the fetch has been run.
+    /// Whether the entry point is present in ``directory``.
     public var isInstalled: Bool {
         FileManager.default.fileExists(atPath: entryPoint.path)
     }
 
     /// Every file the runtime directory holds, for diagnostics and for the
-    /// report a caller may want to log. Empty when nothing has been fetched.
+    /// report a caller may want to log. Empty when the directory is missing.
     public var installedFileNames: [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.sorted() ?? []
     }
@@ -71,9 +70,10 @@ public struct RuffleRuntime: Sendable, Equatable {
     public func requireInstalled() throws {
         guard isInstalled else {
             throw LatheError.unsupportedOnThisPlatform(
-                feature: "SWF rendering — the Ruffle runtime is not present in this build. "
-                    + "It is fetched, not committed: run Sources/LatheSWFRender/fetch-upstream.sh "
-                    + "to download the pinned release into \(directory.lastPathComponent)/. "
+                feature: "SWF rendering — there is no Ruffle runtime (ruffle.js) at "
+                    + "\(directory.path). The bundled one ships with the package; if it is "
+                    + "missing, the package checkout is incomplete — "
+                    + "Sources/LatheSWFRender/fetch-upstream.sh restores and verifies it. "
                     + "See Sources/LatheSWFRender/VENDORING.md"
             )
         }

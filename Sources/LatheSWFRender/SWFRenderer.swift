@@ -58,16 +58,26 @@ import WebKit
 ///   commonly returns blank images.
 /// - **Reading Ruffle's `<canvas>`.** Ruffle rasterises into a canvas in its
 ///   element's shadow root. Copying that canvas into a 2D canvas and reading it
-///   gives exactly the pixels Ruffle drew, at exactly the movie's resolution,
-///   with no compositor round trip and no dependence on the host being visible.
+///   gives the pixels Ruffle drew, with no compositor round trip and no
+///   dependence on the host being visible.
 ///
-/// The second is faster, is resolution-exact, and is the only one that works
-/// offscreen, so it is what runs. The read happens inside a
-/// `requestAnimationFrame` callback, because a WebGL drawing buffer is only
-/// guaranteed to hold its contents until the end of the frame that drew it, and
-/// the page falls back to a direct read if that callback does not arrive — see
-/// `RenderHost/shim.html`. ``SWFRenderResult/framesReadInFrameCallback`` says how
-/// often the fallback was needed.
+/// The second is faster and is the only one that works offscreen, so it is what
+/// runs. Three things had to be true for it to return the movie rather than a
+/// blank or frozen picture, and each is handled in `RenderHost/shim.html`:
+///
+/// - **The player has to keep ticking when WebKit stops calling
+///   `requestAnimationFrame`**, which it does for any page it considers not
+///   visible — including this offscreen one. The page races every frame request
+///   against a 60 Hz fallback clock, scheduled so that WebKit's throttling of
+///   nested timers in hidden pages cannot slow it to one frame a second.
+/// - **The WebGL canvas has to still hold its picture when it is read.** Ruffle
+///   redraws only when the movie advances, so most reads land between draws;
+///   the page creates WebGL contexts with `preserveDrawingBuffer`.
+/// - **The canvas is in device pixels**, twice the movie's size on a Retina
+///   display, so frames are scaled back to the requested size as they are read.
+///
+/// ``SWFRenderResult/renderingUpdatesObserved`` says whether WebKit's own frame
+/// callbacks arrived or the fallback clock carried the render.
 ///
 /// ## What this executes, and who has to decide it is acceptable
 ///
@@ -92,8 +102,7 @@ import WebKit
 public final class SWFRenderer {
 
     /// Where the Ruffle build is. `nil` means the module could not locate its
-    /// own resource bundle, which is a packaging fault rather than a missing
-    /// fetch.
+    /// own resource bundle, which is a packaging fault.
     public let runtime: RuffleRuntime?
 
     public init(runtime: RuffleRuntime? = RuffleRuntime.bundled) {
@@ -103,9 +112,10 @@ public final class SWFRenderer {
     /// Whether this build can actually render: the Ruffle files are present and
     /// WebKit here runs WebAssembly.
     ///
-    /// Both halves are runtime questions with different remedies — one is "run
-    /// the fetch script", the other is "this platform cannot do it" — so they
-    /// are reported separately rather than as one boolean.
+    /// Both halves are runtime questions with different remedies — one is a
+    /// packaging fault, the other is "this system cannot do it", which includes
+    /// a user who has turned on Lockdown Mode — so they are reported separately
+    /// rather than as one boolean.
     public func readiness() async
         -> (runtimeInstalled: Bool, webAssembly: WebAssemblySupport.Result)
     {
@@ -123,7 +133,7 @@ public final class SWFRenderer {
     /// decompresses nothing it does not need.
     ///
     /// - Throws: ``LatheError/unsupportedOnThisPlatform(feature:)`` when the
-    ///   Ruffle build has not been fetched; ``LatheError/invalidInput(reason:)``
+    ///   Ruffle runtime is missing; ``LatheError/invalidInput(reason:)``
     ///   when the file is not a SWF, when the player does not start, or when a
     ///   frame cannot be read; ``LatheError/invalidConfiguration(reason:)`` for
     ///   options the header and the request cannot be reconciled into.
@@ -155,17 +165,20 @@ public final class SWFRenderer {
 
     // MARK: - The loop
 
-    /// The whole render, shared by the real path and by the suite's Ruffle-free
-    /// self test.
+    /// The whole render, shared by the real path and by the suite's self test.
     ///
     /// `mode` chooses what goes on the stage — Ruffle, or a canvas the page
     /// animates itself. Everything after that point is identical: the same
     /// scheme handler, the same page, the same capture call, the same decode and
-    /// the same files on disk. That is what lets the capture path be tested in a
-    /// clone where the Ruffle artifact has never been fetched.
+    /// the same files on disk. That is what lets the capture path be tested
+    /// apart from the player.
+    ///
+    /// `pageTestHooks` is merged into the page's configuration, for the suite
+    /// only: it is how a test makes the page behave as if a renderer had
+    /// panicked, which no real system does on demand.
     func capture(
         mode: String, movie: URL?, runtime: RuffleRuntime, stage: SWFRenderStage, to directory: URL,
-        options: SWFRenderOptions
+        options: SWFRenderOptions, pageTestHooks: [String: Bool] = [:]
     ) async throws -> SWFRenderResult {
         let plan = try options.resolved(againstStageOf: stage)
 
@@ -220,6 +233,7 @@ public final class SWFRenderer {
                     "height": plan.height,
                     "frameRate": plan.framesPerSecond,
                     "preferredRenderer": options.preferredRenderer as Any,
+                    "testHooks": pageTestHooks,
                 ] as [String: Any]
             ],
             contentWorld: .page
@@ -262,6 +276,10 @@ public final class SWFRenderer {
             frames.append(url)
         }
 
+        let renderer = try? await webView.callAsyncJavaScript(
+            "return window.latheState.renderer;", contentWorld: .page
+        ) as? String
+
         let elapsed = Double(
             (clock.now - started).components.seconds
         ) + Double((clock.now - started).components.attoseconds) / 1e18
@@ -274,7 +292,8 @@ public final class SWFRenderer {
             achievedFramesPerSecond: elapsed > 0 ? Double(frames.count) / elapsed : 0,
             wasTruncatedByFrameCeiling: plan.wasTruncated,
             compositedInAWindow: composited,
-            framesReadInFrameCallback: readInFrameCallback
+            framesReadInFrameCallback: readInFrameCallback,
+            renderer: renderer
         )
     }
 
@@ -298,10 +317,19 @@ public final class SWFRenderer {
             if status == "ready" { return }
             try await Task.sleep(for: .milliseconds(50))
         }
+        // What the page was doing when time ran out is the only evidence there
+        // is — nobody has an inspector on this WebView — so it goes in the error.
+        let pageState = (try? await webView.callAsyncJavaScript(
+            """
+            return JSON.stringify({ state: window.latheState, frames: window.latheFrames,
+                                    console: window.latheLog });
+            """,
+            contentWorld: .page
+        ) as? String) ?? "unavailable"
         throw LatheError.invalidInput(
             reason: "the player did not put anything on the stage within \(timeout); the movie may "
                 + "be one Ruffle cannot open, or WebAssembly may be unavailable here — run "
-                + "SWFRenderer.readiness() to tell those apart"
+                + "SWFRenderer.readiness() to tell those apart. Page: \(pageState)"
         )
     }
 
@@ -346,7 +374,7 @@ public final class SWFRenderer {
 
     // MARK: - Resources
 
-    /// The host page, which unlike Ruffle *is* committed to this repository.
+    /// The host page, which is Lathe's own rather than upstream's.
     nonisolated static func shimHTML() throws -> Data {
         guard let url = Bundle.module.resourceURL?.appendingPathComponent("RenderHost/shim.html"),
               let data = try? Data(contentsOf: url)

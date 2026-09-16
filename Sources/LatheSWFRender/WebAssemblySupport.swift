@@ -15,25 +15,41 @@ import WebKit
 /// — and here that rule earns its keep more than usual, because the honest
 /// answer is genuinely complicated:
 ///
-/// - **JavaScriptCore runs WebAssembly without a JIT.** It has an interpreter
-///   tier, so WebAssembly executes in a `WKWebView` even where JIT is
-///   unavailable.
-/// - **On iOS, JIT is unavailable to an ordinary app's `WKWebView`.** Fast
-///   tiers need a dynamic-codesigning entitlement that only browsers get. So
-///   WebAssembly on an iPhone runs interpreted, which works and is
-///   substantially slower than the same code on a Mac.
+/// - **It can be switched off by the user.** Lockdown Mode blocks what Apple
+///   calls "certain complex web technologies" in every `WKWebView`, and
+///   WebAssembly has been among them — so the same device can answer
+///   differently from one day to the next, and a build that rendered yesterday
+///   has to be able to say why it cannot today.
+/// - **Speed is not what this measures.** `WKWebView` content runs in WebKit's
+///   own process, not the app's, so an App Store app's lack of a JIT
+///   entitlement does not decide how fast Ruffle runs there — but a phone is
+///   still not a Mac, and nothing here should be read as a promise of real-time
+///   capture on one.
 /// - **The Simulator is not evidence about a device.** It runs against the
-///   host's JavaScriptCore with the host's capabilities, so a green Simulator
-///   result says the API is present and says nothing about the device's speed.
+///   host's WebKit with the host's capabilities.
 ///
-/// A caller that means to render on a phone should therefore run this, and
-/// should treat a slow frame rate as expected rather than as a defect. See
-/// ``SWFRenderer`` for what "real time" means in practice.
+/// ## Which WebAssembly, precisely
+///
+/// Ruffle publishes two builds of its core — one using the post-MVP
+/// extensions (bulk memory, SIMD, non-trapping float-to-int, sign extension and
+/// reference types) and a "vanilla" one without — and picks between them at
+/// run time by validating five tiny modules. **Only the extensions build is
+/// bundled**: every WebKit this package supports (iOS 17, macOS 14 and later)
+/// has all five, and the vanilla build would add another 14 MB that no
+/// supported system loads. So this probe checks the same five features with
+/// the same five modules, and reports which one is missing — because without
+/// it Ruffle would reach for the build that is not there, and the render would
+/// fail with "Failed to load Ruffle WASM" and no mention of why.
+///
+/// A caller that means to render on a phone should run this, and should treat
+/// a slow frame rate as possible rather than as a defect. See ``SWFRenderer``
+/// for what "real time" means in practice.
 public enum WebAssemblySupport {
 
     /// What a probe found.
     public enum Result: Sendable, Equatable {
-        /// WebAssembly validated, compiled, instantiated and ran.
+        /// WebAssembly validated, compiled, instantiated and ran, with every
+        /// extension the bundled Ruffle build needs.
         case available
         /// It did not. The reason is the JavaScript side's own words.
         case unavailable(reason: String)
@@ -63,6 +79,32 @@ public enum WebAssemblySupport {
         0x0A, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2A, 0x0B,  // code:   i32.const 42; end
     ]
 
+    /// The five feature-detection modules Ruffle 0.6 validates before choosing
+    /// its extensions build, byte for byte as `ruffle.js` has them. If any is
+    /// refused, Ruffle falls back to the vanilla build, which is not bundled.
+    static let rufflesRequiredExtensions: [(name: String, module: [UInt8])] = [
+        ("bulk memory", [
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 5, 3, 1, 0, 1, 10, 14, 1,
+            12, 0, 65, 0, 65, 0, 65, 0, 252, 10, 0, 0, 11,
+        ]),
+        ("SIMD", [
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65,
+            0, 253, 15, 253, 98, 11,
+        ]),
+        ("non-trapping float-to-int", [
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 12, 1, 10, 0, 67, 0,
+            0, 0, 0, 252, 0, 26, 11,
+        ]),
+        ("sign extension", [
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 8, 1, 6, 0, 65, 0,
+            192, 26, 11,
+        ]),
+        ("reference types", [
+            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 7, 1, 5, 0, 208, 112,
+            26, 11,
+        ]),
+    ]
+
     /// Runs the probe in a throwaway `WKWebView`.
     ///
     /// Costs a WebView creation and an empty page load — tens of milliseconds,
@@ -84,9 +126,22 @@ public enum WebAssemblySupport {
                 if (!WebAssembly.validate(bytes)) return "the module did not validate";
                 const { instance } = await WebAssembly.instantiate(bytes);
                 const value = instance.exports.f();
-                return value === 42 ? "ok" : "the module ran and returned " + value;
+                if (value !== 42) return "the module ran and returned " + value;
+                const missing = extensions
+                    .filter((feature) => !WebAssembly.validate(new Uint8Array(feature.module)))
+                    .map((feature) => feature.name);
+                if (missing.length) {
+                    return "WebAssembly runs, but without " + missing.join(", ")
+                        + ", which the bundled Ruffle build requires";
+                }
+                return "ok";
                 """,
-                arguments: ["moduleBytes": probeModule.map { Int($0) }],
+                arguments: [
+                    "moduleBytes": probeModule.map { Int($0) },
+                    "extensions": rufflesRequiredExtensions.map {
+                        ["name": $0.name, "module": $0.module.map { Int($0) }] as [String: Any]
+                    },
+                ],
                 contentWorld: .page
             )
             guard let text = answer as? String else {

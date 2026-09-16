@@ -141,8 +141,8 @@ sanctioned place for exactly that; nothing is fetched at run time; and the host
 WebView refuses navigation to any scheme but its own, so a movie calling `getURL`
 cannot make it fetch anything. It is still a judgement an App Store submission
 should make deliberately rather than inherit, and this README is not the place
-that judgement gets made. It also costs about 10 MB of bundled resource and
-needs WebKit, neither of which `LatheSWF` does. Depending on `LatheSWF` alone
+that judgement gets made. It also costs about 15 MB of bundled resource (about
+5 MB of an App Store download) and needs WebKit, neither of which `LatheSWF` does. Depending on `LatheSWF` alone
 ships none of it.
 
 ---
@@ -1174,25 +1174,26 @@ hiding it.
 Frames are read from Ruffle's `<canvas>` rather than with
 `WKWebView.takeSnapshot(with:)`. Snapshotting photographs the *view*: it wants
 the view onscreen, returns images in the display's scale factor rather than the
-movie's, and goes through the window server every frame. Reading the canvas — 
-copied through a 2D canvas first, so a WebGL or WebGPU backend cannot come back
-blank — gives exactly the pixels Ruffle drew, at exactly the movie's resolution,
-with no compositor round trip.
+movie's, and goes through the window server every frame. Reading the canvas —
+copied through a 2D canvas and scaled from device pixels back to the movie's
+size — gives the pixels Ruffle drew, with no compositor round trip.
 
-**The thing to know before hosting it:** WebKit suspends rendering updates for
-content it considers not visible, and `requestAnimationFrame` is the casualty —
-which matters because Ruffle's own player loop is driven by the same callback.
-When it stops arriving the movie does not advance, and every captured frame is
-the same picture. `SWFRenderResult.renderingUpdatesObserved` is `false` when that
-happened; the remedy is to host the render in a real, non-occluded window, not to
-lengthen a timeout.
+**The thing to know about hosting it:** WebKit suspends rendering updates for
+content it considers not visible — which includes the offscreen window this
+renders in — and `requestAnimationFrame` is the casualty. Ruffle's own player
+loop runs on that callback, so left alone the movie would not advance. The
+render host page races every frame request against its own 60 Hz clock, and
+creates WebGL contexts that keep their picture between draws, so an invisible
+render still plays and still reads back.
+`SWFRenderResult.renderingUpdatesObserved` says which clock carried it.
 
-Ruffle itself is **not committed to this repository** — it is ~10 MB, and this
-package keeps no binary artifacts in git. `Sources/LatheSWFRender/fetch-upstream.sh`
-downloads the pinned release, checks it against a recorded SHA-256, and unpacks
-it into the resource bundle. The module builds, links and passes its whole test
-suite without it; what it cannot do is render, and it refuses by name. Ruffle is
-dual-licensed Apache-2.0 or MIT — the same licence as Lathe, with nothing to
+Ruffle **is committed to this repository** — five files from the pinned v0.6.0
+release, byte-identical to upstream's, 14.8 MB — and it is the one binary
+artifact in the package. It has to be: SwiftPM gives an application only the
+resources in the package, so anything fetched at development time would reach
+no application at all. `Sources/LatheSWFRender/fetch-upstream.sh --verify`
+checks every file against its recorded SHA-256. The suite plays a synthesised
+movie through it and checks every captured frame. Ruffle is dual-licensed Apache-2.0 or MIT — the same licence as Lathe, with nothing to
 reconcile — and it is a clean-room implementation containing no Adobe code. See
 `Sources/LatheSWFRender/VENDORING.md` and `THIRD-PARTY-NOTICES.md`.
 

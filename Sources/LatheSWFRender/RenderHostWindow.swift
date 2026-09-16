@@ -26,7 +26,16 @@ import UIKit
 /// look exactly like a movie that has nothing moving in it.
 ///
 /// So the view goes into a window placed far outside any screen. It is a real
-/// window that the compositor services and no person ever sees.
+/// window that no person ever sees.
+///
+/// **It is not, on its own, enough.** WebKit treats a window nobody can see as
+/// not visible, and stops delivering frame callbacks to it much as it would to
+/// a view in no window at all — the suite observes exactly that on macOS. What
+/// keeps the player advancing is the render host page's own fallback frame
+/// clock (see `RenderHost/shim.html`). The window is still worth having: it is
+/// what lets WebKit deliver real frames whenever it is willing to, and a
+/// WebView in no window at all is a configuration WebKit is under no obligation
+/// to support.
 ///
 /// ## Best effort, and reported as such
 ///
@@ -35,9 +44,7 @@ import UIKit
 /// that has not finished launching — cannot make one. Attachment therefore
 /// *reports* whether it succeeded rather than throwing, and
 /// ``SWFRenderResult/compositedInAWindow`` carries the answer to the caller,
-/// because it is the first thing to look at when a capture comes back frozen.
-/// The page's own capture path has a timeout fallback for exactly this case; it
-/// gets a frame out, and it cannot make a stalled player advance.
+/// alongside ``SWFRenderResult/renderingUpdatesObserved``.
 @MainActor
 final class RenderHostWindow {
 

@@ -27,8 +27,7 @@ struct RenderSupportTests {
         // fails only for iOS — which is exactly the kind of break that reaches
         // a release.
         #expect(runtime.directory.deletingLastPathComponent().lastPathComponent == "RenderHost")
-        // Deliberately no assertion that it is installed: a clone has not run
-        // the fetch script, and this test has to pass in that clone.
+        // Whether it is actually installed is the Ruffle suite's question.
         #expect(runtime.entryPoint.lastPathComponent == "ruffle.js")
     }
 

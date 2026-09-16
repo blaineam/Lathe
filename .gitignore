@@ -47,9 +47,3 @@ TestResults/
 App/Vendor/Tor/tor.xcframework/
 App/Vendor/Tor/*.zip
 docs/__pycache__/
-
-# Ruffle's web build is fetched by Sources/LatheSWFRender/fetch-upstream.sh and
-# is never committed — see Sources/LatheSWFRender/VENDORING.md. The directory
-# itself is tracked through its PLACEHOLDER.md.
-Sources/LatheSWFRender/RenderHost/ruffle/*
-!Sources/LatheSWFRender/RenderHost/ruffle/PLACEHOLDER.md

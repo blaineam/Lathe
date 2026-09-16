@@ -60,20 +60,21 @@ public struct SWFRenderOptions: Sendable {
     /// How long a single frame's capture may take before the render gives up.
     public var frameTimeout: Duration
 
-    /// How long the page waits for a `requestAnimationFrame` callback before
-    /// reading the canvas anyway.
+    /// How long the page waits for a frame callback before reading the canvas
+    /// anyway.
     ///
-    /// Short on purpose. When the host's window is one WebKit is not updating,
-    /// this timeout is paid on **every** frame, so a large value turns a capture
-    /// into a crawl — and the thing it is waiting for is not coming. See
-    /// ``SWFRenderResult/renderingUpdatesObserved``.
+    /// A last resort. The page supplies its own frame callbacks when WebKit
+    /// stops delivering them (see ``SWFRenderResult/renderingUpdatesObserved``),
+    /// so this only matters if the page's timers have stopped as well — and a
+    /// large value is then paid on every frame.
     public var frameCallbackTimeout: Duration
 
-    /// Passed to Ruffle as its preferred rendering backend, when it understands
-    /// the key. `nil` leaves the choice to Ruffle.
+    /// Ruffle's rendering backend: `"wgpu-webgl"`, `"webgl"` or `"canvas"`.
     ///
-    /// Advisory only: capture copies through a 2D canvas whatever the backend
-    /// turns out to be, precisely so that this being ignored costs nothing.
+    /// `nil` leaves the choice to Ruffle, and also allows one retry with
+    /// `"canvas"` if the chosen GPU renderer panics before the first frame —
+    /// see ``SWFRenderResult/renderer``. Naming one here means that renderer or
+    /// a failure, with no substitute.
     public var preferredRenderer: String?
 
     public init(
@@ -225,26 +226,35 @@ public struct SWFRenderResult: Sendable {
     /// composites. See ``SWFRenderer``.
     public let compositedInAWindow: Bool
 
-    /// How many frames were read inside a frame callback rather than through the
-    /// shim's timeout fallback. Equal to the frame count on a healthy capture.
+    /// How many frames were read inside a frame callback WebKit itself
+    /// delivered, as opposed to one from the page's fallback clock.
     public let framesReadInFrameCallback: Int
 
-    /// Whether the WebView delivered **any** `requestAnimationFrame` callbacks.
+    /// The rendering backend Ruffle reported using — `"wgpu-webgl"`,
+    /// `"webgl"`, `"canvas"` and so on — or `nil` if it did not say.
     ///
-    /// ## This is the first thing to check when a render comes back frozen
+    /// Worth logging. When no renderer was requested and Ruffle's GPU renderer
+    /// panics before the first frame, the render is retried with `"canvas"`,
+    /// which is slower and draws some effects less faithfully; this is how a
+    /// caller finds out that happened. The iOS Simulator is one place it does.
+    public let renderer: String?
+
+    /// Whether WebKit delivered **any** of its own `requestAnimationFrame`
+    /// callbacks during the capture.
     ///
-    /// WebKit suspends rendering updates for content it considers not visible,
-    /// and `requestAnimationFrame` is the casualty. That matters far beyond
-    /// capture, because **Ruffle's player loop is driven by the same callback**:
-    /// when it stops arriving, the movie does not advance, and every captured
-    /// frame is the same picture. A capture whose frames are all identical and
-    /// whose `renderingUpdatesObserved` is `false` is that, not a movie with
-    /// nothing moving in it.
+    /// WebKit suspends rendering updates for content it considers not visible —
+    /// an offscreen or occluded window, or a process with no running
+    /// application, such as a `swift test` bundle — and `requestAnimationFrame`
+    /// is the casualty. That matters beyond capture, because **Ruffle's player
+    /// loop is driven by the same callback**: left alone, the movie would not
+    /// advance and every frame would be the same picture.
     ///
-    /// It is `false` in a process with no running application — a `swift test`
-    /// bundle, most command-line tools — because there is nothing there to
-    /// drive a display update. In an application with an ordinary window it is
-    /// `true`. The remedy is to host the render in a real, non-occluded window
-    /// rather than to lengthen any timeout.
+    /// The render host does not leave it alone. Its page races every frame
+    /// request against a 60 Hz fallback clock, so a `false` here means the
+    /// fallback carried the render, not that it froze — the suite's Ruffle test
+    /// runs entirely on it and sees the movie move. It is reported because it
+    /// is the first thing to know when a capture looks wrong: the fallback is
+    /// ordinary timers, and anything that throttles a page's timers harder than
+    /// WebKit does today would show up there first.
     public var renderingUpdatesObserved: Bool { framesReadInFrameCallback > 0 }
 }

@@ -64,11 +64,7 @@ final class RenderSchemeHandler: NSObject, WKURLSchemeHandler {
 
         do {
             let (data, mimeType) = try payload(forPath: path)
-            let response = URLResponse(
-                url: url, mimeType: mimeType, expectedContentLength: data.count,
-                textEncodingName: mimeType.hasPrefix("text/") ? "utf-8" : nil
-            )
-            task.didReceive(response)
+            task.didReceive(Self.response(for: url, mimeType: mimeType, length: data.count))
             task.didReceive(data)
             task.didFinish()
         } catch {
@@ -111,6 +107,31 @@ final class RenderSchemeHandler: NSObject, WKURLSchemeHandler {
             }
             return (data, Self.mimeType(forExtension: file.pathExtension))
         }
+    }
+
+    /// An HTTP 200, and it has to be HTTP.
+    ///
+    /// A plain `URLResponse` reaches the page as a `fetch` response whose
+    /// `status` is **0**. Most code never looks, but Ruffle does: it wraps the
+    /// `.wasm` response in a new `Response(stream, original)` to report
+    /// download progress, the `Response` constructor throws `RangeError` for any
+    /// status outside 200…599, and the player fails with "Failed to load Ruffle
+    /// WASM" — naming neither the status nor this file. So every answer is an
+    /// `HTTPURLResponse` with a real status and an explicit `Content-Type`.
+    nonisolated static func response(for url: URL, mimeType: String, length: Int) -> URLResponse {
+        let contentType = mimeType.hasPrefix("text/") ? "\(mimeType); charset=utf-8" : mimeType
+        return HTTPURLResponse(
+            url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+            headerFields: [
+                "Content-Type": contentType,
+                "Content-Length": String(length),
+                // Nothing served here is ever cached: the movie changes with
+                // every render, under the same URL.
+                "Cache-Control": "no-store",
+            ]
+        ) ?? URLResponse(
+            url: url, mimeType: mimeType, expectedContentLength: length, textEncodingName: nil
+        )
     }
 
     /// The MIME types this host serves, stated rather than inferred.

@@ -9,18 +9,16 @@ import Testing
 
 /// The tests that actually start a `WKWebView`.
 ///
-/// ## What these cover, and the one thing they cannot
+/// ## What these cover, and what is covered elsewhere
 ///
-/// The Ruffle build is fetched rather than committed (see `VENDORING.md`), so a
-/// clone has no Ruffle in it and a test that needed one could not run at all.
-/// These therefore drive the **real** page, through the **real** scheme handler,
-/// with the **real** capture call, decode and frame writer — putting a canvas
-/// the page animates itself where Ruffle's canvas would be.
+/// These drive the **real** page, through the **real** scheme handler, with the
+/// **real** capture call, decode and frame writer — putting a canvas the page
+/// animates itself where Ruffle's canvas would be, so that a failure here is a
+/// failure of the capture path and not of the player.
 ///
 /// So everything between "a canvas is drawing" and "a GIF exists" is covered
-/// here, on whatever platform the suite runs on. What is not covered, and is
-/// stated rather than implied, is Ruffle itself: whether *that* WebAssembly
-/// module loads and plays a given movie is not something this suite can know.
+/// here, on whatever platform the suite runs on. Ruffle itself — the bundled
+/// WebAssembly module loading and playing a real movie — is `RuffleRenderTests`.
 @Suite("SWF render, in a WebView")
 @MainActor
 struct RenderWebViewTests {
@@ -227,12 +225,12 @@ struct RenderWebViewTests {
         }
     }
 
-    @Test("readiness separates a missing download from a platform that cannot run it")
+    @Test("readiness separates a missing runtime from a platform that cannot run it")
     func readinessSeparatesTheTwoReasons() async throws {
         let renderer = SWFRenderer(runtime: emptyRuntime())
         let readiness = await renderer.readiness()
         #expect(readiness.runtimeInstalled == false)
-        // The second half is about this machine, not about the download.
+        // The second half is about this machine, not about the files.
         #expect(readiness.webAssembly.isAvailable)
     }
 }
