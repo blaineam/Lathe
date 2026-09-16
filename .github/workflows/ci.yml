@@ -239,10 +239,21 @@ jobs:
           if command -v xcbeautify >/dev/null 2>&1; then FORMATTER="xcbeautify"; fi
 
           if [ "${{ steps.sim.outputs.mode }}" = "test" ]; then
+            # The two suites that drive a real WKWebView are skipped HERE and
+            # nowhere else. Run as package tests there is no host app, and a
+            # simulator's web content process with no app behind it is starved:
+            # the first web view has taken up to 800 seconds to load, and
+            # capture runs at under five frames a second. That is a property of
+            # this harness, not of the code — the same suites pass on the
+            # simulator run by hand, and run in full on macOS in the job above.
+            # Leaving them in turns this job into the six-hour silence the
+            # timeouts were added to end.
             xcodebuild test \
               -scheme "${{ steps.scheme.outputs.scheme }}" \
               -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
               -resultBundlePath "$SCRATCH_PATH/ios-results.xcresult" \
+              -skip-testing:LatheSWFRenderTests/RenderWebViewTests \
+              -skip-testing:LatheSWFRenderTests/RuffleRenderTests \
               CODE_SIGNING_ALLOWED=NO \
               | $FORMATTER || exit "${PIPESTATUS[0]}"
           else
