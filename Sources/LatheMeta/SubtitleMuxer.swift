@@ -63,6 +63,9 @@ import LatheCore
 /// because a chapter track copied as a plain text track loses the association
 /// that makes it a chapter list. Anything the destination container refuses is
 /// named in ``SubtitleInjectionResult/droppedTracks`` rather than lost quietly.
+///
+/// The copying is ``TrackRemux``, shared with ``ChapterWriter``; what is here
+/// is only what is particular to subtitles.
 public struct SubtitleMuxer: Sendable {
 
     public init() {}
@@ -135,30 +138,20 @@ public struct SubtitleMuxer: Sendable {
                                              durationMS: durationMS))
         }
 
-        let scratch = destination.deletingLastPathComponent()
-            .appendingPathComponent(".lathe-subtitles-\(UUID().uuidString).\(destination.pathExtension)")
-        try? FileManager.default.createDirectory(
-            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
+        let scratch = TrackRemux.scratchURL(beside: destination, prefix: ".lathe-subtitles-")
         defer { try? FileManager.default.removeItem(at: scratch) }
 
-        let outcome = try await write(
-            asset: asset, sourceTracks: sourceTracks, duration: duration,
-            prepared: prepared, existing: existing, fileType: fileType,
-            to: scratch, progress: progress
-        )
-
+        let outcome: WriteOutcome
         do {
-            if FileManager.default.fileExists(atPath: destination.path) {
-                _ = try FileManager.default.replaceItemAt(destination, withItemAt: scratch)
-            } else {
-                try FileManager.default.moveItem(at: scratch, to: destination)
-            }
-        } catch {
-            throw LatheError.writeFailed(
-                path: destination.lastPathComponent, reason: (error as NSError).localizedDescription
+            outcome = try await write(
+                asset: asset, duration: duration,
+                prepared: prepared, existing: existing, fileType: fileType,
+                to: scratch, progress: progress
             )
+        } catch let failure as TrackRemux.Failure {
+            throw SubtitleError.muxFailed(stage: failure.stage, reason: failure.reason)
         }
+        try TrackRemux.moveIntoPlace(scratch, at: destination)
 
         let written = try await subtitleTracks(in: destination)
         let added = Array(written.suffix(prepared.count))
@@ -344,9 +337,11 @@ public struct SubtitleMuxer: Sendable {
         var dropped: [String] = []
     }
 
+    /// The subtitle-specific part of the remux: which existing tracks stay,
+    /// the new tracks and their pumps, and which one is the default. The
+    /// copying, the chapter list and the writer are ``TrackRemux``'s.
     private func write(
         asset: AVURLAsset,
-        sourceTracks: [AVAssetTrack],
         duration: CMTime,
         prepared: [PreparedSubtitles],
         existing: ExistingSubtitlePolicy,
@@ -354,142 +349,30 @@ public struct SubtitleMuxer: Sendable {
         to url: URL,
         progress: ProgressHandle
     ) async throws -> WriteOutcome {
-        let writer: AVAssetWriter
-        do {
-            writer = try AVAssetWriter(outputURL: url, fileType: fileType)
-        } catch {
-            throw SubtitleError.muxFailed(stage: "opening the output", reason: (error as NSError).localizedDescription)
-        }
-        writer.metadata = (try? await asset.load(.metadata)) ?? []
-
-        var outcome = WriteOutcome()
-        var pumps: [MetaWriterPump] = []
-        var readers: [AVAssetReader] = []
-        var firstVideoInput: AVAssetWriterInput?
-        var audioInputs: [(AVAssetWriterInput, Bool)] = []
-        var legibleInputs: [(AVAssetWriterInput, Bool)] = []
-        let clock = MetaMuxClock()
-        var progressAssigned = false
-        let totalSeconds = duration.seconds
+        let remux = try TrackRemux(
+            asset: asset, duration: duration, writingTo: url, fileType: fileType,
+            metadata: (try? await asset.load(.metadata)) ?? [],
+            stage: "subtitles", progress: progress
+        )
 
         let newCodes = Set(prepared.map(\.language.iso639_2))
         let newTags = Set(prepared.compactMap(\.language.bcp47))
 
         // MARK: Passthrough tracks
-        for track in sourceTracks.sorted(by: { $0.trackID < $1.trackID }) {
-            let type = track.mediaType
-            let kind = Self.kindName(type)
-            // Chapter text tracks are rebuilt below, with their association.
-            if type == .text { continue }
-
-            if type == .subtitle {
-                switch existing {
-                case .keep:
-                    break
-                case .removeAll:
-                    outcome.removed += 1
-                    continue
-                case .replaceSameLanguage:
-                    let code = (try? await track.load(.languageCode)) ?? nil
-                    let tag = (try? await track.load(.extendedLanguageTag)) ?? nil
-                    if code.map(newCodes.contains) == true || tag.map(newTags.contains) == true {
-                        outcome.removed += 1
-                        continue
-                    }
-                }
-            }
-
-            let format = (try? await track.load(.formatDescriptions))?.first
-            let codec = format.map { Self.fourCC(CMFormatDescriptionGetMediaSubType($0)) } ?? "unknown"
-
-            // The reader is checked before the input is added: an input cannot
-            // be taken back out of a writer, and one that never receives a
-            // sample stalls the whole file.
-            guard let reader = try? AVAssetReader(asset: asset) else {
-                outcome.dropped.append("\(kind) track \(track.trackID) (\(codec)): could not be opened for reading")
-                continue
-            }
-            let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
-            output.alwaysCopiesSampleData = false
-            guard reader.canAdd(output) else {
-                outcome.dropped.append("\(kind) track \(track.trackID) (\(codec)): cannot be read in passthrough")
-                continue
-            }
-            reader.add(output)
-
-            let input = AVAssetWriterInput(mediaType: type, outputSettings: nil, sourceFormatHint: format)
-            input.expectsMediaDataInRealTime = false
-            if type == .video {
-                input.transform = (try? await track.load(.preferredTransform)) ?? .identity
-                if let scale = try? await track.load(.naturalTimeScale), scale > 0 {
-                    input.mediaTimeScale = scale
-                }
-            }
-            if let code = (try? await track.load(.languageCode)) ?? nil { input.languageCode = code }
-            if let tag = (try? await track.load(.extendedLanguageTag)) ?? nil { input.extendedLanguageTag = tag }
-            input.metadata = (try? await track.load(.metadata)) ?? []
-            let enabled = (try? await track.load(.isEnabled)) ?? true
-            input.marksOutputTrackAsEnabled = enabled
-
-            guard writer.canAdd(input) else {
-                outcome.dropped.append(
-                    "\(kind) track \(track.trackID) (\(codec)): \(fileType.rawValue) will not hold it"
-                )
-                continue
-            }
-            writer.add(input)
-            readers.append(reader)
-            if type == .subtitle { outcome.kept += 1 }
-
-            switch type {
-            case .video: if firstVideoInput == nil { firstVideoInput = input }
-            case .audio: audioInputs.append((input, enabled))
-            case .subtitle: legibleInputs.append((input, enabled))
-            default: break
-            }
-
-            let isProgressTrack = type == .video && !progressAssigned
-            if isProgressTrack { progressAssigned = true }
-            let label = "\(kind) \(track.trackID)"
-            pumps.append(MetaWriterPump(input: input, label: label) {
-                guard let sample = output.copyNextSampleBuffer() else {
-                    if reader.status == .failed {
-                        throw SubtitleError.muxFailed(
-                            stage: "reading \(label)",
-                            reason: reader.error.map { ($0 as NSError).localizedDescription } ?? "the reader failed"
-                        )
-                    }
-                    return false
-                }
-                guard input.append(sample) else {
-                    throw SubtitleError.muxFailed(
-                        stage: "copying \(label)",
-                        reason: writer.error.map { ($0 as NSError).localizedDescription }
-                            ?? "the writer rejected a sample"
-                    )
-                }
-                let pts = CMSampleBufferGetPresentationTimeStamp(sample)
-                let length = CMSampleBufferGetDuration(sample)
-                if pts.isValid {
-                    clock.observe(end: length.isValid ? CMTimeAdd(pts, length) : pts)
-                }
-                if isProgressTrack {
-                    let seconds = max(0, clock.endSeconds)
-                    try progress.checkpoint(LatheProgress(
-                        fraction: totalSeconds > 0 ? min(1, seconds / totalSeconds) : nil,
-                        stage: "subtitles",
-                        unitIndex: UInt64(seconds),
-                        unitCount: UInt64(max(0, totalSeconds))
-                    ))
-                } else {
-                    try progress.checkCancellation()
-                }
+        try await remux.copyTracks { track in
+            switch existing {
+            case .keep:
                 return true
-            })
+            case .removeAll:
+                return false
+            case .replaceSameLanguage:
+                let code = (try? await track.load(.languageCode)) ?? nil
+                let tag = (try? await track.load(.extendedLanguageTag)) ?? nil
+                return !(code.map(newCodes.contains) == true || tag.map(newTags.contains) == true)
+            }
         }
-
-        guard let videoInput = firstVideoInput else {
-            throw SubtitleError.muxFailed(
+        guard !remux.videoInputs.isEmpty else {
+            throw TrackRemux.Failure(
                 stage: "copying the video",
                 reason: "\(fileType.rawValue) will not hold this file's video track"
             )
@@ -497,15 +380,14 @@ public struct SubtitleMuxer: Sendable {
 
         // MARK: Chapters
         let chapters = await ChapterTrack.read(from: asset)
-            .normalisedChapters(totalDuration: duration.seconds)
-        let chapterAttachment = ChapterTrack.makeInput(
-            for: chapters, writer: writer, associatedWith: videoInput
-        )
+        let chapterAttachment = remux.attachChapters(chapters)
+        var notes: [String] = []
         if !chapters.isEmpty, let reason = chapterAttachment.reason {
-            outcome.dropped.append("\(chapters.count) chapters: \(reason)")
+            notes.append("\(chapters.count) chapters: \(reason)")
         }
 
         // MARK: New subtitle tracks
+        let writer = remux.writer
         var defaultNew: AVAssetWriterInput?
         for track in prepared {
             let input = AVAssetWriterInput(mediaType: .subtitle, outputSettings: nil, sourceFormatHint: track.format)
@@ -520,14 +402,12 @@ public struct SubtitleMuxer: Sendable {
                     reason: "\(fileType.rawValue) refused a subtitle track"
                 )
             }
-            writer.add(input)
-            legibleInputs.append((input, track.source.isDefault))
             if track.source.isDefault, defaultNew == nil { defaultNew = input }
 
             let format = track.format
             let label = "subtitles \(track.source.language)"
             var remaining = track.samples[...]
-            pumps.append(MetaWriterPump(input: input, label: label) {
+            let pump = MetaWriterPump(input: input, label: label) {
                 guard let next = remaining.popFirst() else { return false }
                 guard let buffer = TimedTextSample.sampleBuffer(
                     payload: next.payload,
@@ -547,92 +427,25 @@ public struct SubtitleMuxer: Sendable {
                 }
                 try progress.checkCancellation()
                 return true
-            })
+            }
+            remux.add(input, legible: true, enabled: track.source.isDefault, pump: pump)
         }
 
         // MARK: Alternate groups
         //
-        // One group for the subtitles — kept and new together, or the menu
-        // would offer two unrelated sets — whose default is a new track marked
-        // default, else whichever kept track the source had switched on, else
-        // none: subtitles start off.
-        let legibleDefault = defaultNew ?? legibleInputs.first(where: { $0.1 })?.0
-        if !legibleInputs.isEmpty {
-            // A new default demotes an old one; two enabled tracks in a group
-            // is a file players disagree about.
-            for (input, _) in legibleInputs where input !== legibleDefault {
-                input.marksOutputTrackAsEnabled = false
-            }
-            let group = AVAssetWriterInputGroup(inputs: legibleInputs.map(\.0), defaultInput: legibleDefault)
-            if writer.canAdd(group) {
-                writer.add(group)
-            } else {
-                outcome.dropped.append("subtitle grouping: the writer refused the alternate group, "
-                    + "so players may list the tracks separately")
-            }
-        }
-        if audioInputs.count > 1 {
-            let group = AVAssetWriterInputGroup(
-                inputs: audioInputs.map(\.0),
-                defaultInput: audioInputs.first(where: { $0.1 })?.0 ?? audioInputs[0].0
-            )
-            if writer.canAdd(group) { writer.add(group) }
-        }
+        // One group for the subtitles, kept and new together, or the menu
+        // would offer two unrelated sets. A new track marked default wins over
+        // whichever kept track the source had switched on.
+        remux.groupTracks(legibleDefault: defaultNew)
 
         // MARK: Run
-        guard writer.startWriting() else {
-            throw SubtitleError.muxFailed(
-                stage: "starting",
-                reason: writer.error.map { ($0 as NSError).localizedDescription } ?? "startWriting returned false"
-            )
-        }
-        writer.startSession(atSourceTime: .zero)
-        for reader in readers {
-            guard reader.startReading() else {
-                writer.cancelWriting()
-                throw SubtitleError.muxFailed(
-                    stage: "starting to read",
-                    reason: reader.error.map { ($0 as NSError).localizedDescription } ?? "a reader would not start"
-                )
-            }
-        }
-
-        // Started, not awaited, before the media pumps run — see
-        // ``ChapterTrack/beginWriting(_:to:timescale:)`` for the deadlock the
-        // other order causes.
-        let chapterWrite = chapterAttachment.input.map { ChapterTrack.beginWriting(chapters, to: $0) }
-
-        let running = pumps
-        do {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for pump in running {
-                    group.addTask { try await pump.run() }
-                }
-                try await group.waitForAll()
-            }
-        } catch {
-            for reader in readers { reader.cancelReading() }
-            writer.cancelWriting()
-            _ = await chapterWrite?.value
-            if let lathe = error as? LatheError { throw lathe }
-            if let subtitle = error as? SubtitleError { throw subtitle }
-            if error is CancellationError { throw LatheError.cancelled(atUnit: nil) }
-            throw SubtitleError.muxFailed(stage: "copying", reason: (error as NSError).localizedDescription)
-        }
-        if let chapterWrite {
-            outcome.chapters = await chapterWrite.value.written
-        }
-
-        writer.endSession(atSourceTime: max(clock.end ?? duration, duration))
-        await writer.finishWriting()
-        guard writer.status == .completed else {
-            throw SubtitleError.muxFailed(
-                stage: "finishing",
-                reason: writer.error.map { ($0 as NSError).localizedDescription }
-                    ?? "the writer ended in state \(writer.status.rawValue)"
-            )
-        }
-        return outcome
+        let written = try await remux.run()
+        return WriteOutcome(
+            kept: remux.keptSubtitleCount,
+            removed: remux.removedSubtitleCount,
+            chapters: written.chaptersWritten,
+            dropped: remux.dropped + notes
+        )
     }
 
     // MARK: - Helpers
@@ -768,17 +581,6 @@ public struct SubtitleMuxer: Sendable {
         return String(decoding: bytes, as: UTF8.self)
     }
 
-    private static func kindName(_ type: AVMediaType) -> String {
-        switch type {
-        case .video: "video"
-        case .audio: "audio"
-        case .subtitle: "subtitle"
-        case .closedCaption: "closed-caption"
-        case .timecode: "timecode"
-        case .metadata: "timed-metadata"
-        default: type.rawValue
-        }
-    }
 }
 
 // MARK: - Public types
@@ -894,7 +696,8 @@ public struct SubtitleInjectionResult: Sendable, Equatable {
 /// Feeds one `AVAssetWriterInput` from its own queue until its source runs out.
 ///
 /// The fourth copy of this machinery in the package — `StreamMuxer`, the video
-/// transcoder and the fixture writer carry the others — for the reason
+/// transcoder and the fixture writer carry the others; within LatheMeta it is
+/// the only one, driven by ``TrackRemux`` — for the reason
 /// `StreamMuxer` gives: polling `isReadyForMoreMediaData` from one thread
 /// deadlocks a multi-input writer silently, and a subtitle file always has at
 /// least two inputs.

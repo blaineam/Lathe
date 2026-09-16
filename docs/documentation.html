@@ -179,7 +179,7 @@ request.lossySources = .skip        <span class="c">// .allow to override</span>
    which has no container for AVFoundation to work with. Subtitles too: SubRip and
    WebVTT parsed, muxed into MP4/MOV as selectable tracks without re-encoding, and
    extracted back out.</p>
-    <div class="types"><span>MediaMetadata</span><span>MetadataReader</span><span>MetadataWriter</span><span>MetadataStore</span><span>Artwork</span><span>ArtworkRole</span><span>ShowInfo</span><span>TrackInfo</span><span>MediaKind</span><span>MetadataDates</span><span>SubtitleMuxer</span><span>SubtitleParser</span><span>SubtitleCue</span><span>SubtitleLanguage</span></div>
+    <div class="types"><span>MediaMetadata</span><span>MetadataReader</span><span>MetadataWriter</span><span>MetadataStore</span><span>Artwork</span><span>ArtworkRole</span><span>ShowInfo</span><span>TrackInfo</span><span>MediaKind</span><span>MetadataDates</span><span>SubtitleMuxer</span><span>ChapterWriter</span><span>SubtitleParser</span><span>SubtitleCue</span><span>SubtitleLanguage</span></div>
     <pre><span class="c">// `stik` is what decides Movies vs TV Shows in Apple players;</span>
 <span class="c">// EXIF is not used by video at all, which surprises people.</span>
 <span class="k">var</span> metadata = <span class="k">try await</span> MetadataReader().read(source)
