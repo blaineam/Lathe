@@ -185,10 +185,24 @@ struct Encoded: Codable {
     /// Which of the two settings this is. The site leads with the one people
     /// would actually ship.
     let tier: String
-    /// Whether a browser will actually display it. HEIC will not, and a page
-    /// that silently shows nothing is worse than one that reports the number
-    /// and says so.
+    /// Whether every browser will display it. Only Safari shows HEIC.
     let displayable: Bool
+    /// For a format not every browser shows: the encoded file, decoded by
+    /// ImageIO and saved losslessly. It is the HEIC's own pixels, damage and
+    /// all, so a browser that cannot read the file still shows what it holds.
+    /// The size on the page stays the size of the encoded file.
+    let preview: String?
+}
+
+/// Decodes `url` and writes its pixels to `preview` as PNG.
+func writeDecodedPreview(of url: URL, to preview: URL) {
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+          let destination = CGImageDestinationCreateWithURL(
+              preview as CFURL, UTType.png.identifier as CFString, 1, nil)
+    else { fatalError("could not decode \(url.lastPathComponent)") }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else { fatalError("preview write failed") }
 }
 
 /// Two settings, because they answer different questions and only showing one
@@ -232,10 +246,16 @@ for tier in tiers {
             source: originalURL, to: output, format: format,
             quality: .quality(tier.quality), resize: ResizeTarget.none, metadata: .stripAll)
         let bytes = (try output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        var preview: String?
+        if !displayable {
+            let name = "comparison-\(ext)-\(slug)-decoded.png"
+            writeDecodedPreview(of: output, to: mediaDirectory.appendingPathComponent(name))
+            preview = name
+        }
         encoded.append(Encoded(
             format: String(describing: format), label: label, file: filename,
             bytes: bytes, quality: tier.quality, tier: tier.name,
-            displayable: displayable))
+            displayable: displayable, preview: preview))
         print("\(tier.name) \(label): \(bytes) bytes")
     }
 }

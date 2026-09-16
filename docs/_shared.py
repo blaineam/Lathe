@@ -4,7 +4,7 @@ import html
 
 SITE = "https://wemiller.com/apps/lathe/"
 FONTS = ("https://fonts.googleapis.com/css2?"
-         "family=Bodoni+Moda:ital,opsz,wght@0,6..96,500;0,6..96,700;0,6..96,800;0,6..96,900;1,6..96,500"
+         "family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500"
          "&family=Hanken+Grotesk:wght@400;500;600;700"
          "&family=JetBrains+Mono:wght@400;500;600&display=swap")
 
@@ -73,7 +73,7 @@ def footer(facts):
     <div>
       <h4>Colophon</h4>
       <p>Lathe {facts["version"]}, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
-      <p>Set in Bodoni Moda, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
+      <p>Set in Newsreader, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
     </div>
     <div>
       <h4>Lathe</h4>
