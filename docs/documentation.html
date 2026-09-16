@@ -175,8 +175,10 @@ request.lossySources = .skip        <span class="c">// .allow to override</span>
     <p class="sub"><b>Reading and writing metadata.</b> One model over four very different backends:
    iTunes-style <code>ilst</code> atoms for video, ImageIO dictionaries for stills,
    PDF document attributes, and a hand-written ID3 reader and writer for MP3 —
-   which has no container for AVFoundation to work with.</p>
-    <div class="types"><span>MediaMetadata</span><span>MetadataReader</span><span>MetadataWriter</span><span>MetadataStore</span><span>Artwork</span><span>ArtworkRole</span><span>ShowInfo</span><span>TrackInfo</span><span>MediaKind</span><span>MetadataDates</span></div>
+   which has no container for AVFoundation to work with. Subtitles too: SubRip and
+   WebVTT parsed, muxed into MP4/MOV as selectable tracks without re-encoding, and
+   extracted back out.</p>
+    <div class="types"><span>MediaMetadata</span><span>MetadataReader</span><span>MetadataWriter</span><span>MetadataStore</span><span>Artwork</span><span>ArtworkRole</span><span>ShowInfo</span><span>TrackInfo</span><span>MediaKind</span><span>MetadataDates</span><span>SubtitleMuxer</span><span>SubtitleParser</span><span>SubtitleCue</span><span>SubtitleLanguage</span></div>
     <pre><span class="c">// `stik` is what decides Movies vs TV Shows in Apple players;</span>
 <span class="c">// EXIF is not used by video at all, which surprises people.</span>
 <span class="k">var</span> metadata = <span class="k">try await</span> MetadataReader().read(source)
@@ -203,7 +205,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
     <p class="sub"><b>Artwork and subtitles.</b> Providers for TMDb and OpenSubtitles behind one
    protocol, with a filename parser that turns release names into a query. You
    supply the API key; Lathe ships none.</p>
-    <div class="types"><span>MetadataProvider</span><span>TMDbProvider</span><span>OpenSubtitlesProvider</span><span>MediaTitleParser</span><span>LookupQuery</span><span>MetadataMatch</span><span>SubtitleCandidate</span><span>SubtitleDocument</span><span>ProviderCredentials</span><span>HTTPTransport</span></div>
+    <div class="types"><span>MetadataProvider</span><span>TMDbProvider</span><span>OpenSubtitlesProvider</span><span>MediaTitleParser</span><span>LookupQuery</span><span>MetadataMatch</span><span>SubtitleInstaller</span><span>SubtitleCandidate</span><span>SubtitleDocument</span><span>ProviderCredentials</span><span>HTTPTransport</span></div>
     <pre><span class="c">// The key is the caller's. A library that ships its own key ships</span>
 <span class="c">// one rate limit shared by every application that uses it.</span>
 <span class="k">let</span> provider = TMDbProvider(credentials: .init(apiKey: key))
