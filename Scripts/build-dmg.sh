@@ -44,7 +44,9 @@ ln -s /Applications "$MOUNT/Applications" 2>/dev/null || true
 # Drawn on demand rather than stored: it is a generated image, and a public
 # repository should not carry a binary it can make in a second.
 BACKGROUND="$WORK/background.png"
-if python3 "$(dirname "$0")/make-dmg-background.py" "$BACKGROUND" >/dev/null 2>&1; then
+# Swift rather than Python: the background is mostly type, and CoreText is on
+# every Mac while a Python imaging library is not.
+if swift "$(dirname "$0")/make-dmg-background.swift" "$BACKGROUND" >/dev/null 2>&1; then
   mkdir -p "$MOUNT/.background"
   cp "$BACKGROUND" "$MOUNT/.background/background.png"
 else

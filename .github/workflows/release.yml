@@ -191,6 +191,27 @@ jobs:
           echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
           echo "signed=yes" >> "$GITHUB_OUTPUT"
 
+      # Notarize and staple the APP before it goes into the disk image.
+      #
+      # Notarizing only the DMG staples the ticket to the DMG. That looks
+      # complete — `stapler validate` passes on the DMG and Gatekeeper accepts
+      # it — but the ticket does not travel with the app when someone drags it
+      # to Applications. From then on the app has nothing stapled to it, so its
+      # first launch needs Apple's servers to confirm the notarization, and on
+      # a machine that is offline or behind a filtering proxy it is refused.
+      #
+      # notarytool will not take a bare .app, so it goes up as a zip; the
+      # ticket is then stapled to the app itself, which is what ships.
+      - name: Notarize the app
+        if: steps.creds.outputs.available == 'yes' && steps.sign.outputs.signed == 'yes'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          ditto -c -k --keepParent "App/build/$APP_NAME.app" "$RUNNER_TEMP/$APP_NAME.zip"
+          Scripts/notarize.sh "$RUNNER_TEMP/$APP_NAME.zip" "App/build/$APP_NAME.app"
+
       - name: Package DMG
         id: package
         run: |
@@ -199,13 +220,27 @@ jobs:
             "${{ steps.sign.outputs.identity }}"
           echo "artifact=dist/$APP_NAME.dmg" >> "$GITHUB_OUTPUT"
 
-      - name: Notarize
+      # And the disk image as well, so the download itself opens cleanly.
+      - name: Notarize the disk image
         if: steps.creds.outputs.available == 'yes'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: Scripts/notarize.sh "dist/$APP_NAME.dmg"
+
+      # Checked from inside the finished image, because that is the copy a
+      # user ends up running. A release whose app carries no ticket fails here
+      # rather than on somebody's offline laptop.
+      - name: Verify what ships
+        if: steps.creds.outputs.available == 'yes'
+        run: |
+          MNT="$RUNNER_TEMP/verify"
+          hdiutil attach "dist/$APP_NAME.dmg" -nobrowse -readonly -mountpoint "$MNT"
+          trap 'hdiutil detach "$MNT" -quiet || true' EXIT
+          xcrun stapler validate "$MNT/$APP_NAME.app"
+          spctl -a -vvv -t install "$MNT/$APP_NAME.app"
+          xcrun stapler validate "dist/$APP_NAME.dmg"
 
       - name: Checksum
         run: shasum -a 256 "dist/$APP_NAME.dmg" | tee dist/SHA256SUMS
