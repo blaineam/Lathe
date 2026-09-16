@@ -6,6 +6,7 @@
 // showing an API that has changed. The functions are never called; the
 // suite below only asserts they exist.
 
+import AVFoundation
 import Foundation
 import Lathe
 import LatheAV1
@@ -60,6 +61,34 @@ enum Snippets {
             quality: .quality(0.8), resize: .longestSide(2048))
         // end
         _ = result
+    }
+
+    static func visuallyLossless(_ photo: URL, _ out: URL) async throws {
+        // snippet: lossless
+        // The lowest quality this picture can take without a visible change,
+        // decided for this picture alone. nil: nothing in range passed.
+        if let result = try await ImageEncoder().encodeVisuallyLossless(
+            source: photo, to: out, format: .heic) {
+            print(result.quality, result.similarity.overall, result.encode.outputByteCount)
+        }
+        // end
+    }
+
+    static func videoSearch(_ video: URL, _ out: URL) async throws {
+        // snippet: videosearch
+        // Try settings on three short clips, not the whole film, then encode
+        // once at the lowest one that still looks like the source.
+        let search = try await VideoQualitySearch().run(
+            asset: AVURLAsset(url: video), outputExtension: "mov"
+        ) { clip, value, output in
+            try await VideoTranscoder().transcode(
+                source: clip, to: output, codec: .hevc, quality: .quality(value))
+        }
+        if let quality = search.value {
+            try await VideoTranscoder().transcode(
+                source: video, to: out, codec: .hevc, quality: .quality(quality))
+        }
+        // end
     }
 
     static func animate(_ folder: URL, _ out: URL, _ pdf: URL) throws {
@@ -190,7 +219,8 @@ struct SnippetTests {
             Snippets.animate, Snippets.audio, Snippets.mp3, Snippets.av1,
             Snippets.tags, Snippets.chapters, Snippets.subtitles, Snippets.documents,
             Snippets.lookup, Snippets.flash, Snippets.bulk,
+            Snippets.visuallyLossless, Snippets.videoSearch,
         ]
-        #expect(samples.count == 15)
+        #expect(samples.count == 17)
     }
 }

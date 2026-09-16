@@ -90,12 +90,17 @@ targets: [
       {{snippet:frames}}
       <div style="height:14px"></div>
       {{snippet:transcode}}
+      <p class="lede" style="margin-top:18px"><b>Visually lossless video.</b> <code>VideoQualitySearch</code> cuts a few short clips, tries settings on those instead of the whole film, and hands back the lowest one whose frames still match. The encode is yours — a hardware quality or an AV1 bitrate.</p>
+      {{snippet:videosearch}}
     </section>
 
     <section class="module" id="image">
       <div class="module-head"><h2>LatheImage</h2><span class="product">stills · animations</span></div>
       <p class="lede">ImageIO for HEIC, AVIF, JPEG, PNG, GIF and TIFF, libwebp for WebP — still and animated — and resizing that respects orientation.</p>
       {{snippet:image}}
+      <div style="height:14px"></div>
+      <p class="lede" style="margin-top:18px"><b>Visually lossless.</b> Instead of a fixed quality, search for the lowest one each picture can take without a visible change. Every candidate is compared with the original by structural similarity — luma at full resolution, colour at half, and the worst 32&nbsp;×&nbsp;32 region on its own — so a banded sky fails even when the average is fine.</p>
+      {{snippet:lossless}}
       <div style="height:14px"></div>
       {{snippet:animate}}
     </section>

@@ -109,7 +109,13 @@ struct ChapterWriterTests {
 
         var writer = MetadataWriter()
         writer.mp4FileTypes = [.m4v]
-        let output = await scratch("fallback-plain-out.mp4")
+        // Its own folder: other suites write scratch files into the shared one
+        // while this runs, and the leftover check below must see only this write.
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lathe-fallback-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let output = folder.appendingPathComponent("fallback-plain-out.mp4")
         try await writer.write(meta, to: plain, writingTo: output)
 
         #expect(output.pathExtension == "mp4")
