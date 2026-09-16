@@ -1,32 +1,105 @@
 #!/usr/bin/env python3
-"""Regenerates the pages that are derived from files in the repository.
-
-The benchmark table is the reason this exists. It is measured by
-`lathe-bench` and written to `Benchmarks/RESULTS.md`, and a second copy
-maintained by hand on a web page is a copy that goes stale and starts
-claiming numbers nobody measured. So the page is generated from the same
-file, and regenerating it is how the site is updated.
+"""Builds the documentation site from the repository.
 
     python3 docs/build.py
+
+Every page is a fragment in docs/_src/ wrapped in the shared chrome from
+_shared.py. The fragments hold the writing; everything that is a fact about
+the code is filled in here, from the code, so the site cannot claim a number
+nobody measured or show a sample that no longer compiles:
+
+    {{version}}        the newest release tag
+    {{month}}          when the site was built
+    {{tests}}          test functions in Tests/
+    {{products}}       library products in Package.swift
+    {{bench_chart}}    the speed column of Benchmarks/RESULTS.md, drawn
+    {{bench_table}}    the whole of it, as a table, with its notes
+    {{snippet:name}}   a sample cut from Tests/LatheDocSnippetsTests, which
+                       the test build compiles
+
+A fragment names its page with two comments on its first lines:
+
+    <!-- title: … -->
+    <!-- description: … -->
 """
+import datetime
+import html
 import pathlib
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from _shared import head, FOOTER  # noqa: E402
+from _shared import head, footer  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
+SOURCES = DOCS / "_src"
+SNIPPETS = ROOT / "Tests" / "LatheDocSnippetsTests" / "Snippets.swift"
+RESULTS = ROOT / "Benchmarks" / "RESULTS.md"
 
+
+# MARK: - Facts
+
+def facts():
+    try:
+        tag = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*"],
+            cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+        version = tag.lstrip("v")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        version = "dev"
+    tests = sum(
+        len(re.findall(r"^\s*@Test\b", path.read_text(), re.M))
+        + len(re.findall(r"^\s*func test\w*\(", path.read_text(), re.M))
+        for path in (ROOT / "Tests").rglob("*.swift"))
+    products = len(re.findall(r"\.library\(\s*name:", (ROOT / "Package.swift").read_text()))
+    month = datetime.date.today().strftime("%B %Y")
+    return {"version": version, "tests": f"{tests:,}", "products": str(products), "month": month}
+
+
+# MARK: - Samples
+
+KEYWORDS = {"let", "var", "try", "await", "async", "func", "import", "return", "for", "in",
+            "if", "else", "guard", "throws", "print", "struct", "enum", "case"}
+
+
+def snippets():
+    text = SNIPPETS.read_text()
+    found = {}
+    for match in re.finditer(r"// snippet: (\w+)\n(.*?)\n\s*// end", text, re.S):
+        lines = match.group(2).split("\n")
+        indent = min(len(l) - len(l.lstrip()) for l in lines if l.strip())
+        found[match.group(1)] = "\n".join(l[indent:] for l in lines)
+    return found
+
+
+def highlight(code):
+    out = []
+    for line in code.split("\n"):
+        body, comment = line, ""
+        if "//" in line:
+            index = line.index("//")
+            body, comment = line[:index], line[index:]
+        parts = re.split(r'("[^"]*")', body)
+        body = "".join(
+            f'<span class="s">{html.escape(part)}</span>' if index % 2 else
+            re.sub(r"\b(" + "|".join(sorted(KEYWORDS)) + r")\b", r'<span class="k">\1</span>',
+                   html.escape(part))
+            for index, part in enumerate(parts))
+        if comment:
+            body += f'<span class="c">{html.escape(comment)}</span>'
+        out.append(body)
+    return "<pre><code>" + "\n".join(out) + "</code></pre>"
+
+
+# MARK: - Benchmarks
 
 def read_results():
-    """Pull the table, the notes and the versions out of RESULTS.md."""
-    path = ROOT / "Benchmarks" / "RESULTS.md"
-    if not path.exists():
+    """The table, the notes and the versions out of RESULTS.md."""
+    if not RESULTS.exists():
         return None
-    text = path.read_text()
-
+    text = RESULTS.read_text()
     rows = []
     for line in text.splitlines():
         if not line.startswith("|") or line.startswith("|---") or "| task |" in line:
@@ -34,15 +107,12 @@ def read_results():
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) == 8:
             rows.append(cells)
-
-    notes = dict()
+    notes = []
     for line in text.splitlines():
         match = re.match(r"- \*\*(.+?)\*\* — (.+)", line)
         if match:
-            notes[match.group(1)] = match.group(2)
-
-    versions = []
-    collecting = False
+            notes.append((match.group(1), match.group(2)))
+    versions, collecting = [], False
     for line in text.splitlines():
         if line.startswith("### Versions"):
             collecting = True
@@ -52,184 +122,118 @@ def read_results():
                 break
             if line.startswith("- "):
                 versions.append(line[2:].strip())
-
     return {"rows": rows, "notes": notes, "versions": versions}
 
 
 def markup(cell):
-    """Markdown emphasis to HTML, plus the colours the columns mean."""
-    cell = cell.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    cell = html.escape(cell, quote=False)
     cell = re.sub(r"\*\*(.+?)\*\*", r'<span class="win">\1</span>', cell)
     cell = re.sub(r"\*(.+?)\*", r"<em>\1</em>", cell)
     cell = re.sub(r"`(.+?)`", r"<code>\1</code>", cell)
-    cell = cell.replace("⚠︎", '<span class="warn">⚠︎</span>')
-    return cell
-
-
-def speed_chart(rows):
-    """The speed column, drawn.
-
-    Same numbers as the table — this does not introduce a figure the table
-    does not already carry. It exists because "108.7x faster" and "2.2x
-    slower" sitting in adjacent cells of a monospace column do not read as
-    the enormous difference they are, and a ratio is the one thing a bar
-    shows better than text.
-
-    Slower rows are drawn too, in a muted colour. A chart of only the wins
-    would be advertising, and the page's whole claim is that the losses are
-    in the table.
-    """
-    parsed = []
-    for cells in rows:
-        task, tool, _lathe, _other, speed = cells[0], cells[1], cells[2], cells[3], cells[4]
-        match = re.search(r"([\d.]+)\s*×\s*(faster|slower)", speed.replace("**", ""))
-        if not match:
-            continue
-        factor = float(match.group(1))
-        faster = match.group(2) == "faster"
-        parsed.append((task, tool, factor, faster))
-    if not parsed:
-        return ""
-
-    widest = max(f for _, _, f, _ in parsed)
-    bars = []
-    for task, tool, factor, faster in parsed:
-        # Square-rooted purely for drawing. One row is 108x and the rest are
-        # single digits; on a linear scale every other bar is a sliver. The
-        # NUMBER printed beside each bar is the real one, which is what a
-        # reader takes away.
-        width = max((factor / widest) ** 0.5 * 100, 2)
-        label = f"{factor:g}× {'faster' if faster else 'slower'}"
-        muted = "" if faster else " muted"
-        short = strip_tags(markup(task))
-        bars.append(
-            f'<div class="bar-row">'
-            f'<div class="name">{short}</div>'
-            f'<div class="bar-track"><div class="bar-fill{muted}" '
-            f'style="width:{width:.1f}%">{label}</div></div>'
-            f'<div class="value">vs {strip_tags(markup(tool))}</div>'
-            f"</div>")
-    return f'''<div class="bars">{"".join(bars)}</div>
-  <p class="chart-note">Bars are drawn on a square-root scale so the 108× row
-  does not flatten every other one into a sliver; the figure on each bar is the
-  real ratio. Rows where Lathe is slower are drawn in grey — they are measured
-  results too.</p>'''
+    return cell.replace("⚠︎", '<span class="warn">⚠︎</span>')
 
 
 def strip_tags(text):
     return re.sub(r"<[^>]+>", "", text)
 
 
-def benchmarks_page(data):
+def bench_chart(data, limit=None):
+    """The speed column, drawn — the same numbers as the table.
+
+    Square-rooted for drawing only: one row is over a hundred times and the
+    rest are single digits, and on a linear scale every other bar would be a
+    sliver. The figure on each bar is the real ratio. Slower rows are drawn
+    too, in grey; a chart of only the wins would be advertising.
+    """
     if not data:
-        body = '''<div class="empty">
-    <h3>No measurements yet</h3>
-    <p>This page is generated from <code>Benchmarks/RESULTS.md</code>, which is
-    written by the benchmark suite. Until the suite has been run there is
-    nothing to show, and inventing a table is exactly what this page exists
-    to avoid.</p>
-  </div>'''
-    else:
-        header = ("<tr><th>Task</th><th>Compared with</th><th>Lathe</th><th>Tool</th>"
-                  "<th>Speed</th><th>CPU</th><th>Size</th><th>Quality</th></tr>")
-        body_rows = []
-        for cells in data["rows"]:
-            tds = "".join(
-                f'<td class="{"num" if index >= 2 else ""}">{markup(cell)}</td>'
-                for index, cell in enumerate(cells))
-            body_rows.append(f"<tr>{tds}</tr>")
-        notes = "".join(
-            f"<li><b>{markup(task)}</b> — {markup(note)}</li>"
-            for task, note in data["notes"].items())
-        versions = "".join(f"<li>{markup(v)}</li>" for v in data["versions"])
-        body = f'''{speed_chart(data["rows"])}
+        return ""
+    parsed = []
+    for cells in data["rows"]:
+        match = re.search(r"([\d.]+)\s*×\s*(faster|slower)", cells[4].replace("**", ""))
+        if match:
+            parsed.append((cells[0], cells[1], float(match.group(1)), match.group(2) == "faster"))
+    if limit:
+        parsed = sorted(parsed, key=lambda p: (not p[3], -p[2]))[:limit]
+    widest = max(p[2] for p in parsed)
+    bars = []
+    for task, tool, factor, faster in parsed:
+        width = max((factor / widest) ** 0.5 * 100, 3)
+        label = f"{factor:g}× {'faster' if faster else 'slower'}"
+        bars.append(
+            f'<div class="bar-row"><div class="name">{strip_tags(markup(task))}</div>'
+            f'<div class="bar-track"><div class="bar-fill{"" if faster else " muted"}" '
+            f'style="width:{width:.1f}%">{label}</div></div>'
+            f'<div class="value">vs {strip_tags(markup(tool))}</div></div>')
+    return f'<div class="bars">{"".join(bars)}</div>'
 
-  <div class="tablewrap" style="margin-top:34px">
-    <table class="bench">
-      <thead>{header}</thead>
-      <tbody>{"".join(body_rows)}</tbody>
-    </table>
-  </div>
 
-  <div class="prose" style="margin-top:26px">
-    <p><span class="warn">⚠︎</span> marks a row where the two sides did <b>not</b>
-    land at the same quality, so the byte counts are not comparable and no
-    percentage is claimed for them. Two encoders&rsquo; &ldquo;q80&rdquo; are not
-    the same q80, and a size column that ignores that misleads in whichever
-    direction the settings happened to fall.</p>
-  </div>
-
-  <div class="sec-head" style="margin-top:52px">
-    <div class="label">What each row is showing</div>
-  </div>
-  <div class="prose"><ul style="padding-left:20px;line-height:1.8">{notes}</ul></div>
-
-  <div class="sec-head" style="margin-top:52px">
-    <div class="label">Measured on</div>
-  </div>
-  <div class="prose"><ul style="padding-left:20px;line-height:1.8">{versions}</ul></div>'''
-
-    return head("Benchmarks — Lathe",
-                "Lathe measured against ffmpeg, cwebp, cjpeg, avifenc, lame and "
-                "exiftool, with the framing that makes the numbers mean something.",
-                "benchmarks.html") + f'''
-<header class="pagehead bleed">
-  <div class="wrap">
-    <div class="label">Measured, not claimed</div>
-    <h1>Benchmarks</h1>
-    <p class="lede">Every figure here is produced by a suite in this repository and
-    regenerated on release. Three claims are being made, and only three:
-    <b>in-process beats a process launch</b>, <b>hardware beats software on watts
-    and wall-clock</b>, and <b>software encoders still win on bits</b>.</p>
-  </div>
-  <div class="rule-band"><i></i><i></i><i></i></div>
-</header>
-
-<section class="wrap">
-  <div class="sec-head">
-    <div class="label">01 — How to read this</div>
-    <h2>The size column is where the honesty is</h2>
+def bench_table(data):
+    if not data:
+        return ('<p class="prose">This page is generated from <code>Benchmarks/RESULTS.md</code>, '
+                'which the benchmark suite writes. It has not been run yet, and inventing a table '
+                'is what this page exists to avoid.</p>')
+    header = ("<tr><th>Task</th><th>Compared with</th><th>Lathe</th><th>Tool</th>"
+              "<th>Speed</th><th>CPU</th><th>Size</th><th>Quality</th></tr>")
+    rows = "".join(
+        "<tr>" + "".join(
+            f'<td class="{"num" if i >= 2 else ""}">{markup(c)}</td>' for i, c in enumerate(cells))
+        + "</tr>"
+        for cells in data["rows"])
+    notes = "".join(f"<li><b>{markup(t)}</b> — {markup(n)}</li>" for t, n in data["notes"])
+    versions = "".join(f"<li>{markup(v)}</li>" for v in data["versions"])
+    return f'''<div class="tablewrap"><table>
+<thead>{header}</thead><tbody>{rows}</tbody></table></div>
+<div class="two-up">
+  <div class="prose">
+    <p class="kicker">What each row is showing</p>
+    <ul>{notes}</ul>
   </div>
   <div class="prose">
-    <p>A benchmark table that shows only wall-clock time from a hardware encoder is
-    an advertisement. Hardware encoders are faster and they spend more bits;
-    both halves are true and a table that shows one is not a measurement.</p>
-    <p>So every row carries four columns — <b>time</b>, <b>CPU</b>, <b>size</b> and
-    <b>quality</b> — and any row where the two sides did not reach the same
-    quality declines to claim a size difference at all.</p>
-    <p class="pull">If a row makes Lathe look bad, it is still in the table.</p>
+    <p class="kicker">Measured on</p>
+    <ul>{versions}</ul>
   </div>
+</div>'''
 
-  <div style="margin-top:34px">{body}</div>
-</section>
 
-<div class="wrap"><div class="hr"></div></div>
+# MARK: - Pages
 
-<section class="wrap">
-  <div class="sec-head">
-    <div class="label">02 — On energy</div>
-    <h2>The number people actually want, and why it is not here</h2>
-  </div>
-  <div class="prose">
-    <p>The interesting claim about hardware encoding is <b>watts</b>, not seconds.
-    It is not in the table, and not for want of trying: <code>powermetrics</code>
-    needs root, and a measurement taken on a machine that was not idle is worse
-    than no measurement.</p>
-    <p>The CPU column is the closest honest proxy and it is <b>not</b> energy. It
-    understates what hardware costs, because a fixed-function encoder does its
-    work in a block that never appears as CPU time at all. A row showing Lathe
-    using a fraction of the CPU is showing where the work <em>moved</em>, not
-    that the work became free.</p>
-  </div>
-</section>
+def render(source, facts, samples, data):
+    text = source.read_text()
+    title = re.search(r"<!-- title: (.+?) -->", text).group(1)
+    description = re.search(r"<!-- description: (.+?) -->", text).group(1)
+    body = re.sub(r"<!-- (title|description): .+? -->\n?", "", text)
 
-{FOOTER}'''
+    def fill(match):
+        key = match.group(1)
+        if key.startswith("snippet:"):
+            name = key.split(":", 1)[1]
+            if name not in samples:
+                raise SystemExit(f"{source.name}: no sample named {name!r} in {SNIPPETS.name}")
+            return highlight(samples[name])
+        if key == "bench_chart":
+            return bench_chart(data)
+        if key == "bench_teaser":
+            return bench_chart(data, limit=6)
+        if key == "bench_table":
+            return bench_table(data)
+        if key in facts:
+            return facts[key]
+        raise SystemExit(f"{source.name}: unknown placeholder {{{{{key}}}}}")
+
+    body = re.sub(r"\{\{([\w:]+)\}\}", fill, body)
+    page = source.name
+    return head(title, description, page, facts) + body + footer(facts)
 
 
 def main():
+    known = facts()
+    samples = snippets()
     data = read_results()
-    (DOCS / "benchmarks.html").write_text(benchmarks_page(data))
-    print(f"wrote docs/benchmarks.html ({len(data['rows']) if data else 0} rows)")
+    for source in sorted(SOURCES.glob("*.html")):
+        (DOCS / source.name).write_text(render(source, known, samples, data))
+        print(f"wrote docs/{source.name}")
+    print(f"Lathe {known['version']}, {known['tests']} tests, {known['products']} products, "
+          f"{len(samples)} samples, {len(data['rows']) if data else 0} benchmark rows")
 
 
 if __name__ == "__main__":
