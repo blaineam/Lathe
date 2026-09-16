@@ -3,25 +3,22 @@
 **An on-device media processing engine for Apple platforms.**
 
 A lathe takes raw stock and turns it down to a target spec. That is the job here:
-images, video, animation, PDFs, comic archives and audio, resized, recompressed
-and re-encoded to a requested quality — entirely on the device, with no
-subprocesses and no server round-trip.
+images, video, animation and audio, resized, recompressed and re-encoded to a
+requested quality, and PDFs and comic archives edited page by page — entirely
+on the device, with no subprocesses and no server round-trip.
 
-> **Status: early.** The module structure, the public API surface and the
-> progress/cancellation seam are real and tested, and so are the first nine
-> capabilities: media probing, an ffprobe-compatible JSON shim, loudness and
-> audibility analysis, frame extraction, still-image encoding, frame and
-> animation inspection, video transcoding, document page counting, and
-> searchable-PDF OCR. PDF recompression and animation recompression are not
-> written yet — every unimplemented entry point throws a named
-> `LatheError.notImplemented` rather than crashing or silently succeeding. See
-> [What works today](#what-works-today).
+> **Version 1.0.** The public API of every product is stable and follows
+> [semantic versioning](#versioning): nothing public is removed or renamed
+> before 2.0. It covers media probing and an ffprobe-compatible JSON shim,
+> loudness and audibility analysis, frame extraction, still and animated image
+> encoding (WebP included), hardware video transcoding, CPU AV1 encoding, audio
+> transcoding, MP3 encoding, tags, chapters and subtitles, PDF and comic-archive
+> page editing, searchable-PDF OCR, online title and subtitle lookup, Flash
+> salvage and rendering, and an embedded Python runtime for downloaders.
 >
-> A tenth capability sits deliberately **outside** that surface: `LatheFetch`,
-> an embedded CPython interpreter and a pure-Python package installer, shipped
-> as its own product and excluded from the `Lathe` umbrella. It contains no
-> downloader — it is the runtime one would be written in. See
-> [Running Python on device](#running-python-on-device).
+> Not in 1.0: recompressing the images *inside* a PDF or a comic archive,
+> palette-optimising animations, and rewriting a still's metadata without
+> re-encoding it. Each can arrive in a 1.x release without breaking anything.
 
 ---
 
@@ -59,17 +56,16 @@ storage; it takes a file and a target and gives you a file back.
 
 | Module | Contents |
 |---|---|
-| **`LatheCore`** | Shared vocabulary: error taxonomy, progress and cancellation, job identity, resize arithmetic, metadata policy, quality targets, logging. No codecs, no I/O. | `BulkRun` runs many jobs at once inside a `ResourcePool` whose lanes are **per workload class**, not one number — a machine with 24 cores has no more video encoders than one with 4.
-*Reads a plain URL as well as a file.* `MediaSource` accepts `file`, `http` and `https`. Video and audio are **streamed** — AVFoundation reads a remote container by range request, so probing a two-hour film costs kilobytes — and a remote comic archive is counted from its index with two range requests. Formats whose readers need a file (ImageIO, PDFKit) are staged to a bounded temporary download. This reads the URL it is given and never goes looking for one; discovering media inside a web page is `LatheFetch`, which a store build can leave out.
-| **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp), aspect-fit downscale, metadata rewrite, frame/animation inspection, animation recompression. |
-| **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. | Chapters are preserved, on the video track.
-| **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), page editing — reorder, remove, insert, merge — for both formats, and its own ZIP reader and writer; PDF image recompression, document attributes and archive recompression are still stubs. Builds on `LatheImage`. |
-| **`LatheAudio`** | Audio. Inspection (duration, codec, bitrate, lossless-or-not), loudness and audibility analysis, and transcoding to AAC or Apple Lossless with a rule against pointless re-encoding. | Chapters are preserved through a transcode: a chapter list is a separate text track plus a track association, not metadata, so carrying it needs a second muxed input.
+| **`LatheCore`** | Shared vocabulary: error taxonomy, progress and cancellation, job identity, resize arithmetic, metadata policy, quality targets, logging. No codecs, no I/O. `BulkRun` runs many jobs at once inside a `ResourcePool` whose lanes are **per workload class**, not one number — a machine with 24 cores has no more video encoders than one with 4. *Reads a plain URL as well as a file.* `MediaSource` accepts `file`, `http` and `https`. Video and audio are **streamed** — AVFoundation reads a remote container by range request, so probing a two-hour film costs kilobytes — and a remote comic archive is counted from its index with two range requests. Formats whose readers need a file (ImageIO, PDFKit) are staged to a bounded temporary download. This reads the URL it is given and never goes looking for one; discovering media inside a web page is `LatheFetch`, which a store build can leave out. |
+| **`LatheImage`** | Still images. The runtime capability probe lives here. Encode (including WebP, via vendored libwebp) with aspect-fit downscale and a metadata policy, animated images from stills, frame/animation inspection. |
+| **`LatheVideo`** | Probe, thumbnail and frame extraction, hardware transcode with a quality target. Chapters are preserved, on the video track. |
+| **`LatheDoc`** | Documents. Page counting for PDF and CBZ, searchable-PDF OCR (Vision), page editing — reorder, remove, insert, merge — for both formats, PDFs and comic archives built from frames, and its own ZIP reader and writer. Builds on `LatheImage`. |
+| **`LatheAudio`** | Audio. Inspection (duration, codec, bitrate, lossless-or-not), loudness and audibility analysis, and transcoding to AAC or Apple Lossless with a rule against pointless re-encoding. Chapters are preserved through a transcode: a chapter list is a separate text track plus a track association, not metadata, so carrying it needs a second muxed input. |
 | **`LatheMeta`** | Metadata: reading and editing what a file *says about itself* — iTunes-style atoms (MP4/M4V/M4A/MOV), EXIF/IPTC/XMP stills, PDF document attributes — in one normalised model. Injection never re-encodes the media. ID3v2 is read (v2.2/2.3/2.4) and written (v2.4) by this module's own parser, so an MP3 tag edit copies the audio rather than re-muxing it. **Subtitles:** SubRip and WebVTT parsed from hostile input (BOM, CRLF, legacy encodings, bad timings), written into MP4/M4V/MOV as selectable `tx3g` tracks with language, title, forced and SDH flags — several languages per file, video and audio copied untouched — and extracted back to SubRip. **Chapters:** `ChapterWriter` writes, replaces or removes a chapter list in MP4/M4V/MOV/M4A — audio-only included — by the same sample-for-sample remux, and a tag edit keeps the chapters a passthrough export would drop. Depends on `LatheCore` alone. |
 | **`LatheLookup`** | Online metadata: TMDb for film and television, OpenSubtitles for subtitles, each with the **user's own API key** — none ships here. `SubtitleInstaller` searches for a film's subtitles, downloads the best per language, and writes them into the file. Includes the filename parser that turns a release name into a searchable title and year, which needs no key at all. Separate from `LatheFetch`: this fetches a synopsis for a file you already have, not the file. |
 | **`LatheMP3`** | MP3 encoding, via LAME. **LGPL — the only non-permissive code in Lathe**, which is why it is its own product and is not in the umbrella: naming it takes on the obligation, and not naming it proves you have not. LAME is linked as its own **dynamic** `lame.framework` (the `LAME` binary target, built from the source in `Vendor/LAME` by `Scripts/build-lame-xcframework.sh`) so an app can let it be replaced; `LatheMP3` itself stays static, so its errors are the same `LatheError` as everyone else's. Apple ships no MP3 encoder on any platform, so there is no permissive alternative. See `Vendor/LAME/VENDORING.md` for what an app shipping it must include. |
 | **`LatheAV1`** | AV1 encoding into MP4, via SVT-AV1 (BSD-3-Clause-Clear, with the AOMedia patent licence). **Its own product and not in the umbrella**: no Apple device encodes AV1 in hardware, so this is a CPU encoder several megabytes large that only an app offering AV1 should carry. Scales to a maximum displayed size, carries rotation and colour, keeps HDR at 10 bits, passes audio through, and writes atomically. SVT-AV1 is a static binary target built by `Scripts/build-svtav1-xcframework.sh` and published as a release asset; see `Sources/LatheAV1/VENDORING.md`. |
-| **`Lathe`** | Umbrella. `import Lathe` re-exports all of the above. |
+| **`Lathe`** | Umbrella. `import Lathe` re-exports `LatheCore`, `LatheImage`, `LatheVideo`, `LatheDoc`, `LatheAudio` and `LatheMeta` — and none of the products below it, nor `LatheLookup`, `LatheMP3` or `LatheAV1`. |
 | **`LatheSWF`** | **Not in the umbrella.** Salvage for Adobe Flash `.swf`: walks the tag stream and recovers the embedded JPEG, PNG, GIF, MP3 and PCM, with a manifest naming what was found *and what was left behind*. It does not render vector art and does not execute ActionScript, and says so. A hand-written parser for hostile input, which is why it is opt-in by product. |
 | **`LatheSWFRender`** | **Not in the umbrella.** The other half of Flash: plays a `.swf` with a bundled WebAssembly build of **Ruffle** inside a `WKWebView` and captures the frames — vector art, timeline and ActionScript included — handing back a `FrameSequence` the composers assemble. Capture is real time. It interprets untrusted bytecode, so it is opt-in by product. |
 | **`LatheFetch`** | **Not in the umbrella.** An embedded CPython interpreter — lifecycle, the GIL, captured output, tracebacks as Swift errors — an installer for pure-Python packages the *user* acquires at run time, and a `yt-dlp` surface on top of both: format listing and selection, download with progress and cancellation, and an `AVAssetWriter` mux that stands in for the `ffmpeg` call iOS forbids. Network ingest, so it is opt-in by product. |
@@ -91,7 +87,7 @@ print(Lathe.capabilityReport)   // what this system can actually encode
 ```swift
 .product(name: "LatheImage", package: "Lathe")   // stills only
 .product(name: "LatheVideo", package: "Lathe")   // probing, thumbnails, transcode
-.product(name: "Lathe",      package: "Lathe")   // all five, via one import
+.product(name: "Lathe",      package: "Lathe")   // the six media modules, via one import
 
 .product(name: "LatheFetch", package: "Lathe")   // embedded CPython — NOT in the umbrella
 .product(name: "LatheSWF",   package: "Lathe")   // Flash salvage — NOT in the umbrella
@@ -325,14 +321,13 @@ Audio artwork classifies as `MetadataClass.thumbnails`, so `.strip([.thumbnails]
 is the one policy that removes a cover; `.preserveAll` and every targeted strip
 keep it.
 
-#### Chapters are not preserved, and say so
+#### Chapters are carried across, and losses are counted
 
 An audiobook's chapters are a separate text track plus a track association, not
-metadata items, and carrying them needs a second muxed input. **This transcoder
-does not do it.** Rather than losing them quietly, chapters are counted before
-the encode and reported as `result.droppedChapterCount`, with a log line;
-`AudioInspector` reports the same count beforehand, so a library pass can skip
-chaptered files instead of flattening them.
+metadata items, so the transcoder muxes a second input to carry them.
+`result.preservedChapterCount` says how many arrived. Where the destination
+cannot hold a chapter track, the loss is reported as
+`result.droppedChapterCount` with `result.chapterLossReason`, never silently.
 
 #### Opus is refused, not substituted
 
@@ -426,7 +421,7 @@ removing data, that is the wrong default. `CGImageDestinationAddImage` writes on
 what it is handed, so `.stripAll` is provable by construction. (The other call,
 `CGImageDestinationCopyImageSource`, copies encoded data through *without*
 re-encoding. That is the right tool for "strip GPS and touch nothing else", and
-it belongs to `ImageMetadataRewriter` — which is still a stub. Asking this
+it is not in Lathe 1.0. Asking this
 encoder for `QualityTarget.lossless` is refused rather than reinterpreted —
 **except for WebP**, where libwebp has a genuine lossless coder and `.lossless`
 selects it.)
@@ -707,7 +702,7 @@ identical and selects, searches and copies.
 
 ```swift
 let result = try await PDFTextLayerWriter().addTextLayer(source: scan, to: searchable)
-print(result.pagesRecognised, result.pagesSkipped, result.textRunCount)
+print(result.pagesRecognized, result.pagesSkipped, result.textRunCount)
 ```
 
 **The geometry is the part that goes wrong silently.** Vision reports normalised
@@ -1289,11 +1284,6 @@ Cancel latency is **one work unit**, stated rather than hidden: most native medi
 libraries do not poll for cancellation internally, so a unit boundary is the
 honest granularity.
 
-Everything else — PDF *image recompression*, comic archive recompression,
-animation recompression, the lossless metadata rewrite — is an API surface with
-throwing stubs. That is deliberate: the shapes are reviewable now, and filling
-them in does not move anyone's call sites.
-
 ### Tests
 
 **No binary media is committed to this repository.** Every clip the suite needs —
@@ -1462,27 +1452,34 @@ reason: both rot. The simulator destination is chosen from
 package's own name. The raw scheme listing is printed unconditionally, so a
 failure on a future runner image can be diagnosed from the log without a rerun.
 
-`.github/workflows/release.yml` cuts a signed, notarized DMG on a `v*` tag. It is
-**deliberately inert today**: there is no application target in this repository
-yet, and the workflow's first step says so and stops, rather than letting
-`xcodebuild` fail confusingly several minutes later. The signing and notarization
-path is there now so it can be reviewed and fixed independently of the app,
-instead of being written under pressure on the day there is something to ship.
+`.github/workflows/release.yml` builds the Lathe Mac app from `App/` on a `v*`
+tag, signs it with a Developer ID, notarizes it, and attaches `Lathe.dmg` and
+its checksum to the GitHub release.
+
+## Versioning
+
+Lathe follows [semantic versioning](https://semver.org) from 1.0.0:
+
+- **Patch** releases fix bugs.
+- **Minor** releases add API and capabilities. Nothing public is removed or
+  renamed, and existing calls keep their meaning.
+- **Major** releases may break API, and say how in the release notes.
+
+Output is not part of that promise: a minor release may produce smaller files
+or different bytes for the same input. `LatheVersion.engine` changes whenever it
+does, so a cache keyed on `JobDescriptor.jobID()` notices.
+
+Depend on a major version:
+
+```swift
+.package(url: "https://github.com/blaineam/Lathe.git", from: "1.0.0")
+```
 
 ---
 
 ## Contributing
 
-The stubs are the roadmap. Each one throws
-`LatheError.notImplemented(feature:)` naming itself, so:
-
-```sh
-grep -rn "LatheError.todo" Sources/
-```
-
-is an accurate and self-updating list of what is missing.
-
-Two rules for anything that lands here:
+Rules for anything that lands here:
 
 1. **No version gating for codec capability.** Probe at runtime and degrade.
 2. **No GPL or AGPL dependencies**, direct or transitive.

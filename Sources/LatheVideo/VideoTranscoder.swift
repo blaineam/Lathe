@@ -321,7 +321,7 @@ public struct VideoTranscoder: Sendable {
         // being configured. Associated with the VIDEO track: a player looks for
         // the chapter list on the track it is showing.
         let sourceChapters = await ChapterTrack.read(from: asset)
-            .normalisedChapters(totalDuration: assetDuration.seconds)
+            .normalizedChapters(totalDuration: assetDuration.seconds)
         let chapterAttachment = ChapterTrack.makeInput(
             for: sourceChapters, writer: writer, associatedWith: videoInput
         )

@@ -380,7 +380,7 @@ public struct AnimatedImageWriter: Sendable {
                         container.delayKey: delays[index],
                     ] as CFDictionary,
                 ]
-                if format.isLossyByDefault, let normalised = quality.normalisedQuality {
+                if format.isLossyByDefault, let normalised = quality.normalizedQuality {
                     frameProperties[kCGImageDestinationLossyCompressionQuality] = normalised
                 }
                 CGImageDestinationAddImage(sink, image, frameProperties as CFDictionary)

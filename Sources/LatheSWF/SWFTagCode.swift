@@ -228,7 +228,7 @@ public struct SWFTagCode: RawRepresentable, Sendable, Hashable, CustomStringConv
         /// File structure, attributes, export tables, debugging.
         case structural
         /// A code outside the published specification table.
-        case unrecognised
+        case unrecognized
     }
 
     public var kind: Kind {
@@ -243,7 +243,7 @@ public struct SWFTagCode: RawRepresentable, Sendable, Hashable, CustomStringConv
         case 0, 1, 9, 24, 43, 56, 57, 58, 64, 65, 66, 69, 71, 76, 77, 78, 86:
             .structural
         default:
-            .unrecognised
+            .unrecognized
         }
     }
 }

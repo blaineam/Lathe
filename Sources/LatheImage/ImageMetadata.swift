@@ -55,14 +55,12 @@ enum ImageMetadata {
     ///     removing them breaks the file rather than anonymising it.
     ///   - orientation: the tag to write, or `nil` to write none. **Never
     ///     governed by the policy** — see the note on ``strip(_:from:)``.
-    /// - Throws: ``LatheError/notImplemented(feature:)`` for
-    ///   ``MetadataPolicy/custom(allowList:)``.
     static func properties(
         for policy: MetadataPolicy,
         from source: [CFString: Any],
         forcePreserve: MetadataForcePreserve,
         orientation: CGImagePropertyOrientation?
-    ) throws -> [CFString: Any] {
+    ) -> [CFString: Any] {
         var result: [CFString: Any]
 
         switch policy {
@@ -78,12 +76,11 @@ enum ImageMetadata {
                 result = strip(metadataClass, from: result)
             }
 
-        case .custom:
-            // `MetadataKey`'s normalised namespace (`exif.*`, `iptc.*`, `xmp.*`)
-            // has no mapping onto ImageIO's dictionaries yet. Half of one would
-            // silently keep or drop the keys it did not know about, which is
-            // precisely the failure this policy exists to prevent.
-            throw LatheError.todo("MetadataPolicy.custom(allowList:) for still images")
+        case let .custom(allowList):
+            // Start from nothing and copy in only what was named, so a key
+            // nobody thought of stays out — the same by-construction guarantee
+            // as `stripAll`.
+            result = copy(allowList, from: source, into: [:])
         }
 
         // Structural entries ImageIO reports on the way in and computes again on
@@ -240,42 +237,99 @@ enum ImageMetadata {
         }
     }
 
-    // MARK: - The floor
+    // MARK: - Named keys
 
     /// Puts back the keys that no policy may remove.
-    ///
-    /// Only the still-image keys in ``MetadataForcePreserve`` can be honoured
-    /// here — `qt.*` names a QuickTime key and belongs to the video writer — and
-    /// only the shapes this resolver understands. An unrecognised key is logged
-    /// rather than ignored silently, because a floor that quietly fails to hold
-    /// is worse than no floor.
     private static func restore(
+        _ keys: Set<MetadataKey>,
+        from source: [CFString: Any],
+        into properties: [CFString: Any]
+    ) -> [CFString: Any] {
+        copy(keys, from: source, into: properties)
+    }
+
+    /// The ImageIO dictionary each still-image namespace lives in.
+    ///
+    /// The entry names inside those dictionaries are ImageIO's own, which are
+    /// the tag names: `exif.DateTimeOriginal`, `gps.Latitude`, `iptc.City`,
+    /// `tiff.Make`, `png.Software`. A maker-note entry is
+    /// `exif.MakerApple.<tag>`.
+    private static var containers: [String: CFString] { [
+        "exif": kCGImagePropertyExifDictionary,
+        "exifaux": kCGImagePropertyExifAuxDictionary,
+        "gps": kCGImagePropertyGPSDictionary,
+        "iptc": kCGImagePropertyIPTCDictionary,
+        "tiff": kCGImagePropertyTIFFDictionary,
+        "png": kCGImagePropertyPNGDictionary,
+        "gif": kCGImagePropertyGIFDictionary,
+        "heic": kCGImagePropertyHEICSDictionary,
+        "webp": kCGImagePropertyWebPDictionary,
+    ] }
+
+    private static var makers: [String: CFString] { [
+        "MakerApple": kCGImagePropertyMakerAppleDictionary,
+        "MakerCanon": kCGImagePropertyMakerCanonDictionary,
+        "MakerNikon": kCGImagePropertyMakerNikonDictionary,
+        "MakerFuji": kCGImagePropertyMakerFujiDictionary,
+        "MakerOlympus": kCGImagePropertyMakerOlympusDictionary,
+        "MakerPentax": kCGImagePropertyMakerPentaxDictionary,
+        "MakerMinolta": kCGImagePropertyMakerMinoltaDictionary,
+    ] }
+
+    /// Copies the named keys from `source` into `properties`.
+    ///
+    /// `namespace.*` names a whole dictionary. A key with no still-image
+    /// meaning — `qt.*` belongs to the video writer, and `xmp.*` does not
+    /// survive this encode path at all (see the note at the top) — is logged
+    /// and skipped rather than ignored silently.
+    static func copy(
         _ keys: Set<MetadataKey>,
         from source: [CFString: Any],
         into properties: [CFString: Any]
     ) -> [CFString: Any] {
         var result = properties
         for key in keys {
-            let parts = key.rawValue.split(separator: ".").map(String.init)
-            // The one shape that exists today: `exif.MakerApple.<tag>`, which is
-            // the paired still/video content identifier. Strip it and the two
-            // halves of a motion photo stop being recognised as one item.
-            guard parts.count == 3, parts[0] == "exif", parts[1] == "MakerApple" else {
-                if parts.first != "qt" {
-                    LatheLog.image.debug(
-                        "force-preserve key \(key.rawValue, privacy: .public) has no still-image mapping"
-                    )
+            let parts = key.rawValue.split(separator: ".", maxSplits: 2).map(String.init)
+            guard parts.count >= 2 else { unmapped(key); continue }
+
+            if parts[0] == "exif", let maker = makers[parts[1]] {
+                if parts.count == 2 || parts[2] == "*" {
+                    if let whole = source[maker] { result[maker] = whole }
+                } else {
+                    copyEntry(parts[2], in: maker, from: source, into: &result)
                 }
                 continue
             }
-            guard let sourceMaker = source[kCGImagePropertyMakerAppleDictionary] as? [CFString: Any],
-                  let value = sourceMaker[parts[2] as CFString]
-            else { continue }
-
-            var maker = result[kCGImagePropertyMakerAppleDictionary] as? [CFString: Any] ?? [:]
-            maker[parts[2] as CFString] = value
-            result[kCGImagePropertyMakerAppleDictionary] = maker
+            guard let container = containers[parts[0]] else { unmapped(key); continue }
+            let entry = parts.dropFirst().joined(separator: ".")
+            if entry == "*" {
+                if let whole = source[container] { result[container] = whole }
+            } else {
+                copyEntry(entry, in: container, from: source, into: &result)
+            }
         }
         return result
+    }
+
+    private static func copyEntry(
+        _ entry: String,
+        in container: CFString,
+        from source: [CFString: Any],
+        into result: inout [CFString: Any]
+    ) {
+        guard let from = source[container] as? [CFString: Any],
+              let value = from[entry as CFString]
+        else { return }
+        var into = result[container] as? [CFString: Any] ?? [:]
+        into[entry as CFString] = value
+        result[container] = into
+    }
+
+    private static func unmapped(_ key: MetadataKey) {
+        if key.namespace != "qt" {
+            LatheLog.image.debug(
+                "metadata key \(key.rawValue, privacy: .public) has no still-image mapping"
+            )
+        }
     }
 }

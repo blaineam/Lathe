@@ -3,7 +3,10 @@ import AVFoundation
 import CoreMedia
 import Foundation
 
-/// Reading a file's chapters, and writing them into a new one.
+/// Reading a file's chapters.
+///
+/// Writing them is ``ChapterWriter``'s job, in LatheMeta; the muxing pieces
+/// here are shared with the transcoders and are not public API.
 ///
 /// ## What a chapter actually is
 ///
@@ -88,16 +91,16 @@ public enum ChapterTrack {
     /// attach — a WAV has nowhere to put them — and a caller told only that it
     /// got none cannot tell an unsupported container from a bug. The string ends
     /// up in ``AudioTranscodeResult`` for exactly that reason.
-    public enum Attachment {
+    package enum Attachment {
         case attached(AVAssetWriterInput)
         case refused(reason: String)
 
-        public var input: AVAssetWriterInput? {
+        package var input: AVAssetWriterInput? {
             if case .attached(let input) = self { return input }
             return nil
         }
 
-        public var reason: String? {
+        package var reason: String? {
             if case .refused(let reason) = self { return reason }
             return nil
         }
@@ -108,7 +111,7 @@ public enum ChapterTrack {
     /// Refusal is not a failure. A WAV has nowhere to put a chapter track, and
     /// failing the whole transcode over it would be worse than producing the
     /// file the caller asked for and saying what was lost.
-    public static func makeInput(
+    package static func makeInput(
         for chapters: [Chapter],
         writer: AVAssetWriter,
         associatedWith media: AVAssetWriterInput
@@ -165,7 +168,7 @@ public enum ChapterTrack {
     ///
     /// - Returns: a task yielding how many chapters were written, and the first
     ///   reason one was not.
-    public static func beginWriting(
+    package static func beginWriting(
         _ chapters: [Chapter], to input: AVAssetWriterInput, timescale: CMTimeScale = 1_000
     ) -> Task<(written: Int, failure: String?), Never> {
         guard !chapters.isEmpty else {
@@ -290,7 +293,7 @@ public enum ChapterTrack {
     /// sample description: display flags, justification, a text box, a default
     /// style and a font table. The bridge below builds the description from
     /// those bytes, which is the only way to get one a writer will accept.
-    public static func textFormatDescription() -> CMFormatDescription? {
+    package static func textFormatDescription() -> CMFormatDescription? {
         let description = sampleDescription()
         var format: CMFormatDescription?
         let status = description.withUnsafeBytes { raw -> OSStatus in
@@ -313,7 +316,7 @@ public enum ChapterTrack {
     /// width and a short one is not a smaller description — it is a malformed
     /// one. The font table at the end is not optional either: a `tx3g` entry
     /// without an `ftab` box is rejected.
-    public static func sampleDescription() -> Data {
+    package static func sampleDescription() -> Data {
         var out = Data()
         func u8(_ value: UInt8) { out.append(value) }
         func u16(_ value: UInt16) {
@@ -366,7 +369,7 @@ public enum ChapterTrack {
     /// count is of BYTES, not characters, which is the detail that turns a
     /// chapter called "Café" into a truncated one on any file where the two
     /// differ.
-    public static func samplePayload(for title: String) -> Data {
+    package static func samplePayload(for title: String) -> Data {
         let utf8 = Array(title.utf8)
         let clipped = utf8.count > Int(UInt16.max) ? Array(utf8.prefix(Int(UInt16.max))) : utf8
         var data = Data()

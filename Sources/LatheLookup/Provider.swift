@@ -185,7 +185,7 @@ public enum LookupError: Error, Equatable, CustomStringConvertible, LocalizedErr
     /// No key. The caller should offer to configure one, not report a failure.
     case notConfigured(provider: String, requirement: String)
     /// The provider rejected the credentials.
-    case unauthorised(provider: String, detail: String)
+    case unauthorized(provider: String, detail: String)
     /// The provider asked us to slow down. `retryAfter` is its own advice, when
     /// it gave any.
     case rateLimited(provider: String, retryAfter: TimeInterval?)
@@ -201,7 +201,7 @@ public enum LookupError: Error, Equatable, CustomStringConvertible, LocalizedErr
         switch self {
         case .notConfigured(let provider, let requirement):
             return "\(provider) is not configured: \(requirement)"
-        case .unauthorised(let provider, let detail):
+        case .unauthorized(let provider, let detail):
             return "\(provider) rejected the credentials: \(detail)"
         case .rateLimited(let provider, let retryAfter):
             let when = retryAfter.map { " (retry after \(Int($0))s)" } ?? ""
@@ -222,7 +222,7 @@ public enum LookupError: Error, Equatable, CustomStringConvertible, LocalizedErr
         switch self {
         case .notConfigured(_, let requirement):
             return "Add \(requirement)."
-        case .unauthorised:
+        case .unauthorized:
             return "Check the key, and that it is the right one of the two the "
                 + "provider issues — an API key and a read access token are not "
                 + "interchangeable."

@@ -445,7 +445,7 @@ public struct FrameExtractor: Sendable {
         }
 
         var properties: [CFString: Any] = [:]
-        if format.isLossyByDefault, let normalised = quality.normalisedQuality {
+        if format.isLossyByDefault, let normalised = quality.normalizedQuality {
             properties[kCGImageDestinationLossyCompressionQuality] = normalised
         }
         CGImageDestinationAddImage(sink, image, properties as CFDictionary)

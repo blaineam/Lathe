@@ -3,8 +3,8 @@ import Foundation
 /// Something that went wrong with one download, said in a way somebody can act
 /// on.
 ///
-/// Its own type rather than reusing `LatheError.notImplemented`, which was the
-/// nearest-looking case and produced sentences like "gallery-dl downloaded
+/// Its own type rather than borrowing a `LatheError` case for its shape. An
+/// early version did, and produced sentences like "gallery-dl downloaded
 /// nothing from www.furaffinity.net — it recognised the site but the page had
 /// nothing on it **is not implemented yet**". Borrowing an error case for its
 /// shape rather than its meaning always reads like that eventually.
