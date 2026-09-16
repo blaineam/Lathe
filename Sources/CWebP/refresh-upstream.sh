@@ -9,8 +9,9 @@
 # If you bump the tag, update VENDORING.md (version + commit + date) with the
 # values this script prints at the end, then run `swift build && swift test`.
 #
-# The allow-lists below are the *whole* vendoring policy: only the files an
-# encoder needs are taken. See VENDORING.md for what is excluded and why.
+# The allow-lists below are the *whole* vendoring policy: what an encoder and
+# an animation encoder need, and nothing else. See VENDORING.md for what is
+# excluded and why.
 
 set -euo pipefail
 
@@ -28,25 +29,27 @@ COMMIT="$(git -C "$WORK/libwebp" rev-parse HEAD)"
 
 # --- What gets vendored -------------------------------------------------------
 #
-# src/webp  — the public headers the encoder's API and internals reference.
-#             demux.h and mux.h are omitted: no demuxer or muxer is vendored.
-# src/dec   — headers only. The encoder-side DSP shares struct definitions with
-#             the decoder (VP8LTransform, VP8Io); no decoder .c file is taken.
+# src/webp  — the public headers the encoder, the decoder and the muxer
+#             reference. demux.h is omitted: no demuxer is vendored, because
+#             ImageIO reads animated WebP, timing included.
+# src/dec   — all of it. WebPAnimEncoder decodes its own sub-frames back onto
+#             the canvas (anim_encode.c → WebPDecode) when it rewrites a frame as
+#             a keyframe, and the muxer sizes a bitstream with VP8GetInfo /
+#             VP8LGetInfo. Both are link-time dependencies, so the decoder is in.
+#             It is not used to *read* anything; ImageIO does that.
 # src/enc   — everything except picture_psnr_enc.c (distortion metrics; not part
-#             of encoding, and it is what would drag in src/dsp/ssim*.c).
-# src/dsp   — the encode and shared kernels, in C plus the NEON/SSE2/SSE4.1/AVX2
-#             variants. Only the MIPS and MSA variants are omitted. Note that
-#             dec*.c, ssim*.c and upsampling*.c are NOT decoder-only despite the
-#             names: the encoder calls the loop filters to simulate the decoder's
-#             output, SSIM to score a filter strength, and the upsamplers to take
-#             a YUV picture in. Dropping them link-errors.
-# src/utils — the encoder-side utilities. bit_reader_utils.c, huffman_utils.c and
-#             quant_levels_dec_utils.* are decoder-only; the first two keep their
-#             headers because decoder struct definitions are still referenced.
+#             of encoding).
+# src/mux   — the muxer and WebPAnimEncoder: every .c and .h, nothing else.
+# src/dsp   — the encode, decode and shared kernels, in C plus the
+#             NEON/SSE2/SSE4.1/AVX2 variants. Only the MIPS and MSA variants are
+#             omitted. Note that dec*.c, ssim*.c and upsampling*.c were needed
+#             even before the decoder was: the encoder calls the loop filters to
+#             simulate the decoder's output, SSIM to score a filter strength, and
+#             the upsamplers to take a YUV picture in.
+# src/utils — all of it, now that the decoder-side utilities have a caller.
 # sharpyuv  — all of it. Small, and the encoder's -sharp_yuv path needs it.
 
-WEBP_HEADERS=(decode.h encode.h format_constants.h mux_types.h types.h)
-DEC_HEADERS=(common_dec.h vp8_dec.h vp8i_dec.h vp8li_dec.h webpi_dec.h)
+WEBP_HEADERS=(decode.h encode.h format_constants.h mux.h mux_types.h types.h)
 
 DSP_FILES=(
   alpha_processing.c alpha_processing_neon.c alpha_processing_sse2.c
@@ -68,28 +71,25 @@ DSP_FILES=(
   yuv.c yuv.h yuv_neon.c yuv_sse2.c yuv_sse41.c
 )
 
-UTILS_FILES=(
-  bit_reader_utils.h
-  bit_writer_utils.c bit_writer_utils.h
-  color_cache_utils.c color_cache_utils.h
-  endian_inl_utils.h
-  filters_utils.c filters_utils.h
-  huffman_encode_utils.c huffman_encode_utils.h
-  huffman_utils.h
-  palette.c palette.h
-  quant_levels_utils.c quant_levels_utils.h
-  random_utils.c random_utils.h
-  rescaler_utils.c rescaler_utils.h
-  thread_utils.c thread_utils.h
-  utils.c utils.h
-)
+MUX_FILES=(anim_encode.c animi.h muxedit.c muxi.h muxinternal.c muxread.c)
 
-ENC_EXCLUDE=(Makefile.am picture_psnr_enc.c)
+# Whole directories, minus their build-system files.
+copy_dir() {  # copy_dir <src-subdir> <dest-subdir> [excluded names...]
+  local from="$WORK/libwebp/$1" to="$DEST/$2"; shift 2
+  local path name e skip
+  for path in "$from"/*.c "$from"/*.h; do
+    name="$(basename "$path")"
+    skip=0
+    for e in "$@"; do [ "$name" = "$e" ] && skip=1; done
+    [ "$skip" = 1 ] && continue
+    cp "$path" "$to/$name"
+  done
+}
 
 echo "==> replacing $DEST"
 rm -rf "$DEST"
 mkdir -p "$DEST/src/webp" "$DEST/src/dec" "$DEST/src/enc" "$DEST/src/dsp" \
-         "$DEST/src/utils" "$DEST/sharpyuv"
+         "$DEST/src/mux" "$DEST/src/utils" "$DEST/sharpyuv"
 
 # Licence and provenance files, verbatim.
 for f in COPYING PATENTS AUTHORS; do
@@ -97,21 +97,13 @@ for f in COPYING PATENTS AUTHORS; do
 done
 
 for f in "${WEBP_HEADERS[@]}"; do cp "$WORK/libwebp/src/webp/$f" "$DEST/src/webp/$f"; done
-for f in "${DEC_HEADERS[@]}";  do cp "$WORK/libwebp/src/dec/$f"  "$DEST/src/dec/$f";  done
 for f in "${DSP_FILES[@]}";    do cp "$WORK/libwebp/src/dsp/$f"  "$DEST/src/dsp/$f";  done
-for f in "${UTILS_FILES[@]}";  do cp "$WORK/libwebp/src/utils/$f" "$DEST/src/utils/$f"; done
+for f in "${MUX_FILES[@]}";    do cp "$WORK/libwebp/src/mux/$f"  "$DEST/src/mux/$f";  done
 
-for path in "$WORK"/libwebp/src/enc/*; do
-  name="$(basename "$path")"
-  skip=0
-  for e in "${ENC_EXCLUDE[@]}"; do [ "$name" = "$e" ] && skip=1; done
-  [ "$skip" = 1 ] && continue
-  cp "$path" "$DEST/src/enc/$name"
-done
-
-for path in "$WORK"/libwebp/sharpyuv/*.c "$WORK"/libwebp/sharpyuv/*.h; do
-  cp "$path" "$DEST/sharpyuv/$(basename "$path")"
-done
+copy_dir src/dec   src/dec
+copy_dir src/enc   src/enc   picture_psnr_enc.c
+copy_dir src/utils src/utils
+copy_dir sharpyuv  sharpyuv
 
 cat > "$DEST/README-VENDORED.txt" <<EOF
 This directory is an unmodified partial copy of libwebp, taken from

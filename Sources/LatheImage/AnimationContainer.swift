@@ -12,6 +12,17 @@ import ImageIO
 /// presents as an animation that round-trips through this package and comes out
 /// a still.
 ///
+/// ## WebP: read by ImageIO, written by libwebp
+///
+/// ImageIO *reads* animated WebP on this package's whole deployment floor and
+/// reports it through ``webp``'s keys below — every frame, each frame's delay
+/// (unclamped as well as clamped), the loop count and the canvas — so
+/// ``ImageInspector`` needs nothing WebP-specific and no demuxer is vendored.
+/// It does not *write* WebP, so for ``webp`` the write-side keys are not handed
+/// to a `CGImageDestination`: ``WebPAnimationEncoder`` stores the same three
+/// facts in the file's own `ANIM`/`ANMF` chunks, and the round-trip tests read
+/// them back through these keys. That is still one table: the reader's.
+///
 /// All four dictionaries are older than this package's deployment floor, so no
 /// availability check is needed or wanted — see ``EncodeSupport`` on why nothing
 /// in this module branches on an OS version.
@@ -71,8 +82,10 @@ enum AnimationContainer: CaseIterable {
     }
 
     /// The per-frame delay after ImageIO's per-format floor. **This is the one
-    /// to write**: the unclamped variant is derived on read from what the file
-    /// actually stores, so setting it on a destination changes nothing.
+    /// to write** through a `CGImageDestination`: the unclamped variant is
+    /// derived on read from what the file actually stores, so setting it on a
+    /// destination changes nothing. (WebP is not written through one; see the
+    /// type documentation.)
     var delayKey: CFString {
         switch self {
         case .gif: kCGImagePropertyGIFDelayTime

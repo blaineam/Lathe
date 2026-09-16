@@ -134,6 +134,11 @@ public struct ImageInspector: Sendable {
 
     /// Where per-frame timing lives, per container.
     ///
+    /// Animated WebP is read here like the others — by ImageIO, through
+    /// `kCGImagePropertyWebPDictionary`, whether libwebp's `WebPAnimEncoder` or
+    /// something else wrote the file; the WebP-specific part of this package is
+    /// on the write side only.
+    ///
     /// One table, shared with the write side — see ``AnimationContainer`` for
     /// the whole argument, including why the keys are computed rather than
     /// stored. The unclamped key is preferred here and the clamped one is the

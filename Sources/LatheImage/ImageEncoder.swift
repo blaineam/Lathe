@@ -57,10 +57,11 @@ import LatheCore
 ///   contradiction in terms for an encoder — it is
 ///   ``ImageMetadataRewriter``'s job. libwebp, uniquely here, has a genuine
 ///   lossless coder, so `.lossless` selects it and the pixels survive exactly.
-/// - **A WebP written here carries no metadata at all** — no EXIF, no GPS, no
-///   XMP, no ICC — because no muxer is vendored. Orientation is therefore baked
-///   into the pixels rather than dropped, by the same rule that already covers
-///   every format with nowhere to put a tag. See ``WebPEncoder``.
+/// - **A WebP's metadata goes through libwebp's muxer**, not ImageIO: the same
+///   policy-filtered dictionary is serialised into `EXIF`/`XMP ` chunks. The
+///   orientation tag survives, so ``OrientationStrategy/preserveTag`` is
+///   honoured for WebP as for HEIC. No ICC profile is written; WebP pixels are
+///   converted to sRGB instead. See ``WebPEncoder``.
 ///
 /// ## Progress and cancellation
 ///
@@ -273,6 +274,21 @@ public struct ImageEncoder: Sendable {
         // Stage 4 — metadata, then write.
         try progress.checkpoint(LatheProgress(stage: "encode", unitIndex: 4, unitCount: stageCount))
 
+        // The same dictionary for both backends: ImageIO writes it directly, and
+        // the WebP encoder serialises it into EXIF/XMP chunks. One policy
+        // resolver, so `.stripLocation` removes the same things from a WebP as
+        // from a HEIC.
+        let properties = try ImageMetadata.properties(
+            for: request.metadata,
+            from: sourceProperties,
+            forcePreserve: request.forcePreserve,
+            // `.bake` rotated the pixels, so the tag must become "already
+            // upright". Writing the original value here is the double-rotation
+            // bug, and it is why these two strategies are an enum rather than a
+            // pair of booleans somebody can set both of.
+            orientation: strategy == .bake ? .up : sourceOrientation
+        )
+
         let outputByteCount: UInt64
         switch backend {
         case .imageIO:
@@ -281,16 +297,7 @@ public struct ImageEncoder: Sendable {
             else {
                 throw LatheError.encodeUnavailable(format: request.format.description)
             }
-            var properties = try ImageMetadata.properties(
-                for: request.metadata,
-                from: sourceProperties,
-                forcePreserve: request.forcePreserve,
-                // `.bake` rotated the pixels, so the tag must become "already
-                // upright". Writing the original value here is the
-                // double-rotation bug, and it is why these two strategies are an
-                // enum rather than a pair of booleans somebody can set both of.
-                orientation: strategy == .bake ? .up : sourceOrientation
-            )
+            var properties = properties
             if request.format.isLossyByDefault, let normalised = request.quality.normalisedQuality {
                 properties[kCGImageDestinationLossyCompressionQuality] = normalised
             }
@@ -304,23 +311,13 @@ public struct ImageEncoder: Sendable {
             }
 
         case .builtIn:
-            // Only WebP reaches here, and the metadata dictionary above is not
-            // built at all: libwebp's container support stops at the pixels (see
-            // `WebPEncoder`), so there is nowhere to put it. The policy is not
-            // silently ignored, it is reported — a caller who asked to preserve
-            // GPS and got a file with none should be able to find out why from
-            // the log rather than from a diff.
-            if request.metadata != .stripAll {
-                LatheLog.image.debug(
-                    """
-                    \(request.format.description, privacy: .public) is written by the vendored \
-                    encoder, which stores no metadata chunks; the requested policy carries \
-                    nothing across. Orientation \
-                    \(sourceOrientation.rawValue, privacy: .public) is baked into the pixels.
-                    """
-                )
-            }
-            let encoded = try WebPEncoder.encode(image, quality: request.quality)
+            // Only WebP reaches here. The chunks are built from the same
+            // dictionary as above; an upright image with nothing to say gets a
+            // simple WebP with no chunks at all. See `WebPMetadataChunks`.
+            let chunks = try WebPMetadataChunks.carrying(
+                properties, pixelSize: PixelSize(width: image.width, height: image.height)
+            )
+            let encoded = try WebPEncoder.encode(image, quality: request.quality, metadata: chunks)
             try progress.checkCancellation()
             outputByteCount = try writingAtomically(
                 to: request.destination, format: request.format
@@ -726,24 +723,14 @@ enum OrientationTagSupport {
         var preserved: Set<ImageFormat> = []
         guard let image = probeImage() else { return preserved }
 
-        // ImageIO-encodable formats only, and that is the whole answer for the
-        // built-in backends too: a `CGImageDestination` round trip is the only
-        // thing this probe can perform, so a format Lathe writes itself is
-        // absent from the result and therefore reported as unable to hold a tag
-        // — which for WebP is the truth. See `WebPEncoder`: no muxer is
-        // vendored, so there is no `EXIF` chunk to write an orientation into,
-        // and `ImageEncoder` bakes the rotation instead.
-        for format in support.imageIOEncodableFormats {
-            guard let uti = support.destinationTypeIdentifier(for: format) else { continue }
-            let buffer = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(
-                buffer as CFMutableData, uti as CFString, 1, nil
-            ) else { continue }
-            CGImageDestinationAddImage(destination, image, [
-                kCGImagePropertyOrientation: probeValue,
-            ] as CFDictionary)
-            guard CGImageDestinationFinalize(destination), buffer.length > 0,
-                  let source = CGImageSourceCreateWithData(buffer as CFData, nil),
+        // Every encodable format, through the backend that would really write
+        // it. The ImageIO ones round-trip through a `CGImageDestination`; the
+        // built-in ones through their own encoder — which for WebP means the
+        // muxer's EXIF chunk. Either way the read-back is ImageIO's, because
+        // that is what a viewer of the file will use.
+        for format in support.supportedFormats {
+            guard let written = probeBytes(format, image: image, support: support),
+                  let source = CGImageSourceCreateWithData(written as CFData, nil),
                   CGImageSourceGetCount(source) > 0
             else { continue }
 
@@ -756,13 +743,42 @@ enum OrientationTagSupport {
         LatheLog.capability.info(
             """
             orientation-tag probe: \(preserved.count, privacy: .public) of \
-            \(support.imageIOEncodableFormats.count, privacy: .public) ImageIO-encodable formats \
-            keep the tag \
+            \(support.supportedFormats.count, privacy: .public) encodable formats keep the tag \
             (\(preserved.map(\.description).sorted().joined(separator: ", "), privacy: .public))
             """
         )
         return preserved
     }()
+
+    /// `image` written as `format` with the probe orientation, or `nil`.
+    private static func probeBytes(
+        _ format: ImageFormat,
+        image: CGImage,
+        support: EncodeSupport
+    ) -> Data? {
+        let tagged: [CFString: Any] = [kCGImagePropertyOrientation: probeValue]
+        switch support.backend(for: format) {
+        case .imageIO:
+            guard let uti = support.destinationTypeIdentifier(for: format) else { return nil }
+            let buffer = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                buffer as CFMutableData, uti as CFString, 1, nil
+            ) else { return nil }
+            CGImageDestinationAddImage(destination, image, tagged as CFDictionary)
+            guard CGImageDestinationFinalize(destination), buffer.length > 0 else { return nil }
+            return buffer as Data
+
+        case .builtIn where format == .webp:
+            let size = PixelSize(width: image.width, height: image.height)
+            guard let chunks = try? WebPMetadataChunks.carrying(tagged, pixelSize: size) else {
+                return nil
+            }
+            return try? WebPEncoder.encode(image, quality: .lossless, metadata: chunks)
+
+        case .builtIn, nil:
+            return nil
+        }
+    }
 
     /// 2x2 opaque RGBA. Small enough that no encoder objects, and large enough
     /// that none of them treats it as degenerate.

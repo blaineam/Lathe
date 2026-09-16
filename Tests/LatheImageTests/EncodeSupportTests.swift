@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import LatheCore
+import LatheFixtures
 import Testing
 
 @testable import LatheImage
@@ -54,6 +55,8 @@ struct EncodeSupportTests {
                  : stillUnwritable.map(\.description).joined(separator: ", ")))
         print("  vendored encoders: "
               + EncodeSupport.builtInFormats.map(\.description).sorted().joined(separator: ", "))
+        print("  animated: "
+              + EncodeSupport.shared.animatedFormats.map(\.description).sorted().joined(separator: ", "))
         print("")
 
         #expect(!EncodeSupport.shared.reportedTypeIdentifiers.isEmpty,
@@ -110,6 +113,45 @@ struct EncodeSupportTests {
         #expect(EncodeSupport.shared.backend(for: .webp) == .builtIn)
         #expect(EncodeSupport.shared.unsupportedFormats.contains(.webp) == false)
         #expect(throws: Never.self) { try EncodeSupport.shared.requireEncodable(.webp) }
+    }
+
+    /// **Animated WebP is reported as writable, and truthfully.** Writable
+    /// because `WebPAnimEncoder` is vendored; truthful because the claim is
+    /// exercised — a two-frame write through `AnimatedImageWriter` must produce
+    /// a file ImageIO reads as animated. A capability table that says yes
+    /// without that is the over-reporting this type exists to avoid.
+    @Test("animated WebP is reported as encodable, and the report is true")
+    func animatedWebPIsEncodable() throws {
+        let support = EncodeSupport.shared
+        #expect(support.canEncodeAnimated(.webp))
+        #expect(support.animatedFormats.contains(.webp))
+        #expect(EncodeSupport.builtInAnimatedFormats.isSubset(of: EncodeSupport.builtInFormats))
+        #expect(support.diagnosticReport.contains("animated YES"))
+
+        let directory = try DocumentFixtures.makeTemporaryDirectory("encode-support-anim")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FrameFixtures.stills(count: 2, in: directory)
+        let output = directory.appendingPathComponent("probe.webp")
+        try AnimatedImageWriter().write(
+            try FrameSequence.contentsOfDirectory(directory), to: output, format: .webp
+        )
+        #expect(try ImageInspector().inspect(output).isAnimated)
+    }
+
+    /// The animated answer is the still answer narrowed by "has somewhere to
+    /// keep a delay" — never wider.
+    @Test("canEncodeAnimated implies canEncode and a timing container",
+          arguments: ImageFormat.allCases)
+    func animatedImpliesEncodable(format: ImageFormat) {
+        let support = EncodeSupport.shared
+        if support.canEncodeAnimated(format) {
+            #expect(support.canEncode(format))
+            #expect(AnimationContainer.holding(format) != nil)
+        }
+        // Nowhere to put a delay is a fact about the format, not this machine.
+        if [.jpeg, .heic, .avif, .tiff, .jp2, .jpegXL, .pdf].contains(format) {
+            #expect(!support.canEncodeAnimated(format))
+        }
     }
 
     /// Every format resolves to exactly one backend, or to none.

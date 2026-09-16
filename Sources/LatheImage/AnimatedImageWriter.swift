@@ -126,8 +126,8 @@ public struct AnimatedImageResult: Sendable, Equatable {
     }
 }
 
-/// Assembles a run of stills into one animated image: GIF, APNG, or an animated
-/// HEIC sequence.
+/// Assembles a run of stills into one animated image: GIF, APNG, animated WebP,
+/// or an animated HEIC sequence.
 ///
 /// The reverse of ``FrameExtractor``'s `frames(from:into:)`, and deliberately
 /// the same vocabulary at the seam — a directory of zero-padded stills goes in
@@ -151,22 +151,35 @@ public struct AnimatedImageResult: Sendable, Equatable {
 ///    rather than of this machine. AVIF is the interesting refusal — it is
 ///    ``ImageFormat/isAnimatable`` and ImageIO exposes no timing dictionary for
 ///    it, so a "success" here would be a burst, not an animation.
-/// 2. **Can this system encode it?** ``EncodeSupport`` answers that, by
-///    attempting a destination rather than by consulting a version number. The
-///    package's standing rule: never branch on an OS release.
+/// 2. **Can this system encode it — as an animation?**
+///    ``EncodeSupport/canEncodeAnimated(_:)`` answers that, by attempting a
+///    destination rather than by consulting a version number. The package's
+///    standing rule: never branch on an OS release.
 ///
-/// The practical answer today is GIF, APNG and HEICS everywhere, but nothing
-/// here writes that down — a system that gains or loses one is handled by the
-/// probe, on the day.
+/// The practical answer today is GIF, APNG, WebP and HEICS everywhere, but
+/// nothing here writes that down — a system that gains or loses one is handled
+/// by the probe, on the day.
 ///
-/// **WebP is refused with its own message.** It is animatable, and
-/// ``EncodeSupport`` even reports it as encodable — by the vendored libwebp,
-/// which this package uses precisely because ImageIO cannot write WebP at all.
-/// But what is vendored is the *encoder*, not the muxer: libwebp's `WebPEncode`
-/// produces one still frame, and an animated WebP needs `libwebpmux` and
-/// `WebPAnimEncoder` on top. Telling the caller "this system cannot encode WebP"
-/// would be false and would send them looking at their OS; the message says what
-/// is actually missing.
+/// ## Two backends, one contract
+///
+/// GIF, APNG and HEICS are written by `CGImageDestination`. **WebP is written
+/// by the vendored libwebp's `WebPAnimEncoder`** (see ``WebPAnimationEncoder``),
+/// because ImageIO reads animated WebP and writes no WebP at all. Which one runs
+/// is ``EncodeSupport/backend(for:)``, exactly as for a still, and the caller
+/// cannot tell: the same delays, the same clamp, the same loop convention, the
+/// same canvas composition, the same atomic write, the same progress stages.
+///
+/// What differs is stated rather than hidden:
+///
+/// - **WebP honours ``QualityTarget/lossless``**, and `.quality(_:)` means a
+///   lossy WebP at that quality — the same mapping ``ImageEncoder`` uses for a
+///   WebP still. GIF and APNG have no quality to set.
+/// - **WebP merges consecutive identical frames** into one longer frame, so
+///   ``AnimatedImageResult/frameCount`` can be smaller than the input. The
+///   result reports the file, not the request; the duration is unchanged.
+/// - **WebP's limits are its own**: a loop count above 65535 and a single delay
+///   above about 4.6 hours are refused, because the container has 16 and 24 bits
+///   for them.
 public struct AnimatedImageWriter: Sendable {
 
     public init() {}
@@ -184,24 +197,27 @@ public struct AnimatedImageWriter: Sendable {
     ///     format**, not this extension — but a mismatch between them is refused
     ///     rather than written, because a `.gif` that is really an APNG is a file
     ///     that opens nowhere its name suggests it should.
-    ///   - format: `.gif`, `.png` (APNG) or `.heics`, subject to the two checks
-    ///     above.
+    ///   - format: `.gif`, `.png` (APNG), `.webp` or `.heics`, subject to the
+    ///     two checks above.
     ///   - delays: see ``FrameDelays``, including what happens to a zero.
     ///   - loopCount: `0` — the default — means loop forever, which is the
-    ///     container convention and what almost every animation wants.
+    ///     container convention and what almost every animation wants. Negative
+    ///     is refused.
     ///   - canvas: what to do about frames that are not all the same size. See
     ///     ``FrameCanvas``.
-    ///   - quality: honoured only by formats that are lossy by default, which
-    ///     among these is HEICS alone. GIF and APNG ignore it.
+    ///   - quality: honoured by HEICS, and by WebP — which also honours
+    ///     ``QualityTarget/lossless``. GIF and APNG ignore it.
     ///   - progress: reported per frame under the stage name `"frames"`, and a
     ///     cancellation checkpoint at each one.
     ///
     /// - Throws: ``LatheError/invalidInput(reason:)`` for an empty sequence or an
     ///   unreadable frame; ``LatheError/invalidConfiguration(reason:)`` for a
-    ///   format with nowhere to put timing, a mismatched extension, or a bad
-    ///   delay; ``LatheError/encodeUnavailable(format:)`` when this system cannot
-    ///   write the format; ``LatheError/cancelled(atUnit:)`` when progress says
-    ///   stop.
+    ///   format with nowhere to put timing, a mismatched extension, a bad
+    ///   delay, or a loop count the container cannot store;
+    ///   ``LatheError/encodeUnavailable(format:)`` when this system cannot write
+    ///   the format; ``LatheError/encodingFailed(stage:code:reason:)`` when the
+    ///   encoder itself fails; ``LatheError/cancelled(atUnit:)`` when progress
+    ///   says stop.
     @discardableResult
     public func write(
         _ frames: FrameSequence,
@@ -225,26 +241,27 @@ public struct AnimatedImageWriter: Sendable {
         guard let container = AnimationContainer.holding(format) else {
             throw LatheError.invalidConfiguration(
                 reason: "\(format.description) has no per-frame timing to write; an animation "
-                    + "needs GIF, APNG (png) or HEICS"
+                    + "needs GIF, APNG (png), WebP or HEICS"
             )
         }
-        // Encodability before backend, and the order matters: a format this
-        // system cannot write at all must fail as `encodeUnavailable`, which
-        // tells the caller to pick another format. Only a format that *is*
-        // encodable — but by the vendored backend rather than by ImageIO —
-        // reaches the second guard, and today that is WebP alone.
+        // Encodability first: a format this system cannot write at all fails as
+        // `encodeUnavailable`, which tells the caller to pick another format.
         try EncodeSupport.shared.requireEncodable(format)
-        guard EncodeSupport.shared.backend(for: format) == .imageIO else {
-            // "This system cannot encode WebP" would be the wrong thing to say
-            // here — it can, one frame at a time. See the type's docs.
+        guard EncodeSupport.shared.canEncodeAnimated(format),
+              let backend = EncodeSupport.shared.backend(for: format) else {
+            // Encodable, with a timing dictionary, and still not animatable:
+            // a built-in still encoder with no animation encoder beside it.
+            // Nothing reaches this today; the message says what is missing
+            // rather than blaming the OS.
             throw LatheError.unsupportedOnThisPlatform(
-                feature: "writing an animated \(format.description) "
-                    + "(the vendored encoder writes single frames; an animated \(format.description) "
-                    + "needs a muxer this package does not vendor)"
+                feature: "writing an animated \(format.description) (this package encodes it "
+                    + "one frame at a time only)"
             )
         }
-        guard let typeIdentifier = EncodeSupport.shared.destinationTypeIdentifier(for: format) else {
-            throw LatheError.encodeUnavailable(format: format.description)
+        guard loopCount >= 0 else {
+            throw LatheError.invalidConfiguration(
+                reason: "a loop count cannot be negative, got \(loopCount); 0 means forever"
+            )
         }
 
         // The extension is checked rather than corrected. Writing APNG bytes to
@@ -266,7 +283,75 @@ public struct AnimatedImageWriter: Sendable {
         }
 
         // MARK: Write.
-        let bytes = try ImageEncoder.writingAtomically(to: destination, format: format) { scratch in
+        let written: (bytes: UInt64, frameCount: Int, duration: TimeInterval)
+        switch backend {
+        case .imageIO:
+            guard let typeIdentifier = EncodeSupport.shared.destinationTypeIdentifier(for: format) else {
+                throw LatheError.encodeUnavailable(format: format.description)
+            }
+            let bytes = try writeViaImageIO(
+                urls, to: destination, format: format, typeIdentifier: typeIdentifier,
+                container: container, delays: resolvedDelays, loopCount: loopCount,
+                canvas: size, quality: quality, progress: progress
+            )
+            written = (bytes, urls.count, resolvedDelays.reduce(0, +))
+
+        case .builtIn:
+            // Only WebP reaches here. See the type's documentation.
+            var output: WebPAnimationEncoder.Output?
+            let bytes = try ImageEncoder.writingAtomically(to: destination, format: format) { scratch in
+                let encoded = try WebPAnimationEncoder.encode(
+                    canvas: size, delays: resolvedDelays, loopCount: loopCount, quality: quality,
+                    frame: { index in
+                        try progress.checkCancellation()
+                        return try FrameReader.compose(try FrameReader.decode(urls[index]), onto: size)
+                    },
+                    didAdd: { index in
+                        try Self.reportFrame(index, of: urls.count, to: progress)
+                    }
+                )
+                try encoded.data.write(to: scratch, options: .atomic)
+                output = encoded
+            }
+            guard let output else {
+                throw LatheError.encodingFailed(
+                    stage: "encode", code: nil, reason: "the WebP animation produced no output"
+                )
+            }
+            // The file's own frame count and duration: merging can make the
+            // first smaller than the request, and millisecond rounding can move
+            // the second by a hair. A one-frame result is a still and reports
+            // the requested delay, as the ImageIO path does.
+            written = (bytes, output.frameCount,
+                       output.frameCount > 1 ? output.duration : resolvedDelays.reduce(0, +))
+        }
+
+        return AnimatedImageResult(
+            output: destination,
+            format: format,
+            frameCount: written.frameCount,
+            duration: written.duration,
+            loopCount: loopCount,
+            pixelSize: size,
+            outputByteCount: written.bytes,
+            wallTime: Date().timeIntervalSince(started)
+        )
+    }
+
+    /// The ImageIO backend: GIF, APNG and HEICS.
+    private func writeViaImageIO(
+        _ urls: [URL],
+        to destination: URL,
+        format: ImageFormat,
+        typeIdentifier: String,
+        container: AnimationContainer,
+        delays: [TimeInterval],
+        loopCount: Int,
+        canvas size: PixelSize,
+        quality: QualityTarget,
+        progress: ProgressHandle
+    ) throws -> UInt64 {
+        try ImageEncoder.writingAtomically(to: destination, format: format) { scratch in
             guard let sink = CGImageDestinationCreateWithURL(
                 scratch as CFURL, typeIdentifier as CFString, urls.count, nil
             ) else {
@@ -292,7 +377,7 @@ public struct AnimatedImageWriter: Sendable {
 
                 var frameProperties: [CFString: Any] = [
                     container.dictionaryKey: [
-                        container.delayKey: resolvedDelays[index],
+                        container.delayKey: delays[index],
                     ] as CFDictionary,
                 ]
                 if format.isLossyByDefault, let normalised = quality.normalisedQuality {
@@ -300,13 +385,7 @@ public struct AnimatedImageWriter: Sendable {
                 }
                 CGImageDestinationAddImage(sink, image, frameProperties as CFDictionary)
 
-                guard progress.report(LatheProgress(
-                    fraction: Double(index + 1) / Double(urls.count),
-                    stage: "frames",
-                    unitIndex: UInt64(index + 1),
-                    unitCount: UInt64(urls.count))) else {
-                    throw LatheError.cancelled(atUnit: UInt64(index + 1))
-                }
+                try Self.reportFrame(index, of: urls.count, to: progress)
             }
 
             guard CGImageDestinationFinalize(sink) else {
@@ -316,17 +395,17 @@ public struct AnimatedImageWriter: Sendable {
                 )
             }
         }
+    }
 
-        return AnimatedImageResult(
-            output: destination,
-            format: format,
-            frameCount: urls.count,
-            duration: resolvedDelays.reduce(0, +),
-            loopCount: loopCount,
-            pixelSize: size,
-            outputByteCount: bytes,
-            wallTime: Date().timeIntervalSince(started)
-        )
+    /// One `"frames"` tick, and a cancellation checkpoint.
+    private static func reportFrame(_ index: Int, of count: Int, to progress: ProgressHandle) throws {
+        guard progress.report(LatheProgress(
+            fraction: Double(index + 1) / Double(count),
+            stage: "frames",
+            unitIndex: UInt64(index + 1),
+            unitCount: UInt64(count))) else {
+            throw LatheError.cancelled(atUnit: UInt64(index + 1))
+        }
     }
 
     /// The same write, off the cooperative pool and with `Task` cancellation

@@ -1089,10 +1089,12 @@ enum Fixtures {
 
     /// An **animated WebP**, assembled by hand.
     ///
-    /// `ImageEncoder` cannot write one — animation needs WebP's extended `VP8X`
-    /// container, which only libwebp's muxer produces, and the muxer is
-    /// deliberately not vendored. So the frames are real (the vendored encoder
-    /// writes each one as a lossless still) and only the container is built here:
+    /// `AnimatedImageWriter` can write one now, through the vendored
+    /// `WebPAnimEncoder` — which is exactly why this fixture stays hand-built. A
+    /// container assembled here, from the spec, is a file libwebp's muxer did not
+    /// shape, so the inspector's WebP path is tested against more than one
+    /// writer's habits. The frames are real (the vendored encoder writes each one
+    /// as a lossless still) and only the container is built here:
     /// `VP8X` with the animation flag, `ANIM` carrying the loop count, and one
     /// `ANMF` per frame wrapping that frame's own `VP8L` chunk.
     ///
@@ -1391,6 +1393,49 @@ enum Fixtures {
     }
 
     // MARK: Reading raw containers
+
+    /// The top-level chunk FourCCs of a RIFF/WEBP file, in order.
+    static func chunkTags(_ data: Data) -> [String] {
+        var tags: [String] = []
+        var offset = 12
+        while offset + 8 <= data.count, let tag = fourCC(data, at: offset) {
+            tags.append(tag)
+            let size = Int(littleEndianUInt32(data, at: offset + 4))
+            offset += 8 + size + (size & 1)
+        }
+        return tags
+    }
+
+    /// The payload of the first top-level chunk named `tag`.
+    static func chunk(_ tag: String, in data: Data) -> Data? {
+        var offset = 12
+        while offset + 8 <= data.count, let found = fourCC(data, at: offset) {
+            let size = Int(littleEndianUInt32(data, at: offset + 4))
+            if found == tag, offset + 8 + size <= data.count {
+                return Data(data[(offset + 8)..<(offset + 8 + size)])
+            }
+            offset += 8 + size + (size & 1)
+        }
+        return nil
+    }
+
+    /// The tag numbers in IFD0 of a TIFF-structured EXIF block.
+    static func ifd0Tags(ofEXIF exif: Data) -> [Int] {
+        let b = [UInt8](exif)
+        guard b.count >= 8 else { return [] }
+        let big = b[0] == 0x4D
+        func read(_ o: Int, _ n: Int) -> Int {
+            guard o + n <= b.count else { return 0 }
+            return (0..<n).reduce(0) { $0 << 8 | Int(b[o + (big ? $1 : n - 1 - $1)]) }
+        }
+        let ifd0 = read(4, 4)
+        let count = read(ifd0, 2)
+        return (0..<count).map { read(ifd0 + 2 + $0 * 12, 2) }
+    }
+
+    static func containsASCII(_ data: Data, _ text: String) -> Bool {
+        data.range(of: Data(text.utf8)) != nil
+    }
 
     static func fourCC(_ data: Data, at offset: Int) -> String? {
         guard data.count >= offset + 4 else { return nil }

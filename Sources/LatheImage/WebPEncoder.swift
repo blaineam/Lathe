@@ -17,20 +17,21 @@ import CWebP
 ///
 /// ## What it does and does not carry
 ///
-/// **Pixels, and nothing else.** WebP stores metadata in `EXIF`/`XMP`/`ICCP`
-/// chunks of the *extended* file format, which means a `VP8X` container, which
-/// means libwebp's muxer — a second library, with its own API surface, vendored
-/// purely to write an orientation tag. The cheaper answer is available and is
-/// the one taken: ``ImageEncoder`` already bakes orientation into the pixels for
-/// any format that cannot hold a tag, and WebP is now such a format as far as
-/// the rest of this package is concerned. So a rotated photo comes out upright,
-/// and the picture is never on its side.
+/// **Pixels, plus EXIF and XMP when asked.** WebP stores metadata in
+/// `EXIF`/`XMP `/`ICCP` chunks of the *extended* (`VP8X`) file format, which
+/// only libwebp's muxer writes. The muxer is now vendored — it came with
+/// animation, see ``WebPAnimationEncoder`` — so ``ImageEncoder`` hands this
+/// encoder the same policy-filtered properties it hands ImageIO, and
+/// ``WebPMetadataChunks`` turns them into chunks. The orientation tag is among
+/// them, and ImageIO reads it back, so ``OrientationTagSupport`` now finds WebP
+/// able to hold one and ``OrientationStrategy/preserveTag`` is honoured rather
+/// than overridden.
 ///
-/// The cost is stated rather than hidden: a WebP written here carries **no EXIF,
-/// no GPS, no XMP and no ICC profile**, whatever ``MetadataPolicy`` was asked
-/// for. ``ImageEncoder`` logs when a policy asked to preserve something.
-/// Pixels are converted to sRGB on the way in, which is what an untagged WebP is
-/// read as anyway.
+/// Still not carried: an **ICC profile**. Pixels are converted to sRGB on the
+/// way in, which is what an untagged WebP is read as anyway, so there is no
+/// profile to store. And the XMP packet is whatever ImageIO derives from the
+/// properties dictionary — the source's own raw packet is not copied, the same
+/// gap every ImageIO format has (see ``ImageMetadata``).
 ///
 /// ## Lossless
 ///
@@ -45,14 +46,60 @@ enum WebPEncoder {
 
     /// Encodes `image` and returns the WebP bytes.
     ///
-    /// - Parameter quality: ``QualityTarget/quality(_:)`` maps `0...1` onto
-    ///   libwebp's `0...100`; ``QualityTarget/lossless`` selects the lossless
-    ///   coder. The bitrate-shaped cases have no meaning for a still and fall
-    ///   back to libwebp's own default quality, matching how the ImageIO path
-    ///   treats them (it sets no quality key at all).
-    static func encode(_ image: CGImage, quality: QualityTarget) throws -> Data {
-        let width = image.width
-        let height = image.height
+    /// - Parameters:
+    ///   - quality: ``QualityTarget/quality(_:)`` maps `0...1` onto libwebp's
+    ///     `0...100`; ``QualityTarget/lossless`` selects the lossless coder. The
+    ///     bitrate-shaped cases have no meaning for a still and fall back to
+    ///     libwebp's own default quality, matching how the ImageIO path treats
+    ///     them (it sets no quality key at all).
+    ///   - metadata: chunks to store beside the pixels. Empty — the default —
+    ///     writes a *simple* file (`VP8 ` / `VP8L`), exactly as before the muxer
+    ///     was vendored; anything else writes an *extended* (`VP8X`) one.
+    static func encode(
+        _ image: CGImage,
+        quality: QualityTarget,
+        metadata: WebPMetadataChunks = WebPMetadataChunks()
+    ) throws -> Data {
+        try requireEncodableSize(width: image.width, height: image.height)
+        var config = try configuration(for: quality)
+
+        var picture = WebPPicture()
+        guard WebPPictureInit(&picture) != 0 else {
+            throw LatheError.encodingFailed(
+                stage: "encode", code: nil, reason: "WebPPictureInit failed (ABI mismatch)"
+            )
+        }
+        defer { WebPPictureFree(&picture) }
+        try importPixels(of: image, into: &picture)
+
+        let writer = UnsafeMutablePointer<WebPMemoryWriter>.allocate(capacity: 1)
+        defer {
+            WebPMemoryWriterClear(writer)
+            writer.deallocate()
+        }
+        WebPMemoryWriterInit(writer)
+        picture.writer = WebPMemoryWrite
+        picture.custom_ptr = UnsafeMutableRawPointer(writer)
+
+        guard WebPEncode(&config, &picture) != 0 else {
+            throw LatheError.encodingFailed(
+                stage: "encode", code: picture.error_code.rawValue.int32,
+                reason: "libwebp: " + Self.describe(picture.error_code)
+            )
+        }
+        guard let bytes = writer.pointee.mem, writer.pointee.size > 0 else {
+            throw LatheError.encodingFailed(
+                stage: "encode", code: nil, reason: "libwebp reported success and produced no bytes"
+            )
+        }
+        let still = Data(bytes: bytes, count: writer.pointee.size)
+        return metadata.isEmpty ? still : try attach(metadata, to: still)
+    }
+
+    // MARK: - Shared with the animation encoder
+
+    /// Refuses a size WebP cannot store, with the remedy in the message.
+    static func requireEncodableSize(width: Int, height: Int) throws {
         guard width > 0, height > 0 else {
             throw LatheError.invalidConfiguration(reason: "cannot encode a \(width)x\(height) image")
         }
@@ -66,7 +113,11 @@ enum WebPEncoder {
                     + "resize: .longestSide(\(maximumDimension))."
             )
         }
+    }
 
+    /// A validated libwebp configuration for `quality`. One mapping for stills
+    /// and animation frames, so `.quality(0.8)` means the same file either way.
+    static func configuration(for quality: QualityTarget) throws -> WebPConfig {
         var config = WebPConfig()
         guard WebPConfigInit(&config) != 0 else {
             throw LatheError.encodingFailed(
@@ -98,14 +149,20 @@ enum WebPEncoder {
                 reason: "libwebp rejected quality \(config.quality) for WebP"
             )
         }
+        return config
+    }
 
-        var picture = WebPPicture()
-        guard WebPPictureInit(&picture) != 0 else {
-            throw LatheError.encodingFailed(
-                stage: "encode", code: nil, reason: "WebPPictureInit failed (ABI mismatch)"
-            )
-        }
-        defer { WebPPictureFree(&picture) }
+    /// Sizes `picture` to `image` and copies the pixels in, as straight sRGB.
+    ///
+    /// `picture` must already have been through `WebPPictureInit`; freeing it
+    /// stays the caller's job.
+    ///
+    /// - Returns: whether any pixel is less than fully opaque. The animation
+    ///   encoder needs to know; see ``WebPAnimationEncoder``.
+    @discardableResult
+    static func importPixels(of image: CGImage, into picture: inout WebPPicture) throws -> Bool {
+        let width = image.width
+        let height = image.height
         picture.width = Int32(width)
         picture.height = Int32(height)
         // ARGB rather than YUV as the import target even for the lossy path:
@@ -132,28 +189,46 @@ enum WebPEncoder {
                     + Self.describe(picture.error_code)
             )
         }
+        guard hasAlpha else { return false }
+        return stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] != 255 }
+    }
 
-        let writer = UnsafeMutablePointer<WebPMemoryWriter>.allocate(capacity: 1)
-        defer {
-            WebPMemoryWriterClear(writer)
-            writer.deallocate()
-        }
-        WebPMemoryWriterInit(writer)
-        picture.writer = WebPMemoryWrite
-        picture.custom_ptr = UnsafeMutableRawPointer(writer)
+    // MARK: - Metadata
 
-        guard WebPEncode(&config, &picture) != 0 else {
-            throw LatheError.encodingFailed(
-                stage: "encode", code: picture.error_code.rawValue.int32,
-                reason: "libwebp: " + Self.describe(picture.error_code)
+    /// Rewrites a simple WebP as an extended one carrying `metadata`.
+    ///
+    /// The pixels are not touched: `WebPMuxCreate` parses the file,
+    /// `WebPMuxSetChunk` adds the chunks, and `WebPMuxAssemble` writes the
+    /// `VP8X` header whose flags announce them.
+    private static func attach(_ metadata: WebPMetadataChunks, to still: Data) throws -> Data {
+        try still.withUnsafeBytes { raw -> Data in
+            var input = WebPData(
+                bytes: raw.baseAddress?.assumingMemoryBound(to: UInt8.self), size: raw.count
             )
+            // `copy_data: 1` so the mux owns its bytes and nothing here has to
+            // outlive this closure.
+            guard let mux = WebPMuxCreate(&input, 1) else {
+                throw LatheError.encodingFailed(
+                    stage: "mux", code: nil,
+                    reason: "libwebp's muxer could not parse the WebP its own encoder wrote"
+                )
+            }
+            defer { WebPMuxDelete(mux) }
+
+            for (fourCC, payload) in [("EXIF", metadata.exif), ("XMP ", metadata.xmp)] {
+                guard let payload, !payload.isEmpty else { continue }
+                try WebPMux.check(payload.withUnsafeBytes { bytes -> WebPMuxError in
+                    var chunk = WebPData(
+                        bytes: bytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                        size: bytes.count
+                    )
+                    return WebPMuxSetChunk(mux, fourCC, &chunk, 1)
+                }, doing: "adding the \(fourCC.trimmingCharacters(in: .whitespaces)) chunk")
+            }
+            return try WebPMux.assemble(doing: "assembling an extended WebP") { output in
+                WebPMuxAssemble(mux, &output)
+            }
         }
-        guard let bytes = writer.pointee.mem, writer.pointee.size > 0 else {
-            throw LatheError.encodingFailed(
-                stage: "encode", code: nil, reason: "libwebp reported success and produced no bytes"
-            )
-        }
-        return Data(bytes: bytes, count: writer.pointee.size)
     }
 
     // MARK: - Pixels
@@ -170,12 +245,12 @@ enum WebPEncoder {
     /// bug that survives review.
     ///
     /// **Colour space.** The destination is sRGB, chosen rather than inherited:
-    /// nothing written here carries an ICC profile (that needs the muxer, see the
-    /// type documentation), and an untagged WebP is read as sRGB by every decoder
+    /// nothing written here carries an ICC profile (see the type documentation),
+    /// and an untagged WebP is read as sRGB by every decoder
     /// including ImageIO's. Converting on the way in therefore makes the file
     /// say what it means, where passing a Display P3 buffer through untagged
     /// would silently desaturate it on the way back out.
-    private static func rgbaBytes(of image: CGImage, hasAlpha: Bool) throws -> [UInt8] {
+    static func rgbaBytes(of image: CGImage, hasAlpha: Bool) throws -> [UInt8] {
         let width = image.width
         let height = image.height
         let bytesPerRow = width * 4
@@ -241,7 +316,7 @@ enum WebPEncoder {
 
     // MARK: - Errors
 
-    private static func describe(_ code: WebPEncodingError) -> String {
+    static func describe(_ code: WebPEncodingError) -> String {
         switch code {
         case VP8_ENC_OK: "no error"
         case VP8_ENC_ERROR_OUT_OF_MEMORY: "out of memory"
