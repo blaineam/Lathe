@@ -484,6 +484,38 @@ Two consequences worth knowing before you choose WebP as an output format:
   [Animations](#animations-from-stills) below. It is read by ImageIO, timing
   included; no demuxer is vendored.
 
+### Visually lossless
+
+A fixed quality is either wasteful or damaging, depending on the picture: a
+busy photograph hides compression that a smooth sky shows. `QualitySearch`
+decides per file instead. It encodes at the top of a range, then halves the
+range, and keeps the lowest setting whose result still passes a
+`VisualThreshold`.
+
+```swift
+if let result = try await ImageEncoder().encodeVisuallyLossless(
+    source: photo, to: out, format: .heic) {
+    print(result.quality, result.similarity.overall)
+}
+```
+
+**What "looks the same" means here.** `VisualComparison` draws both pictures
+at the candidate's displayed size and computes SSIM. Luma is compared at full
+resolution and colour at half, which is about the eye's colour acuity and exactly
+what 4:2:0 codecs keep. The worst 32 × 32 region is bounded separately, so a
+local blemish fails even when the average passes. `.visuallyLossless` asks for
+0.99 overall and 0.97 in the worst region. Pictures over 12 MP are compared
+downscaled to 12 MP.
+
+It is still lossy. It is a measurement, not a guarantee, and the search assumes
+fidelity rises with the setting, which real encoders nearly but not always do.
+
+**Video.** `VideoQualitySearch` cuts a few short clips with a passthrough
+export, runs the caller's encode on those at each candidate, and compares
+frames. A setting passes only if every compared frame does. The caller then
+encodes the whole video once. The encode is a closure, so the same search
+drives a hardware quality or an SVT-AV1 bitrate.
+
 ### Frame and animation inspection
 
 `ImageInspector` answers "how many frames, does it play, and for how long" from
