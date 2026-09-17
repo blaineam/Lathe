@@ -21,6 +21,10 @@ final class Presence {
         case dock
         /// A menu bar item and nothing else. No Dock icon, no ⌘-Tab entry.
         case menuBar
+        /// Nothing at all until asked. No Dock icon and no menu bar item;
+        /// opening Lathe again brings up its window, and the Dock icon shows
+        /// only while a window is open.
+        case background
 
         var id: String { rawValue }
 
@@ -28,6 +32,7 @@ final class Presence {
             switch self {
             case .dock: return "In the Dock"
             case .menuBar: return "Menu bar only"
+            case .background: return "In the background"
             }
         }
 
@@ -39,6 +44,10 @@ final class Presence {
             case .menuBar:
                 return "No Dock icon and no switcher entry — just the menu bar "
                     + "item. The window is still there when you want it."
+            case .background:
+                return "Runs with nothing on screen. Open Lathe again from "
+                    + "Finder, Spotlight or Launchpad to bring up its window; "
+                    + "the Dock icon shows only while a window is open."
             }
         }
 
@@ -53,6 +62,12 @@ final class Presence {
     }
 
     private static let styleKey = "presence.style"
+
+    /// The saved style, for code that runs outside the SwiftUI scene — the
+    /// app delegate — and has no `Presence` of its own.
+    static var storedStyle: Style {
+        UserDefaults.standard.string(forKey: styleKey).flatMap(Style.init(rawValue:)) ?? .dock
+    }
 
     var style: Style {
         didSet {
@@ -73,7 +88,13 @@ final class Presence {
         }
     }
 
-    var menuBarItemIsVisible: Bool { style == .menuBar || showsMenuBarItem }
+    var menuBarItemIsVisible: Bool {
+        switch style {
+        case .dock: return showsMenuBarItem
+        case .menuBar: return true
+        case .background: return false
+        }
+    }
 
     init() {
         let stored = UserDefaults.standard.string(forKey: Self.styleKey)
@@ -88,6 +109,12 @@ final class Presence {
     /// the policy can be changed while running, which is what makes this a
     /// setting rather than a relaunch.
     func apply() {
+        if style == .background {
+            // Changed from Settings, so a window is open: the Dock icon stays
+            // until it closes.
+            Self.syncDockIcon()
+            return
+        }
         NSApp.setActivationPolicy(style.activationPolicy)
         if style == .dock {
             // Coming back to the Dock without this leaves the app running with
@@ -95,6 +122,22 @@ final class Presence {
             // way to be made so.
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    /// In background mode, a Dock icon exactly while a window is open.
+    ///
+    /// A window with no Dock icon cannot be ⌘-Tabbed to and comes up behind
+    /// whatever is in front, which is no way to use a browser. So the icon
+    /// comes with the window and leaves with the last one.
+    static func syncDockIcon() {
+        guard storedStyle == .background else { return }
+        let showing = NSApp.windows.contains { window in
+            window.isVisible && window.styleMask.contains(.titled) && !(window is NSPanel)
+        }
+        let wanted: NSApplication.ActivationPolicy = showing ? .regular : .accessory
+        guard NSApp.activationPolicy() != wanted else { return }
+        NSApp.setActivationPolicy(wanted)
+        if showing { NSApp.activate(ignoringOtherApps: true) }
     }
 
     // MARK: - Login

@@ -864,6 +864,20 @@ struct GeneralSettings: View {
     @Bindable var presence: Presence
     @State private var loginFailure: String?
 
+    private var startupExplanation: String {
+        switch presence.style {
+        case .dock:
+            return "Opens normally at login. Choose menu bar only or in the "
+                + "background above if you would rather it started out of the way."
+        case .menuBar:
+            return "Starts with no window and no Dock icon — just the menu "
+                + "bar item, ready for anything the Shortcut sends it."
+        case .background:
+            return "Starts with nothing on screen, ready for anything the "
+                + "Shortcut sends it. Open Lathe again to see its window."
+        }
+    }
+
     var body: some View {
         Form {
             Section("Appearance") {
@@ -905,11 +919,7 @@ struct GeneralSettings: View {
                     Text(loginFailure).font(.caption).foregroundStyle(.orange)
                 }
 
-                Text(presence.style == .menuBar
-                     ? "Starts with no window and no Dock icon — just the menu "
-                       + "bar item, ready for anything the Shortcut sends it."
-                     : "Opens normally at login. Switch to menu bar only above "
-                       + "if you would rather it started out of the way.")
+                Text(startupExplanation)
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -1332,6 +1342,7 @@ struct MenuBarContents: View {
     @Bindable var queue: Queue
     @Bindable var presence: Presence
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         if queue.activeCount > 0 {
@@ -1368,11 +1379,37 @@ struct MenuBarContents: View {
 
         Divider()
 
-        Button("Settings…") {
-            NSApp.activate(ignoringOtherApps: true)
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        }
+        Button("Settings…") { SettingsWindow.open(with: openSettings) }
         Button("Quit Lathe") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+}
+
+/// Opens Settings from anywhere, including from a menu bar item.
+///
+/// The `showSettingsWindow:` action this replaced is no longer answered by
+/// SwiftUI's Settings scene, so the item did nothing. `openSettings` opens the
+/// window — but an app with no Dock icon opens it behind the frontmost app, so
+/// it is brought forward once it exists.
+@MainActor
+enum SettingsWindow {
+    static func open(with openSettings: OpenSettingsAction) {
+        NSApp.activate(ignoringOtherApps: true)
+        openSettings()
+        Task { @MainActor in
+            for _ in 0..<20 {
+                if let window = NSApp.windows.first(where: isSettings), window.isVisible {
+                    window.makeKeyAndOrderFront(nil)
+                    window.orderFrontRegardless()
+                    NSApp.activate(ignoringOtherApps: true)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
+    static func isSettings(_ window: NSWindow) -> Bool {
+        window.identifier?.rawValue.contains("Settings") == true
     }
 }
