@@ -19,11 +19,21 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let presence = Presence()
+        let style = Presence.storedStyle
         // Before anything is drawn, so the Dock icon never appears and vanishes.
-        NSApp.setActivationPolicy(presence.style.activationPolicy)
+        NSApp.setActivationPolicy(style.activationPolicy)
 
-        guard presence.style == .menuBar else { return }
+        // In background mode the Dock icon follows the windows.
+        let center = NotificationCenter.default
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.willCloseNotification,
+                     NSWindow.didMiniaturizeNotification, NSWindow.didDeminiaturizeNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                // After the close has happened, not while it is happening.
+                DispatchQueue.main.async { MainActor.assumeIsolated { Presence.syncDockIcon() } }
+            }
+        }
+
+        guard style != .dock else { return }
         // SwiftUI has already made the window by this point; there is no scene
         // modifier that suppresses it conditionally at runtime.
         for window in NSApp.windows where window.isVisible {
@@ -31,11 +41,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Clicking the Dock icon, or launching an already-running app.
+    /// Clicking the Dock icon, or opening the app again while it runs.
+    ///
+    /// In background mode this is the way in: the second open is what shows
+    /// the window, and the Dock icon with it.
     func applicationShouldHandleReopen(
         _ sender: NSApplication, hasVisibleWindows flag: Bool
     ) -> Bool {
-        if !flag { NSApp.activate(ignoringOtherApps: true) }
+        if Presence.storedStyle == .background {
+            NSApp.setActivationPolicy(.regular)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        guard !flag else { return true }
+        // The window hidden at launch still exists; showing it keeps its
+        // state. When it has been closed, SwiftUI makes a new one.
+        if let main = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
+            main.makeKeyAndOrderFront(nil)
+            return false
+        }
         return true
     }
 
