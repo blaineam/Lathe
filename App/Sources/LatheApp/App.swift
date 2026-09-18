@@ -115,7 +115,9 @@ enum Pane: String, CaseIterable, Identifiable {
 struct RootView: View {
     @Bindable var queue: Queue
     @Bindable var browser: BrowserModel
-    @State private var pane: Pane = .queue
+    // `--browse` opens straight to the browser, for checking browser changes
+    // without clicking through the queue first.
+    @State private var pane: Pane = CommandLine.arguments.contains("--browse") ? .browse : .queue
 
     var body: some View {
         VStack(spacing: 0) {
@@ -213,7 +215,9 @@ struct QueueView: View {
                 ScrollView {
                     LazyVStack(spacing: 8) {
                         ForEach(queue.downloads) { download in
-                            DownloadRow(download: download) { queue.remove(download) }
+                            DownloadRow(download: download,
+                                        remove: { queue.remove(download) },
+                                        retry: { queue.retry(download) })
                         }
                     }
                     .padding(.horizontal, 16)
@@ -281,6 +285,7 @@ struct QueueView: View {
 struct DownloadRow: View {
     @Bindable var download: Download
     let remove: () -> Void
+    var retry: () -> Void = {}
 
     private var isFailed: Bool {
         if case .failed = download.state { return true }
@@ -316,6 +321,12 @@ struct DownloadRow: View {
                 Image(systemName: "person.badge.key.fill")
                     .foregroundStyle(.tint)
                     .help("Using the session you signed in to in Browse")
+            }
+
+            if isFailed {
+                Button(action: retry) { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+                    .help("Try this one again")
             }
 
             if case .finished(let url) = download.state {
@@ -433,12 +444,20 @@ struct BrowsePane: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            TabStrip(browser: browser)
-                .onAppear { browser.ensureTab() }
+            // One tab is not a set of tabs to choose between, and a strip
+            // showing the only thing open is a row of chrome that earns
+            // nothing. It appears when there is a second tab; until then the
+            // way to open one lives in the address row with the rest of the
+            // controls.
+            if browser.tabs.count > 1 {
+                TabStrip(browser: browser)
+            }
+            Color.clear.frame(height: 0).onAppear { browser.ensureTab() }
 
             if let tab {
                 AddressBar(queue: queue, browser: browser, tab: tab,
-                           adopted: $adopted, addressFocused: $addressFocused)
+                           adopted: $adopted, addressFocused: $addressFocused,
+                           showsNewTab: browser.tabs.count == 1)
                 .padding(.horizontal, 16)
 
                 if let error = tab.lastError {
@@ -570,6 +589,8 @@ struct AddressBar: View {
     @Bindable var tab: BrowserTab
     @Binding var adopted: Set<String>
     @FocusState.Binding var addressFocused: Bool
+    /// Shown while the tab strip is hidden, which is whenever there is one tab.
+    var showsNewTab: Bool = false
     @State private var asking: StartIntent?
 
     private var signedIn: Bool {
@@ -650,6 +671,12 @@ struct AddressBar: View {
                     }
                     .buttonStyle(.glass)
                     .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
+                }
+
+                if showsNewTab {
+                    Button { browser.newTab() } label: { Image(systemName: "plus") }
+                        .buttonStyle(.glass)
+                        .help("New tab")
                 }
 
                 if queue.useTor {

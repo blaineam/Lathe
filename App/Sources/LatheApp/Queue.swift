@@ -265,6 +265,40 @@ final class Queue {
         downloads.removeAll { $0.id == download.id }
     }
 
+    /// Puts a download that failed back in the queue and runs it again.
+    ///
+    /// A failure is usually the network, the site, or a tool that needed
+    /// updating — none of which mean the link was wrong. Retyping it to try
+    /// again was the only way, and it lost the scope and the session that had
+    /// been set on it.
+    func retry(_ download: Download) {
+        guard case .failed = download.state else { return }
+        download.state = .queued
+        download.stage = nil
+        download.detail = nil
+        download.byteCount = 0
+        summary = nil
+        // A run in flight took its list when it started, so this one joins the
+        // next run; otherwise it starts now.
+        if !isRunning {
+            Task { await start() }
+        }
+    }
+
+    /// Everything that failed, back in the queue at once.
+    func retryFailed() {
+        let failures = downloads.filter { if case .failed = $0.state { return true } else { return false } }
+        guard !failures.isEmpty else { return }
+        for download in failures {
+            download.state = .queued
+            download.stage = nil
+            download.detail = nil
+            download.byteCount = 0
+        }
+        summary = nil
+        if !isRunning { Task { await start() } }
+    }
+
     func clearFinished() {
         downloads.removeAll { $0.state.isTerminal }
     }

@@ -66,34 +66,93 @@ final class BrowserTab: Identifiable {
     /// Mutes the page, and says when it starts making noise.
     ///
     /// Injected at document start into every frame, so it is in place before
-    /// any media element exists. Three things are needed and none of them is
-    /// optional:
+    /// any media element exists.
     ///
-    /// * **Apply on demand**, for the toggle.
-    /// * **A `MutationObserver`**, because a page adds media elements long
-    ///   after load and a mute applied once would not reach them.
-    /// * **A capturing `play` listener**, because an element can be created,
-    ///   muted-state read, and played inside one tick — faster than the
-    ///   observer runs.
+    /// Muting by setting `muted` on the elements that exist is not enough, and
+    /// that is what a muted tab talking again was: a page sets `muted = false`
+    /// on its own whenever it likes — when its player is rebuilt for the next
+    /// video, when an ad ends, when a script decides the user wants sound —
+    /// and nothing put the mute back. So the property itself is taken over.
+    /// While the tab is muted, `muted` reads true and cannot be written false;
+    /// the page's own wish is remembered and handed back when the tab is
+    /// unmuted, so unmuting restores what the page wanted rather than forcing
+    /// sound on.
+    ///
+    /// The rest closes the other ways audio escapes:
+    ///
+    /// * **Shadow roots** are searched too — a player inside a custom element
+    ///   is invisible to `document.querySelectorAll`.
+    /// * **`volumechange`** re-asserts, for anything that slips past the
+    ///   property (a different realm's prototype, say).
+    /// * **Web Audio** is suspended: a player routed through an `AudioContext`
+    ///   makes noise with every element muted.
     static let mediaScript = """
         (function () {
           if (window.__lathe) { return; }
-          var state = { muted: false, playing: 0 };
+          var state = { muted: false, playing: 0, contexts: [] };
           window.__lathe = state;
 
+          // What the page asked for, per element, while we were holding it
+          // muted — so unmuting the tab gives the page back its own choice.
+          var wanted = new WeakMap();
+
+          function collect(root, out) {
+            if (!root || !root.querySelectorAll) { return out; }
+            root.querySelectorAll('video, audio').forEach(function (el) { out.push(el); });
+            root.querySelectorAll('*').forEach(function (el) {
+              if (el.shadowRoot) { collect(el.shadowRoot, out); }
+            });
+            return out;
+          }
+
           function elements() {
-            return document.querySelectorAll('video, audio');
+            return collect(document, []);
+          }
+
+          function enforce(el) {
+            if (!state.muted) { return; }
+            try { if (!el.muted) { el.muted = true; } } catch (e) { /* not ours */ }
           }
 
           function apply() {
-            elements().forEach(function (el) {
-              if (state.muted) { el.muted = true; }
+            elements().forEach(enforce);
+            state.contexts.forEach(function (context) {
+              try { state.muted ? context.suspend() : context.resume(); } catch (e) {}
+            });
+          }
+
+          // The property itself, so a page cannot simply write the mute away.
+          var media = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+          var descriptor = media && Object.getOwnPropertyDescriptor(media, 'muted');
+          if (descriptor && descriptor.set && descriptor.get) {
+            Object.defineProperty(media, 'muted', {
+              configurable: true,
+              enumerable: descriptor.enumerable,
+              get: function () {
+                return state.muted ? true : descriptor.get.call(this);
+              },
+              set: function (value) {
+                wanted.set(this, !!value);
+                descriptor.set.call(this, state.muted ? true : !!value);
+              }
             });
           }
 
           window.__latheSetMuted = function (on) {
+            var was = state.muted;
             state.muted = !!on;
-            elements().forEach(function (el) { el.muted = state.muted; });
+            elements().forEach(function (el) {
+              if (state.muted) {
+                if (!wanted.has(el)) { wanted.set(el, !!el.muted); }
+                enforce(el);
+              } else if (was) {
+                // Back to whatever the page wanted while it was held.
+                try { el.muted = wanted.has(el) ? wanted.get(el) : false; } catch (e) {}
+              }
+            });
+            state.contexts.forEach(function (context) {
+              try { state.muted ? context.suspend() : context.resume(); } catch (e) {}
+            });
           };
 
           function report() {
@@ -105,9 +164,15 @@ final class BrowserTab: Identifiable {
           }
 
           document.addEventListener('play', function (event) {
-            if (state.muted) { event.target.muted = true; }
+            enforce(event.target);
             state.playing += 1;
             report();
+          }, true);
+
+          // A page that unmutes an element already playing fires this and
+          // nothing else.
+          document.addEventListener('volumechange', function (event) {
+            enforce(event.target);
           }, true);
 
           ['pause', 'ended', 'emptied'].forEach(function (name) {
@@ -117,9 +182,24 @@ final class BrowserTab: Identifiable {
             }, true);
           });
 
+          // Audio that never goes near a media element.
+          ['AudioContext', 'webkitAudioContext'].forEach(function (name) {
+            var Original = window[name];
+            if (!Original) { return; }
+            function Patched() {
+              var context = new (Function.prototype.bind.apply(
+                Original, [null].concat(Array.prototype.slice.call(arguments))))();
+              state.contexts.push(context);
+              if (state.muted) { try { context.suspend(); } catch (e) {} }
+              return context;
+            }
+            Patched.prototype = Original.prototype;
+            window[name] = Patched;
+          });
+
           new MutationObserver(apply).observe(
             document.documentElement || document,
-            { childList: true, subtree: true });
+            { childList: true, subtree: true, attributes: true, attributeFilter: ['muted', 'src'] });
         })();
         """
 
