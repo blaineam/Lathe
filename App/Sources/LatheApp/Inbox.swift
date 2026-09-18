@@ -49,8 +49,7 @@ final class Inbox {
         }
     }
 
-    private var source: DispatchSourceFileSystemObject?
-    private var descriptor: CInt = -1
+    private var sources: [DispatchSourceFileSystemObject] = []
     private var pollTimer: Timer?
 
     /// The folder's name, in iCloud Drive and in the Shortcut alike.
@@ -85,26 +84,27 @@ final class Inbox {
         return inbox
     }
 
-    /// Every folder worth draining.
+    /// Where the Shortcut actually writes.
     ///
     /// Save File's path is relative to whatever storage the Shortcuts app
-    /// decided on, and on iOS that is its own folder — so the same shortcut
-    /// that writes to `iCloud Drive/Lathe Inbox` here can land in
-    /// `iCloud Drive/Shortcuts/Lathe Inbox` there. Rather than fight it for
-    /// a folder nobody looks at, both are watched. Only the first is created:
-    /// the other exists only if Shortcuts made it.
+    /// decided on, and that is its own folder in iCloud Drive — not the root.
+    /// Told to write "/Lathe Inbox/", it makes `Shortcuts/Lathe Inbox`, every
+    /// time, on the phone and on the Mac. That is not worth fighting for the
+    /// sake of a tidier path nobody looks at, so it is created up front and
+    /// watched like any other: the shortcut works the moment it is added.
+    nonisolated static func shortcutsLocation() throws -> URL {
+        guard let drive = iCloudDrive else { throw CocoaError(.fileNoSuchFile) }
+        let folder = drive
+            .appendingPathComponent("Shortcuts", isDirectory: true)
+            .appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    /// Every folder worth draining: the one the Shortcut writes to, and the
+    /// one at the root of iCloud Drive for anything dropped in by hand.
     nonisolated static func locations() -> [URL] {
-        var folders: [URL] = []
-        if let inbox = try? location() { folders.append(inbox) }
-        if let drive = iCloudDrive {
-            let viaShortcuts = drive
-                .appendingPathComponent("Shortcuts", isDirectory: true)
-                .appendingPathComponent(folderName, isDirectory: true)
-            if FileManager.default.fileExists(atPath: viaShortcuts.path) {
-                folders.append(viaShortcuts)
-            }
-        }
-        return folders
+        [try? shortcutsLocation(), try? location()].compactMap(\.self)
     }
 
     nonisolated static var isUsingiCloud: Bool { iCloudDrive != nil }
@@ -121,20 +121,19 @@ final class Inbox {
     }
 
     func start() {
-        guard source == nil, let folder = try? Self.location() else { return }
+        guard sources.isEmpty else { return }
 
-        descriptor = open(folder.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
+        for folder in Self.locations() {
+            let descriptor = open(folder.path, O_EVTONLY)
+            guard descriptor >= 0 else { continue }
 
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor, eventMask: [.write, .extend], queue: .main)
-        source.setEventHandler { [weak self] in self?.drain() }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.descriptor, fd >= 0 { close(fd) }
-            self?.descriptor = -1
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor, eventMask: [.write, .extend], queue: .main)
+            source.setEventHandler { [weak self] in self?.drain() }
+            source.setCancelHandler { close(descriptor) }
+            source.resume()
+            sources.append(source)
         }
-        source.resume()
-        self.source = source
 
         // A file arriving from iCloud does not always announce itself through
         // the local filesystem event — the download can land without the
@@ -149,8 +148,8 @@ final class Inbox {
     }
 
     func stop() {
-        source?.cancel()
-        source = nil
+        for source in sources { source.cancel() }
+        sources.removeAll()
         pollTimer?.invalidate()
         pollTimer = nil
     }
