@@ -31,14 +31,34 @@ enum Entry {
         /// silently does nothing.
         ///
         ///     Lathe.app/Contents/MacOS/Lathe --login-selftest
+        #if os(macOS)
         if CommandLine.arguments.contains("--login-selftest") {
             LoginSelfTest.run()
             return
         }
+        #endif
         LatheApp.main()
     }
 }
 
+#if !os(macOS)
+/// The iOS app.
+///
+/// A window and nothing else: there is no menu bar to live in and no separate
+/// Settings scene, so settings are a sheet inside the app like every other
+/// iOS app. Everything below the scene — the queue, the browser, the address
+/// bar, the rows — is the same code the Mac runs.
+struct LatheApp: App {
+    @State private var queue = Queue()
+    @State private var browser = BrowserModel()
+
+    var body: some Scene {
+        WindowGroup {
+            RootView(queue: queue, browser: browser)
+        }
+    }
+}
+#else
 struct LatheApp: App {
     @State private var queue = Queue()
     @State private var browser = BrowserModel()
@@ -99,6 +119,7 @@ struct LatheApp: App {
         }
     }
 }
+#endif
 
 enum Pane: String, CaseIterable, Identifiable {
     case queue = "Downloads"
@@ -329,6 +350,7 @@ struct DownloadRow: View {
                     .help("Try this one again")
             }
 
+            #if os(macOS)
             if case .finished(let url) = download.state {
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -339,6 +361,11 @@ struct DownloadRow: View {
                 Button(action: remove) { Image(systemName: "xmark") }
                     .buttonStyle(.borderless)
             }
+            #else
+            // No Finder to show it in; the row still has to be dismissable.
+            Button(action: remove) { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+            #endif
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
