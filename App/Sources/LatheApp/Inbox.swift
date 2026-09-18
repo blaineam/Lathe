@@ -85,6 +85,28 @@ final class Inbox {
         return inbox
     }
 
+    /// Every folder worth draining.
+    ///
+    /// Save File's path is relative to whatever storage the Shortcuts app
+    /// decided on, and on iOS that is its own folder — so the same shortcut
+    /// that writes to `iCloud Drive/Lathe Inbox` here can land in
+    /// `iCloud Drive/Shortcuts/Lathe Inbox` there. Rather than fight it for
+    /// a folder nobody looks at, both are watched. Only the first is created:
+    /// the other exists only if Shortcuts made it.
+    nonisolated static func locations() -> [URL] {
+        var folders: [URL] = []
+        if let inbox = try? location() { folders.append(inbox) }
+        if let drive = iCloudDrive {
+            let viaShortcuts = drive
+                .appendingPathComponent("Shortcuts", isDirectory: true)
+                .appendingPathComponent(folderName, isDirectory: true)
+            if FileManager.default.fileExists(atPath: viaShortcuts.path) {
+                folders.append(viaShortcuts)
+            }
+        }
+        return folders
+    }
+
     nonisolated static var isUsingiCloud: Bool { iCloudDrive != nil }
 
     /// Where a share can ask for its finished files to be put: beside the
@@ -135,7 +157,10 @@ final class Inbox {
 
     /// Reads and removes everything in the folder.
     func drain() {
-        guard let folder = try? Self.location() else { return }
+        for folder in Self.locations() { drain(folder) }
+    }
+
+    private func drain(_ folder: URL) {
         let fileManager = FileManager.default
         guard let entries = try? fileManager.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: nil) else { return }
@@ -155,6 +180,36 @@ final class Inbox {
         }
     }
 
+    /// Directives read from a file's name.
+    ///
+    /// The contents are the link and nothing else, on purpose. Getting a
+    /// Shortcut to write text it composed from its own answers means wiring
+    /// one action's output into another's input, and Shortcuts quietly
+    /// substituted the share's URL instead — the answers were asked for and
+    /// then thrown away. A filename it can be told verbatim cannot be
+    /// substituted, so that is where the answers ride.
+    ///
+    /// `single-shared`, `all-downloads`, `queue`, and the numbered copies
+    /// Shortcuts makes of them ("all-shared 2") all read correctly.
+    private static func directives(fromName name: String) -> (Scope?, Request.Destination?, Bool) {
+        let stem = (name as NSString).deletingPathExtension.lowercased()
+        let words = stem.split(whereSeparator: { $0 == "-" || $0 == " " || $0 == "_" })
+        var scope: Scope?
+        var destination: Request.Destination?
+        var queueOnly = false
+        for word in words {
+            switch word {
+            case "single", "this", "one": scope = .single
+            case "all", "everything": scope = .all
+            case "queue", "queued": queueOnly = true
+            case "shared", "output": destination = .shared
+            case "downloads": destination = .downloads
+            default: break
+            }
+        }
+        return (scope, destination, queueOnly)
+    }
+
     private static func requests(in file: URL) -> [Request] {
         // A .webloc is a property list; everything else is read as text, which
         // covers .url shortcuts and the plain file a Shortcut writes.
@@ -164,16 +219,15 @@ final class Inbox {
                from: data, format: nil) as? [String: Any],
            let string = plist["URL"] as? String,
            let url = URL(string: string) {
-            return [Request(url: url)]
+            let (scope, destination, queueOnly) = directives(fromName: file.lastPathComponent)
+            return [Request(url: url, scope: scope, destination: destination, queueOnly: queueOnly)]
         }
 
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
 
         // Directives apply to every link in the file they appear in: one share
         // is one decision, however many links it carried.
-        var scope: Scope?
-        var destination: Request.Destination?
-        var queueOnly = false
+        var (scope, destination, queueOnly) = directives(fromName: file.lastPathComponent)
         var urls: [URL] = []
 
         for rawLine in text.split(whereSeparator: \.isNewline) {
