@@ -969,6 +969,11 @@ final class Queue {
     }
 
     private func saveDestinationBookmark() {
+        #if !os(macOS)
+        // Security-scoped bookmarks are a macOS sandbox mechanism, and with no
+        // folder picker on iOS there is no granted folder to remember.
+        return
+        #else
         guard let destination else { return }
         // Security-scoped, because this grant is what a future hand-off to Sami
         // has to be built on: a sandboxed app cannot read a folder nobody
@@ -978,9 +983,13 @@ final class Queue {
         ) {
             UserDefaults.standard.set(data, forKey: "destinationBookmark")
         }
+        #endif
     }
 
     private func restoreDestinationBookmark() {
+        #if !os(macOS)
+        return
+        #else
         guard let data = UserDefaults.standard.data(forKey: "destinationBookmark") else { return }
         var stale = false
         if let url = try? URL(resolvingBookmarkData: data, options: .withSecurityScope,
@@ -988,5 +997,6 @@ final class Queue {
             _ = url.startAccessingSecurityScopedResource()
             destination = url
         }
+        #endif
     }
 }

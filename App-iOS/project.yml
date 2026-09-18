@@ -1,0 +1,81 @@
+# Lathe for iPhone and iPad — a sideload build.
+#
+# Not for the App Store, and not pretending to be: it links LatheFetch, which
+# is the downloader, and that is the one product an App Store build would
+# leave out. It exists so the same queue and the same browser are reachable
+# from the device the links are usually shared from.
+#
+#   xcodegen generate --spec App-iOS/project.yml
+#   xcodebuild -project App-iOS/Lathe.xcodeproj -scheme Lathe \
+#     -destination 'generic/platform=iOS' build
+#
+# WHY A SECOND PROJECT RATHER THAN A TARGET IN App/
+#
+# App/Package.swift is macOS-only and links the embedded Tor framework, whose
+# slices are Mac slices. Adding an iOS target there would mean making that
+# manifest conditional on a platform it cannot build for. This project depends
+# on the root package instead — which has declared .iOS(.v17) all along — and
+# simply has no embedded Tor, which is the same position as a contributor who
+# has not run slim-tor.sh: routing falls back to an external proxy.
+name: Lathe
+options:
+  bundleIdPrefix: com.lathe
+  createIntermediateGroups: true
+  deploymentTarget:
+    iOS: "26.0"
+
+packages:
+  Lathe:
+    path: ..
+
+targets:
+  # NOT "Lathe": the root package already vends a scheme by that name, and
+  # `-scheme Lathe` resolves to the library, builds it happily, and leaves you
+  # with BUILD SUCCEEDED and no .app anywhere. The product is still called
+  # Lathe; only the target and scheme are disambiguated.
+  LatheiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../App/Sources/LatheApp
+        excludes:
+          # Mac mechanisms with no iOS counterpart, each referenced only from
+          # code that is itself fenced to macOS.
+          - AppDelegate.swift      # NSApplicationDelegate, Dock/menu-bar modes
+          - LoginSelfTest.swift    # asks macOS about login items
+          - Presence.swift         # menu-bar item vs Dock icon
+          - ShortcutExport.swift   # writes and signs a .shortcut for the Mac
+    dependencies:
+      - package: Lathe
+        product: LatheCore
+      - package: Lathe
+        product: LatheImage
+      - package: Lathe
+        product: LatheVideo
+      - package: Lathe
+        product: LatheAudio
+      - package: Lathe
+        product: LatheDoc
+      - package: Lathe
+        product: LatheMeta
+      - package: Lathe
+        product: LatheFetch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lathe.app
+        PRODUCT_NAME: Lathe
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Lathe
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: >-
+          UIInterfaceOrientationPortrait
+          UIInterfaceOrientationLandscapeLeft
+          UIInterfaceOrientationLandscapeRight
+        # The inbox is a folder in iCloud Drive; the app reads what a Shortcut
+        # drops there, and the Files app is how anyone gets at what it saved.
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"

@@ -1,5 +1,7 @@
 import AppIntents
+#if os(macOS)
 import AppKit
+#endif
 import LatheCore
 import LatheFetch
 import SwiftUI
@@ -266,6 +268,10 @@ struct QueueView: View {
 
     private var footer: some View {
         HStack(spacing: 12) {
+            // Picking a folder is a Mac affordance here. On iOS the files go
+            // to the app's own Documents, which the Files app shows, so a
+            // button that opened nothing would be worse than no button.
+            #if os(macOS)
             Button {
                 queue.chooseDestination()
             } label: {
@@ -276,6 +282,7 @@ struct QueueView: View {
                 )
             }
             .buttonStyle(.glass)
+            #endif
 
             if let summary = queue.summary {
                 Text(summary).font(.caption).foregroundStyle(.secondary)

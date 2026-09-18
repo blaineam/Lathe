@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import WebKit
 
 /// Answers the things a page asks of its browser.
@@ -73,25 +77,79 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
     /// inside an `alert()`, and an unattributed dialog in the middle of the
     /// window is indistinguishable from one the application put there.
     /// Naming the site is what makes the difference visible.
-    private func alert(_ frame: WKFrameInfo, _ message: String) -> NSAlert {
-        let alert = NSAlert()
+    /// Puts one page-initiated dialog on screen and reports what came back:
+    /// the index of the button pressed, and the field's text when there is a
+    /// field.
+    ///
+    /// One primitive rather than a pair per platform. The three JavaScript
+    /// dialogs differ only in their buttons and whether they take input, and
+    /// writing each of them twice is how the two platforms drift apart on the
+    /// rule that actually matters here — answering exactly once.
+    private func ask(_ frame: WKFrameInfo, _ message: String,
+                     buttons: [String], field: String?,
+                     then respond: @escaping (Int, String?) -> Void) {
+        bringForward?()
         let host = frame.request.url?.host() ?? tab?.host ?? "This page"
+
+        #if os(macOS)
+        let alert = NSAlert()
         alert.messageText = host
         alert.informativeText = message
         alert.alertStyle = .informational
-        return alert
-    }
-
-    private func present(_ alert: NSAlert, then respond: @escaping (NSApplication.ModalResponse) -> Void) {
-        bringForward?()
+        var input: NSTextField?
+        if let field {
+            let text = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+            text.stringValue = field
+            alert.accessoryView = text
+            input = text
+        }
+        for title in buttons { alert.addButton(withTitle: title) }
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            respond(response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue,
+                    input?.stringValue)
+        }
         // A sheet on the page's own window, so it is visibly attached to the
         // page rather than floating as though the app raised it.
         if let window = tab?.webView.window {
-            alert.beginSheetModal(for: window, completionHandler: respond)
+            alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
-            respond(alert.runModal())
+            finish(alert.runModal())
         }
+        #else
+        let controller = UIAlertController(title: host, message: message,
+                                           preferredStyle: .alert)
+        if let field {
+            controller.addTextField { $0.text = field }
+        }
+        for (index, title) in buttons.enumerated() {
+            controller.addAction(UIAlertAction(
+                title: title,
+                style: title == "Cancel" ? .cancel : .default
+            ) { _ in respond(index, controller.textFields?.first?.text) })
+        }
+        guard let presenter = Self.presenter(for: tab?.webView) else {
+            // Nothing to present from. Answer anyway: a dialog nobody can see
+            // still has a completion handler WebKit is waiting on, and the
+            // page stops dead if it never arrives.
+            respond(buttons.count - 1, nil)
+            return
+        }
+        presenter.present(controller, animated: true)
+        #endif
     }
+
+    #if !os(macOS)
+    /// The view controller a dialog can be presented from — the topmost one,
+    /// so it does not try to present underneath something already up.
+    private static func presenter(for webView: WKWebView?) -> UIViewController? {
+        var candidate = webView?.window?.rootViewController
+            ?? UIApplication.shared.connectedScenes
+                .compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }
+                .first
+        while let presented = candidate?.presentedViewController { candidate = presented }
+        return candidate
+    }
+    #endif
 
     func webView(
         _ webView: WKWebView,
@@ -100,9 +158,7 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         completionHandler: @escaping () -> Void
     ) {
         let answer = Answer<Void>(fallback: ()) { completionHandler() }
-        let panel = alert(frame, message)
-        panel.addButton(withTitle: "OK")
-        present(panel) { _ in answer(()) }
+        ask(frame, message, buttons: ["OK"], field: nil) { _, _ in answer(()) }
     }
 
     func webView(
@@ -112,10 +168,9 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         completionHandler: @escaping (Bool) -> Void
     ) {
         let answer = Answer<Bool>(fallback: false, completionHandler)
-        let panel = alert(frame, message)
-        panel.addButton(withTitle: "OK")
-        panel.addButton(withTitle: "Cancel")
-        present(panel) { response in answer(response == .alertFirstButtonReturn) }
+        ask(frame, message, buttons: ["OK", "Cancel"], field: nil) { button, _ in
+            answer(button == 0)
+        }
     }
 
     func webView(
@@ -126,16 +181,10 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         completionHandler: @escaping (String?) -> Void
     ) {
         let answer = Answer<String?>(fallback: nil, completionHandler)
-        let panel = alert(frame, prompt)
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.stringValue = defaultText ?? ""
-        panel.accessoryView = field
-        panel.addButton(withTitle: "OK")
-        panel.addButton(withTitle: "Cancel")
-        present(panel) { response in
+        ask(frame, prompt, buttons: ["OK", "Cancel"], field: defaultText ?? "") { button, text in
             // nil, not "", for a cancel: a page distinguishes them, and
             // returning an empty string reads as "they typed nothing".
-            answer(response == .alertFirstButtonReturn ? field.stringValue : nil)
+            answer(button == 0 ? (text ?? "") : nil)
         }
     }
 
@@ -148,6 +197,14 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
     ) {
         let answer = Answer<[URL]?>(fallback: nil, completionHandler)
         bringForward?()
+        #if !os(macOS)
+        // No picker yet on iOS. Answering nil is the same as cancelling, which
+        // is a page seeing "no file chosen" — honest, and crucially it is an
+        // answer: leaving the handler uncalled would wedge every later dialog
+        // in that web content process.
+        _ = parameters
+        answer(nil)
+        #else
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
@@ -159,6 +216,7 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         } else {
             answer(panel.runModal() == .OK ? panel.urls : nil)
         }
+        #endif
     }
 
     // MARK: - New windows

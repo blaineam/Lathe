@@ -68,10 +68,19 @@ final class Inbox {
     /// build would need the user to grant the folder, which is a different
     /// design and a reason this feature belongs to the Mac app.
     nonisolated private static var iCloudDrive: URL? {
+        #if os(macOS)
         let url = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs",
                                     isDirectory: true)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        #else
+        // A sandboxed app cannot reach iCloud Drive's root by path, and there
+        // is no home directory to build one from. Everything below falls back
+        // to the app's own directories, which is where an iOS app's files
+        // belong anyway — the Files app reaches them through
+        // UIFileSharingEnabled.
+        return nil
+        #endif
     }
 
     /// Where the folder lives.
@@ -97,6 +106,7 @@ final class Inbox {
     /// shortcut works the moment it is added. Readable from here because this
     /// app is not sandboxed — the same reason the hand-off belongs to the Mac.
     nonisolated static func shortcutsLocation() throws -> URL {
+        #if os(macOS)
         let folder = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(
                 "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents",
@@ -104,6 +114,12 @@ final class Inbox {
             .appendingPathComponent(folderName, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
+        #else
+        // Reading the Shortcuts app's own container is a thing only an
+        // unsandboxed Mac app can do. On the phone the link arrives by being
+        // shared or pasted into the app, which needs no watched folder.
+        throw CocoaError(.fileNoSuchFile)
+        #endif
     }
 
     /// Every folder worth draining: the one the Shortcut writes to, and the
