@@ -6,11 +6,13 @@ import Foundation
 ///
 /// Normally there is nothing to reconcile and this is the identity. It exists
 /// for one specific, reproducible disagreement: `AVFoundation` reads YouTube's
-/// fragmented MP4 video streams with every sample twice as long as the file
-/// declares, so a nineteen-second clip arrives as thirty-eight seconds with
-/// its final frame held through the second half, and a ten-minute video as
-/// twenty-one minutes. ``MP4MovieHeader`` documents the evidence that the
-/// files themselves are right.
+/// fragmented MP4 video streams with every sample durated at the wrong power
+/// of two. Twice as long as the file declares, and a nineteen-second clip
+/// arrives as thirty-eight seconds with its final frame held through the
+/// second half; half as long, and a two-minute 30 fps AV1 video arrives with
+/// its samples spaced for 60 fps, so the picture runs through at double speed
+/// and freezes while the audio plays on. ``MP4MovieHeader`` documents the
+/// evidence that the files themselves are right.
 ///
 /// ## Why scale rather than rebuild
 ///
@@ -48,7 +50,7 @@ struct TimingCorrection: Sendable {
     /// routinely differ by a frame or two — rounding, a trailing partial
     /// sample, an edit list trimming the head. Correcting for that would be
     /// noise. The defect this exists for is a factor of two.
-    private static let tolerance = 0.02
+    static let tolerance = 0.02
 
     init(factor: Double, anchor: CMTime) {
         self.factor = factor
@@ -73,23 +75,34 @@ struct TimingCorrection: Sendable {
             return
         }
 
-        let ratio = declaredSeconds / observedSeconds
-        guard abs(ratio - 1) > Self.tolerance else {
+        guard let factor = Self.factor(declared: declaredSeconds, observed: observedSeconds) else {
             self = .identity
             return
         }
 
-        // Only ever shorten. If the samples span *less* than the header
-        // claims, the header is describing something that is not there —
-        // a truncated download, or a file still being written — and
-        // stretching the samples to cover it would invent time that has no
-        // pictures in it.
-        guard ratio < 1 else {
-            self = .identity
-            return
-        }
+        self.init(factor: factor, anchor: range.start)
+    }
 
-        self.init(factor: ratio, anchor: range.start)
+    /// How much to scale a span that disagrees with its header, or nil to
+    /// leave it alone.
+    ///
+    /// A factor of two either way, and nothing else. The defect is sample
+    /// durations written at the wrong power of two — twice as long as they
+    /// should be, which is the case this started with, or half, which is what
+    /// YouTube's 30 fps AV1 arrives as: 4070 samples of 1/60 second each
+    /// spanning 67 seconds against 135 seconds of audio, so the picture races
+    /// through and freezes on its last frame while the sound plays on.
+    ///
+    /// Any other disagreement is not this defect and is left alone. A
+    /// truncated download, or a file still being written, falls short of its
+    /// header by an arbitrary amount, and stretching that to fit would invent
+    /// time with no pictures in it.
+    static func factor(declared: Double, observed: Double) -> Double? {
+        guard declared > 0, observed > 0, declared.isFinite, observed.isFinite else { return nil }
+        let ratio = declared / observed
+        guard abs(ratio - 1) > tolerance else { return nil }
+        guard abs(ratio - 0.5) <= tolerance || abs(ratio - 2) <= tolerance else { return nil }
+        return ratio
     }
 
     /// The same buffer with its timing scaled, or the buffer itself when

@@ -153,6 +153,31 @@ struct TimingCorrectionTests {
         #expect(abs(CMTimeGetSeconds(corrected) - 18.933) < 0.01)
     }
 
+    /// The measurements are the real ones from a two-minute YouTube AV1
+    /// download: 4070 samples spaced for 60 fps against a header, and an
+    /// audio track, that both say 30.
+    @Test("samples spaced twice too close are stretched back out")
+    func stretchesHalvedSamples() {
+        let factor = TimingCorrection.factor(declared: 135.666667, observed: 67.816667)
+        #expect(factor != nil)
+        #expect(abs((factor ?? 0) - 2) < 0.01)
+    }
+
+    @Test("samples held twice too long are compressed")
+    func compressesDoubledSamples() {
+        let factor = TimingCorrection.factor(declared: 18.933, observed: 37.8667)
+        #expect(abs((factor ?? 0) - 0.5) < 0.01)
+    }
+
+    /// The guard that keeps a half-finished download from being stretched to
+    /// cover time it has no pictures for.
+    @Test("an arbitrary shortfall is left alone")
+    func ignoresTruncation() {
+        #expect(TimingCorrection.factor(declared: 135.0, observed: 98.4) == nil)
+        #expect(TimingCorrection.factor(declared: 135.0, observed: 135.0) == nil)
+        #expect(TimingCorrection.factor(declared: 135.0, observed: 0) == nil)
+    }
+
     /// The anchor is the reason an edit list that starts a track one frame in
     /// does not drag the whole track earlier relative to its audio.
     @Test("the anchor is held while the span is scaled")
