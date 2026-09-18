@@ -219,12 +219,19 @@ final class Queue {
 
     init() {
         restoreDestinationBookmark()
-        inbox.onURL = { [weak self] url in
+        inbox.onURL = { [weak self] request in
             guard let self else { return }
-            // Queued rather than started. Something arriving from a phone is
-            // not a reason to saturate the connection without being asked, and
-            // the row is visible the moment it lands.
-            add(text: url.absoluteString)
+            let added = add(text: request.url.absoluteString, scope: request.scope)
+            guard added > 0 else { return }
+            if let destination = request.destination {
+                inboxDestination = destination
+            }
+            // The share sheet already asked whether to start. Anything that
+            // arrives without an answer is queued and left alone: something
+            // sent from a phone is not a reason to saturate the connection
+            // without being asked, and the row is visible the moment it lands.
+            guard !request.queueOnly, request.scope != nil || request.destination != nil else { return }
+            Task { await self.start() }
         }
         if watchesInbox { inbox.start() }
     }
@@ -420,7 +427,10 @@ final class Queue {
             }
         }
 
-        guard let folder = destination ?? defaultDestination() else {
+        // A share that named where its files should go wins for this run;
+        // otherwise the folder set in Lathe.
+        let chosen = inboxDestination != nil ? defaultDestination() : (destination ?? defaultDestination())
+        guard let folder = chosen else {
             summary = "Choose where downloads should go first."
             return
         }
@@ -875,7 +885,23 @@ final class Queue {
         set { UserDefaults.standard.set(newValue, forKey: "usesSamiFolder") }
     }
 
+    /// Where the last share asked for its files, when it asked at all.
+    ///
+    /// Set per share rather than stored: the sender chose it for that link,
+    /// not for every download from now on.
+    var inboxDestination: Inbox.Request.Destination?
+
     func defaultDestination() -> URL? {
+        switch inboxDestination {
+        case .downloads:
+            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        case .shared:
+            // Beside the inbox, so a phone can reach the results as well as
+            // send the link.
+            if let folder = try? Inbox.outputLocation() { return folder }
+        case nil:
+            break
+        }
         if usesSamiFolder, let shared = samiFolder { return shared.url }
         return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
     }

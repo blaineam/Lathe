@@ -36,7 +36,9 @@ enum ShortcutExport {
     /// Writes the shortcut, signs it, and opens it in Shortcuts.
     @discardableResult
     static func install() throws -> URL {
-        let folder = try Inbox.location()
+        // Creating the folder now means the Shortcut's first run has somewhere
+        // to land rather than failing on a path that does not exist yet.
+        _ = try Inbox.location()
         let unsigned = FileManager.default.temporaryDirectory
             .appendingPathComponent("lathe-unsigned-\(UUID().uuidString).shortcut")
 
@@ -46,7 +48,7 @@ enum ShortcutExport {
             .appendingPathComponent("Send to Lathe.shortcut")
 
         try PropertyListSerialization
-            .data(fromPropertyList: workflow(savingInto: folder), format: .binary, options: 0)
+            .data(fromPropertyList: workflow(), format: .binary, options: 0)
             .write(to: unsigned)
         defer { try? FileManager.default.removeItem(at: unsigned) }
         try? FileManager.default.removeItem(at: signed)
@@ -80,47 +82,149 @@ enum ShortcutExport {
 
     /// Where the Shortcut writes, as Shortcuts expresses it.
     ///
-    /// Save File's paths are relative to iCloud Drive's root, so this is the
-    /// folder name and not the absolute path the Mac uses for the same place.
-    private static func destination(for folder: URL) -> String {
-        Inbox.isUsingiCloud ? "/\(Inbox.folderName)/" : "/\(Inbox.folderName)/"
+    /// Save File's path is relative to the service it saves into, and the
+    /// service it picks by default is the Shortcuts folder — which is why a
+    /// path of "/Lathe Inbox/" landed in Shortcuts/Lathe Inbox. Naming iCloud
+    /// Drive as the service puts the folder where Lathe is watching.
+    private static let storageService = "iCloud Drive"
+
+    private static let destinationPath = "/\(Inbox.folderName)/"
+
+    /// A menu the share sheet shows, and the line it writes for each answer.
+    private struct Choice {
+        let title: String
+        let line: String
     }
 
-    private static func workflow(savingInto folder: URL) -> [String: Any] {
-        // The shortcut's input, as an attributed string carrying one
-        // attachment — the format Shortcuts uses for a variable inside text.
-        let input: [String: Any] = [
+    private static let scopeChoices = [
+        Choice(title: "Download just this", line: "lathe-scope: single"),
+        Choice(title: "Download everything", line: "lathe-scope: everything"),
+        Choice(title: "Just queue it", line: "lathe-queue: yes"),
+    ]
+
+    private static let destinationChoices = [
+        Choice(title: "Save to \(Inbox.outputFolderName)", line: "lathe-destination: shared"),
+        Choice(title: "Save to Downloads", line: "lathe-destination: downloads"),
+    ]
+
+    /// Text carrying a variable, which is how Shortcuts stores an action's
+    /// input when it is another action's output.
+    private static func token(from uuid: String, named name: String) -> [String: Any] {
+        [
             "Value": [
                 "string": "\u{FFFC}",
-                "attachmentsByRange": ["{0, 1}": ["Type": "ExtensionInput"]],
+                "attachmentsByRange": [
+                    "{0, 1}": [
+                        "Type": "ActionOutput",
+                        "OutputUUID": uuid,
+                        "OutputName": name,
+                    ],
+                ],
+            ],
+            "WFSerializationType": "WFTextTokenString",
+        ]
+    }
+
+    /// A menu, plus one "set variable" per answer, so the rest of the
+    /// shortcut can read the answer back by name.
+    private static func menu(prompt: String, choices: [Choice],
+                             variable: String) -> [[String: Any]] {
+        let grouping = UUID().uuidString
+        var actions: [[String: Any]] = [[
+            "WFWorkflowActionIdentifier": "is.workflow.actions.choosefrommenu",
+            "WFWorkflowActionParameters": [
+                "GroupingIdentifier": grouping,
+                "WFControlFlowMode": 0,
+                "WFMenuPrompt": prompt,
+                "WFMenuItems": choices.map(\.title),
+            ],
+        ]]
+        for choice in choices {
+            actions.append([
+                "WFWorkflowActionIdentifier": "is.workflow.actions.choosefrommenu",
+                "WFWorkflowActionParameters": [
+                    "GroupingIdentifier": grouping,
+                    "WFControlFlowMode": 1,
+                    "WFMenuItemAttributedTitle": [
+                        "Value": ["string": choice.title],
+                        "WFSerializationType": "WFTextTokenString",
+                    ],
+                    "WFMenuItemTitle": choice.title,
+                ],
+            ])
+            actions.append([
+                "WFWorkflowActionIdentifier": "is.workflow.actions.setvariable",
+                "WFWorkflowActionParameters": [
+                    "WFVariableName": variable,
+                    "WFInput": [
+                        "Value": ["string": choice.line],
+                        "WFSerializationType": "WFTextTokenString",
+                    ],
+                ],
+            ])
+        }
+        actions.append([
+            "WFWorkflowActionIdentifier": "is.workflow.actions.choosefrommenu",
+            "WFWorkflowActionParameters": [
+                "GroupingIdentifier": grouping,
+                "WFControlFlowMode": 2,
+            ],
+        ])
+        return actions
+    }
+
+    private static func workflow() -> [String: Any] {
+        let scopeVariable = "Lathe Scope"
+        let destinationVariable = "Lathe Destination"
+        let payloadUUID = UUID().uuidString
+
+        // The link, then the two answers — one directive per line, which is
+        // what Lathe's inbox reads. Answering here is the point: the download
+        // starts when the file lands rather than when someone comes back to
+        // the Mac.
+        let payload: [String: Any] = [
+            "Value": [
+                "string": "\u{FFFC}\n\u{FFFC}\n\u{FFFC}",
+                "attachmentsByRange": [
+                    "{0, 1}": ["Type": "ExtensionInput"],
+                    "{2, 1}": ["Type": "Variable", "VariableName": scopeVariable],
+                    "{4, 1}": ["Type": "Variable", "VariableName": destinationVariable],
+                ],
             ],
             "WFSerializationType": "WFTextTokenString",
         ]
 
-        let actions: [[String: Any]] = [
-            [
-                "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
-                "WFWorkflowActionParameters": [
-                    "UUID": UUID().uuidString,
-                    "WFTextActionText": input,
-                ],
+        var actions: [[String: Any]] = []
+        actions += menu(prompt: "Send to Lathe", choices: scopeChoices,
+                        variable: scopeVariable)
+        actions += menu(prompt: "Where should the files go?", choices: destinationChoices,
+                        variable: destinationVariable)
+        actions.append([
+            "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+            "WFWorkflowActionParameters": [
+                "UUID": payloadUUID,
+                "WFTextActionText": payload,
             ],
-            [
-                "WFWorkflowActionIdentifier": "is.workflow.actions.documentpicker.save",
-                "WFWorkflowActionParameters": [
-                    "UUID": UUID().uuidString,
-                    // Never ask. A share-sheet action that opens a file picker
-                    // is slower than pasting the link would have been.
-                    "WFAskWhereToSave": false,
-                    "WFFileDestinationPath": destination(for: folder),
-                    // Not overwriting is what makes two shares in quick
-                    // succession both survive: Shortcuts numbers the second
-                    // file rather than replacing the first, and the watcher
-                    // reads whatever it finds.
-                    "WFSaveFileOverwrite": false,
-                ],
+        ])
+        actions.append([
+            "WFWorkflowActionIdentifier": "is.workflow.actions.documentpicker.save",
+            "WFWorkflowActionParameters": [
+                "UUID": UUID().uuidString,
+                // Never ask. A share-sheet action that opens a file picker is
+                // slower than pasting the link would have been.
+                "WFAskWhereToSave": false,
+                "WFFileStorageService": storageService,
+                "WFFileDestinationPath": destinationPath,
+                // The text the action above built. Without this the Save File
+                // action takes whatever Shortcuts guesses its input is, which
+                // was the share's own URL and none of the answers.
+                "WFInput": token(from: payloadUUID, named: "Text"),
+                // Not overwriting is what makes two shares in quick succession
+                // both survive: Shortcuts numbers the second file rather than
+                // replacing the first, and the watcher reads whatever it finds.
+                "WFSaveFileOverwrite": false,
             ],
-        ]
+        ])
 
         return [
             "WFWorkflowClientVersion": "3110.0.3",

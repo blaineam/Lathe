@@ -23,7 +23,31 @@ import Foundation
 final class Inbox {
 
     /// Called with each URL found.
-    var onURL: ((URL) -> Void)?
+    var onURL: ((Request) -> Void)?
+
+    /// A link, and what the sender already decided about it.
+    ///
+    /// The share sheet asks the questions Lathe would otherwise have to: one
+    /// item or the whole collection, start now or just queue it, and where the
+    /// files should land. Carrying the answers means the download begins the
+    /// moment the file arrives rather than waiting for someone to come back to
+    /// the Mac and choose.
+    struct Request {
+        var url: URL
+        var scope: Scope?
+        /// Where the finished files go, when the sender asked for somewhere
+        /// other than the folder set in Lathe.
+        var destination: Destination?
+        /// Queue it and leave it alone.
+        var queueOnly: Bool = false
+
+        enum Destination: String {
+            /// A "Lathe Output" folder beside the inbox, which the shortcut
+            /// can reach from the phone as well.
+            case shared
+            case downloads
+        }
+    }
 
     private var source: DispatchSourceFileSystemObject?
     private var descriptor: CInt = -1
@@ -62,6 +86,17 @@ final class Inbox {
     }
 
     nonisolated static var isUsingiCloud: Bool { iCloudDrive != nil }
+
+    /// Where a share can ask for its finished files to be put: beside the
+    /// inbox, so a phone that sent the link can open the result.
+    nonisolated static let outputFolderName = "Lathe Output"
+
+    nonisolated static func outputLocation() throws -> URL {
+        let base = iCloudDrive ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = base.appendingPathComponent(outputFolderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
 
     func start() {
         guard source == nil, let folder = try? Self.location() else { return }
@@ -113,35 +148,73 @@ final class Inbox {
                 try? fileManager.startDownloadingUbiquitousItem(at: entry)
                 continue
             }
-            let found = Self.urls(in: entry)
+            let found = Self.requests(in: entry)
             guard !found.isEmpty else { continue }
-            for url in found { onURL?(url) }
+            for request in found { onURL?(request) }
             try? fileManager.removeItem(at: entry)
         }
     }
 
-    private static func urls(in file: URL) -> [URL] {
+    private static func requests(in file: URL) -> [Request] {
         // A .webloc is a property list; everything else is read as text, which
-        // covers .url shortcuts and the plain file a Shortcut appends to.
+        // covers .url shortcuts and the plain file a Shortcut writes.
         if file.pathExtension == "webloc",
            let data = try? Data(contentsOf: file),
            let plist = try? PropertyListSerialization.propertyList(
                from: data, format: nil) as? [String: Any],
            let string = plist["URL"] as? String,
            let url = URL(string: string) {
-            return [url]
+            return [Request(url: url)]
         }
 
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
-        return text
-            .split(whereSeparator: { $0.isNewline || $0.isWhitespace })
-            .compactMap { line -> URL? in
+
+        // Directives apply to every link in the file they appear in: one share
+        // is one decision, however many links it carried.
+        var scope: Scope?
+        var destination: Request.Destination?
+        var queueOnly = false
+        var urls: [URL] = []
+
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if let value = directive("scope", in: line) {
+                switch value {
+                case "everything", "all", "collection": scope = .all
+                case "single", "this", "one": scope = .single
+                case "queue": queueOnly = true
+                default: break
+                }
+                continue
+            }
+            if let value = directive("destination", in: line) {
+                destination = Request.Destination(rawValue: value)
+                continue
+            }
+            if let value = directive("queue", in: line) {
+                queueOnly = (value == "1" || value == "true" || value == "yes")
+                continue
+            }
+            for piece in line.split(whereSeparator: \.isWhitespace) {
                 // .url shortcut files carry `URL=https://…` among INI keys.
-                let trimmed = line.hasPrefix("URL=") ? String(line.dropFirst(4)) : String(line)
+                let trimmed = piece.hasPrefix("URL=") ? String(piece.dropFirst(4)) : String(piece)
                 guard let url = URL(string: trimmed), let scheme = url.scheme,
                       scheme == "http" || scheme == "https"
-                else { return nil }
-                return url
+                else { continue }
+                urls.append(url)
             }
+        }
+
+        return urls.map { Request(url: $0, scope: scope, destination: destination, queueOnly: queueOnly) }
+    }
+
+    /// `lathe-<name>: value`, case-insensitive, as the shortcut writes it.
+    private static func directive(_ name: String, in line: String) -> String? {
+        let prefix = "lathe-\(name):"
+        guard line.lowercased().hasPrefix(prefix) else { return nil }
+        return line.dropFirst(prefix.count)
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
     }
 }
