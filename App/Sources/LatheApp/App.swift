@@ -891,6 +891,12 @@ struct ActivityChip: View {
 
 // MARK: - Settings
 
+// Everything below is the Mac's settings window, its menu bar item and the
+// helpers that drive them: Presence, NSApp, the pasteboard, the Shortcut
+// exporter. All of it is either a Mac mechanism or a Mac scene type. iOS ships
+// without a settings screen for now rather than with a hollow one.
+#if os(macOS)
+
 struct SettingsView: View {
     @Bindable var queue: Queue
     var browser: BrowserModel
@@ -1470,3 +1476,5 @@ enum SettingsWindow {
         window.identifier?.rawValue.contains("Settings") == true
     }
 }
+
+#endif
