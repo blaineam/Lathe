@@ -1286,7 +1286,10 @@ struct ShortcutsSettings: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("“Send to Lathe”").font(.body.weight(.medium))
                         Text("Built with the folder above already filled in, and "
-                             + "set to appear in the share sheet.")
+                             + "set to appear in the share sheet. It asks whether to "
+                             + "take just the link or everything, and where the files "
+                             + "should go. Delete any older copy first — Shortcuts "
+                             + "keeps both and names the new one “Send to Lathe 1”.")
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
