@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Foundation
 import Network
 import SwiftUI
@@ -558,28 +562,40 @@ final class BrowserModel {
 ///
 /// The view is created by the tab, not here, which is the whole reason a tab
 /// survives being switched away from.
-struct BrowserView: NSViewRepresentable {
+/// The platform's own container type. Everything else about this view — that
+/// the tab owns the web view, that switching tabs swaps which one is on
+/// screen rather than building a new one — is the same on both.
+#if os(macOS)
+typealias BrowserContainer = NSView
+#else
+typealias BrowserContainer = UIView
+#endif
+
+struct BrowserView {
     let tab: BrowserTab
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+    @MainActor
+    fileprivate func container(_ context: CoordinatorHolder) -> BrowserContainer {
+        let container = BrowserContainer()
         container.translatesAutoresizingMaskIntoConstraints = false
         install(tab.webView, in: container)
-        context.coordinator.shown = tab.webView
+        context.shown = tab.webView
         return container
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
+    @MainActor
+    fileprivate func refresh(_ container: BrowserContainer, _ context: CoordinatorHolder) {
         // Switching tabs swaps which web view is on screen rather than making
         // a new one. The one that leaves keeps its page, its history and its
         // scroll position, because nothing tore it down.
-        guard context.coordinator.shown !== tab.webView else { return }
+        guard context.shown !== tab.webView else { return }
         container.subviews.forEach { $0.removeFromSuperview() }
         install(tab.webView, in: container)
-        context.coordinator.shown = tab.webView
+        context.shown = tab.webView
     }
 
-    private func install(_ webView: WKWebView, in container: NSView) {
+    @MainActor
+    private func install(_ webView: WKWebView, in container: BrowserContainer) {
         webView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(webView)
         NSLayoutConstraint.activate([
@@ -590,10 +606,24 @@ struct BrowserView: NSViewRepresentable {
         ])
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    @MainActor
-    final class Coordinator {
-        var shown: WKWebView?
-    }
+    func makeCoordinator() -> CoordinatorHolder { CoordinatorHolder() }
 }
+
+/// Remembers which web view is currently installed, so a redraw that is not a
+/// tab change does not tear the page down.
+@MainActor
+final class CoordinatorHolder {
+    var shown: WKWebView?
+}
+
+#if os(macOS)
+extension BrowserView: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { container(context.coordinator) }
+    func updateNSView(_ view: NSView, context: Context) { refresh(view, context.coordinator) }
+}
+#else
+extension BrowserView: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView { container(context.coordinator) }
+    func updateUIView(_ view: UIView, context: Context) { refresh(view, context.coordinator) }
+}
+#endif

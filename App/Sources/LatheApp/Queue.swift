@@ -1,4 +1,6 @@
+#if os(macOS)
 import AppKit
+#endif
 import Foundation
 import LatheCore
 import LatheFetch
@@ -55,7 +57,14 @@ final class Queue {
     /// Hand finished media to Sami, if it is installed.
     var handOffToSami = false
     var samiInstalled: Bool {
+        #if os(macOS)
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.samiBundleID) != nil
+        #else
+        // Sami is a Mac app and the hand-off is a Mac mechanism: one app
+        // launching another with a file list. There is no iOS equivalent
+        // worth pretending to, so the feature is simply absent there.
+        false
+        #endif
     }
     private static let samiBundleID = "com.blainemiller.Sami"
 
@@ -845,6 +854,10 @@ final class Queue {
     var samiPreset: String = ""
 
     private func openInSami(_ urls: [URL]) {
+        #if !os(macOS)
+        _ = urls
+        return
+        #else
         guard let sami = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.samiBundleID)
         else { return }
 
@@ -882,6 +895,7 @@ final class Queue {
             NSWorkspace.shared.open(urls, withApplicationAt: sami,
                                     configuration: NSWorkspace.OpenConfiguration())
         }
+        #endif
     }
 
     // MARK: - Destination
@@ -925,10 +939,13 @@ final class Queue {
 
     /// Opens the download folder in the Finder.
     func revealDestination() {
+        #if os(macOS)
         guard let folder = destination ?? defaultDestination() else { return }
         NSWorkspace.shared.activateFileViewerSelecting([folder])
+        #endif
     }
 
+    #if os(macOS)
     func chooseDestination() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -937,6 +954,7 @@ final class Queue {
         panel.message = "Where should downloads go?"
         if panel.runModal() == .OK { destination = panel.url }
     }
+    #endif
 
     func setTorRouting(_ enabled: Bool) {
         useTor = enabled
