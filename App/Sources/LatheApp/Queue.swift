@@ -222,7 +222,24 @@ final class Queue {
         inbox.onURL = { [weak self] request in
             guard let self else { return }
             let added = add(text: request.url.absoluteString, scope: request.scope)
-            guard added > 0 else { return }
+            if added == 0 {
+                // Already on the list. Sharing it again is somebody asking for
+                // it again — usually because the first attempt failed, or
+                // because they have now chosen different answers — so the
+                // answers are applied to the row that is already there rather
+                // than dropped on the floor.
+                guard let existing = downloads.first(where: { $0.url == request.url })
+                else { return }
+                switch existing.state {
+                // Leave a download in flight, and a finished one, alone.
+                case .running, .finished: return
+                default: break
+                }
+                if let scope = request.scope { existing.scope = scope }
+                existing.state = .queued
+                existing.stage = nil
+                existing.detail = nil
+            }
             if let destination = request.destination {
                 inboxDestination = destination
             }

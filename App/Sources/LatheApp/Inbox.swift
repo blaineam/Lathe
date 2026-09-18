@@ -87,15 +87,20 @@ final class Inbox {
     /// Where the Shortcut actually writes.
     ///
     /// Save File's path is relative to whatever storage the Shortcuts app
-    /// decided on, and that is its own folder in iCloud Drive — not the root.
-    /// Told to write "/Lathe Inbox/", it makes `Shortcuts/Lathe Inbox`, every
-    /// time, on the phone and on the Mac. That is not worth fighting for the
-    /// sake of a tidier path nobody looks at, so it is created up front and
-    /// watched like any other: the shortcut works the moment it is added.
+    /// decided on, and that is the Shortcuts app's *own* iCloud container —
+    /// not iCloud Drive's root, and not a "Shortcuts" folder in it either,
+    /// though the Finder draws it in the sidebar as though it were one. The
+    /// real path is `Mobile Documents/iCloud~is~workflow~my~workflows`, and
+    /// no amount of naming a storage service in the shortcut changes it.
+    ///
+    /// So it is created up front and watched like any other folder, and the
+    /// shortcut works the moment it is added. Readable from here because this
+    /// app is not sandboxed — the same reason the hand-off belongs to the Mac.
     nonisolated static func shortcutsLocation() throws -> URL {
-        guard let drive = iCloudDrive else { throw CocoaError(.fileNoSuchFile) }
-        let folder = drive
-            .appendingPathComponent("Shortcuts", isDirectory: true)
+        let folder = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(
+                "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents",
+                isDirectory: true)
             .appendingPathComponent(folderName, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         return folder
