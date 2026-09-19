@@ -2,8 +2,42 @@
 import AppKit
 #else
 import UIKit
+import UniformTypeIdentifiers
 #endif
 import WebKit
+
+#if !os(macOS)
+/// Turns a document picker's two outcomes into one call.
+///
+/// Both of `UIDocumentPickerDelegate`'s methods end the same question, and a
+/// page waiting on `<input type="file">` needs exactly one answer: a second
+/// one traps, and none at all stops that web content process from ever showing
+/// another dialog. So both funnel through `settle`, which fires once.
+@MainActor
+private final class UploadPicker: NSObject, UIDocumentPickerDelegate {
+    private let finish: ([URL]?) -> Void
+    private var answered = false
+
+    init(finish: @escaping ([URL]?) -> Void) {
+        self.finish = finish
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController,
+                        didPickDocumentsAt urls: [URL]) {
+        settle(urls.isEmpty ? nil : urls)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        settle(nil)
+    }
+
+    private func settle(_ urls: [URL]?) {
+        guard !answered else { return }
+        answered = true
+        finish(urls)
+    }
+}
+#endif
 
 /// Answers the things a page asks of its browser.
 ///
@@ -139,6 +173,9 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
     }
 
     #if !os(macOS)
+    /// Kept alive for exactly as long as a file picker is on screen.
+    private var uploadPicker: UploadPicker?
+
     /// The view controller a dialog can be presented from — the topmost one,
     /// so it does not try to present underneath something already up.
     private static func presenter(for webView: WKWebView?) -> UIViewController? {
@@ -198,12 +235,32 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         let answer = Answer<[URL]?>(fallback: nil, completionHandler)
         bringForward?()
         #if !os(macOS)
-        // No picker yet on iOS. Answering nil is the same as cancelling, which
-        // is a page seeing "no file chosen" — honest, and crucially it is an
-        // answer: leaving the handler uncalled would wedge every later dialog
-        // in that web content process.
-        _ = parameters
-        answer(nil)
+        var types: [UTType] = [.item]
+        if parameters.allowsDirectories { types.append(.folder) }
+        // `asCopy` so what comes back is a plain file in the app's own
+        // temporary directory. The alternative hands over a security-scoped
+        // URL that has to be balanced with a stopAccessing call, and the code
+        // that would have to do the balancing is inside WebKit.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        picker.allowsMultipleSelection = parameters.allowsMultipleSelection
+
+        // The delegate is held here because a picker's delegate is weak, and
+        // released the moment it answers — which also releases `answer`, whose
+        // deinit is the backstop if the picker ever goes away without either
+        // callback firing.
+        let holder = UploadPicker { [weak self] urls in
+            answer(urls)
+            self?.uploadPicker = nil
+        }
+        uploadPicker = holder
+        picker.delegate = holder
+
+        guard let presenter = Self.presenter(for: tab?.webView) else {
+            answer(nil)
+            uploadPicker = nil
+            return
+        }
+        presenter.present(picker, animated: true)
         #else
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection

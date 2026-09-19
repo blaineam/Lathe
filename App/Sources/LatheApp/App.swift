@@ -56,7 +56,13 @@ struct LatheApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(queue: queue, browser: browser)
+            // A navigation container, because `.toolbar` draws nothing
+            // without one on iOS — and the pane switcher lives in the
+            // toolbar, so without this the browser cannot be reached at all.
+            NavigationStack {
+                RootView(queue: queue, browser: browser)
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         }
     }
 }
@@ -184,12 +190,14 @@ struct RootView: View {
                 .labelStyle(.titleAndIcon)
                 .fixedSize()
             }
+            #if os(macOS)
             ToolbarItem(placement: .primaryAction) {
                 Button { queue.revealDestination() } label: {
                     Label("Downloads folder", systemImage: "folder")
                 }
                 .help("Open the folder downloads go into")
             }
+            #endif
         }
     }
 }
