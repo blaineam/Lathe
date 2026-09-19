@@ -263,9 +263,57 @@ jobs:
           name: macos-app
           path: dist/
 
+  # The iOS app, as a sideload.
+  #
+  # Unsigned on purpose: this is not an App Store build — it links the
+  # downloader, which is the one product an App Store build leaves out — and
+  # a certificate belonging to this repository would be no use to whoever
+  # installs it. The tools people sideload with re-sign it with their own
+  # Apple ID, which is what makes the thing installable at all.
+  #
+  # Allowed to fail without taking the Mac release with it. The DMG is what
+  # most people came for, and a broken iOS build is not a reason to publish
+  # nothing.
+  ios:
+    name: iOS app
+    runs-on: macos-26
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the project
+        run: xcodegen generate --spec App-iOS/project.yml
+
+      - name: Build
+        run: |
+          xcodebuild -project App-iOS/Lathe.xcodeproj -scheme LatheiOS \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath build-ios CODE_SIGNING_ALLOWED=NO build
+
+      - name: Package
+        run: |
+          # `xcodebuild` reports success for a scheme that built a library and
+          # no application, which is exactly what happens when the scheme name
+          # collides with the package's. Check for the bundle, not the status.
+          APP=$(find build-ios/Build/Products -maxdepth 2 -name 'Lathe.app' | head -1)
+          [ -n "$APP" ] || { echo "::error::built, but no Lathe.app was produced"; exit 1; }
+          mkdir -p Payload dist-ios
+          cp -R "$APP" Payload/
+          zip -qry "dist-ios/Lathe-iOS.ipa" Payload
+          shasum -a 256 dist-ios/Lathe-iOS.ipa | tee dist-ios/SHA256SUMS-iOS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: dist-ios/
+
   publish:
     name: Publish
-    needs: app
+    needs: [app, ios]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -273,6 +321,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: macos-app
+          path: dist
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ios-app
           path: dist
 
       - name: Release notes
@@ -301,6 +354,13 @@ jobs:
             fi
             echo
             echo 'Requires macOS 26.'
+            echo
+            echo '### iPhone and iPad'
+            echo
+            echo '`Lathe-iOS.ipa` is a sideload, not an App Store build — it links'
+            echo 'the downloader, which is the one thing an App Store build leaves out.'
+            echo 'It is **unsigned**: install it with a sideloading tool that signs with'
+            echo 'your own Apple ID, or sign it yourself. Requires iOS 26.'
             echo 'LATHE_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -311,5 +371,7 @@ jobs:
           files: |
             dist/Lathe.dmg
             dist/SHA256SUMS
+            dist/Lathe-iOS.ipa
+            dist/SHA256SUMS-iOS
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
