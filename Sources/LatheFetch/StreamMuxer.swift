@@ -289,6 +289,14 @@ public enum StreamMuxer {
                 let sample: CMSampleBuffer
                 do {
                     sample = try correction.apply(to: raw)
+                    if !clock.hasLogged(isVideo: isVideo) {
+                        DiagnosticLog.note(
+                            "mux \(isVideo ? "video" : "audio") first sample: "
+                            + "raw pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(raw)))s "
+                            + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(raw)))s → "
+                            + "pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))s "
+                            + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(sample)))s")
+                    }
                 } catch {
                     throw MediaFetchError.muxingFailed(
                         stage: isVideo ? "retime video" : "retime audio",
@@ -368,8 +376,33 @@ public enum StreamMuxer {
             throw error
         }
 
-        if let end = clock.endTime {
+        // The movie ends when its longest track ends — no later.
+        //
+        // The observed end is the largest `pts + duration` any sample reported,
+        // and that is not trustworthy on its own: on a YouTube video track the
+        // sample durations come back as zero for most samples and, for at
+        // least one, as a value that runs well past the end of the track. On
+        // the file this was found with, the samples stop at 40.0s and the
+        // observed end came out at 80.1s, so the finished movie declared twice
+        // its own length and sat on forty seconds of nothing.
+        //
+        // The headers do not have that problem: each container states its own
+        // duration, and a sample cannot legitimately end after the track it
+        // belongs to. So the observed end is capped by the longest declared
+        // one.
+        let audioDeclared = MP4MovieHeader.declaredDuration(of: audioAsset.url) ?? .zero
+        let longestDeclared = CMTimeMaximum(totalDuration, audioDeclared)
+        if let observed = clock.endTime {
+            let end = longestDeclared > .zero
+                ? CMTimeMinimum(observed, longestDeclared)
+                : observed
+            DiagnosticLog.note(
+                "mux: endSession at \(CMTimeGetSeconds(end))s "
+                + "(observed \(CMTimeGetSeconds(observed))s, "
+                + "declared cap \(CMTimeGetSeconds(longestDeclared))s)")
             writer.endSession(atSourceTime: end)
+        } else {
+            DiagnosticLog.note("mux: no end time observed — endSession skipped")
         }
         await writer.finishWriting()
 
@@ -440,6 +473,14 @@ private final class MuxClock: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return latest.isValid ? latest : nil
+    }
+
+    /// One line per track, not one per sample.
+    private var logged: Set<Bool> = []
+    func hasLogged(isVideo: Bool) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !logged.insert(isVideo).inserted
     }
 
     func observe(end: CMTime) {
