@@ -67,6 +67,7 @@ struct TimingCorrection: Sendable {
         let measured = try? await track.load(.timeRange)
 
         guard let declared = header, let range = measured else {
+            DiagnosticLog.note("timing: no comparison possible — header \(header == nil ? "unreadable" : "ok"), track \(measured == nil ? "unreadable" : "ok")")
             LatheFetchLog.timing.log(
                 """
                 timing: no comparison possible — header \(header == nil ? "unreadable" : "ok",                 privacy: .public), track \(measured == nil ? "unreadable" : "ok", privacy: .public)
@@ -80,6 +81,7 @@ struct TimingCorrection: Sendable {
         guard declaredSeconds.isFinite, observedSeconds.isFinite,
               declaredSeconds > 0, observedSeconds > 0
         else {
+            DiagnosticLog.note("timing: unusable durations declared=\(declaredSeconds) observed=\(observedSeconds)")
             LatheFetchLog.timing.log(
                 "timing: unusable durations declared=\(declaredSeconds, privacy: .public) observed=\(observedSeconds, privacy: .public)")
             self = .identity
@@ -87,6 +89,7 @@ struct TimingCorrection: Sendable {
         }
 
         guard let factor = Self.factor(declared: declaredSeconds, observed: observedSeconds) else {
+            DiagnosticLog.note("timing: leaving alone — declared=\(declaredSeconds)s observed=\(observedSeconds)s ratio=\(declaredSeconds / observedSeconds)")
             LatheFetchLog.timing.log(
                 """
                 timing: leaving alone — declared=\(declaredSeconds, privacy: .public)s                 observed=\(observedSeconds, privacy: .public)s                 ratio=\(declaredSeconds / observedSeconds, privacy: .public)
@@ -95,6 +98,7 @@ struct TimingCorrection: Sendable {
             return
         }
 
+        DiagnosticLog.note("timing: correcting by \(factor) — declared=\(declaredSeconds)s observed=\(observedSeconds)s anchor=\(CMTimeGetSeconds(range.start))s")
         LatheFetchLog.timing.log(
             """
             timing: correcting by \(factor, privacy: .public) —             declared=\(declaredSeconds, privacy: .public)s             observed=\(observedSeconds, privacy: .public)s             anchor=\(CMTimeGetSeconds(range.start), privacy: .public)s
@@ -140,10 +144,17 @@ struct TimingCorrection: Sendable {
         guard status == noErr else { return sample }
 
         for index in timings.indices {
-            timings[index].presentationTimeStamp = scale(timings[index].presentationTimeStamp)
-            timings[index].decodeTimeStamp = scale(timings[index].decodeTimeStamp)
-            // A duration is a length, not a position, so it scales directly
-            // rather than about the anchor.
+            // Durations only. The timestamps are already right.
+            //
+            // Measured on the file this was written for: the video track
+            // reports an 80-second span against a 40-second header, so the
+            // disagreement is real — but it is the per-sample *durations* that
+            // read twice too long, not the presentation times. Scaling the
+            // timestamps as well moved samples that were already in the right
+            // place, and the output came out at 20 seconds: half of the
+            // corrected span, a quarter of the observed one, with the audio
+            // playing on for the other twenty. Leaving the positions alone and
+            // fixing only the lengths is what the evidence actually supports.
             if timings[index].duration.isValid, timings[index].duration.isNumeric {
                 timings[index].duration =
                     CMTimeMultiplyByFloat64(timings[index].duration, multiplier: factor)

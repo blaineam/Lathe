@@ -231,6 +231,7 @@ final class Queue {
         inbox.onURL = { [weak self] request in
             guard let self else { return }
             let added = add(text: request.url.absoluteString, scope: request.scope)
+            DiagnosticLog.note("queue: add returned \(added), queue now holds \(downloads.count)")
             if added == 0 {
                 // Already on the list. Sharing it again is somebody asking for
                 // it again — usually because the first attempt failed, or
@@ -256,7 +257,11 @@ final class Queue {
             // arrives without an answer is queued and left alone: something
             // sent from a phone is not a reason to saturate the connection
             // without being asked, and the row is visible the moment it lands.
-            guard !request.queueOnly, request.scope != nil || request.destination != nil else { return }
+            guard !request.queueOnly, request.scope != nil || request.destination != nil else {
+                DiagnosticLog.note("queue: not starting — queueOnly=\(request.queueOnly) scope=\(request.scope != nil) destination=\(request.destination != nil)")
+                return
+            }
+            DiagnosticLog.note("queue: starting")
             Task { await self.start() }
         }
         if watchesInbox { inbox.start() }
@@ -439,7 +444,11 @@ final class Queue {
     // MARK: - Running
 
     func start() async {
-        guard !isRunning, !downloads.isEmpty else { return }
+        guard !isRunning, !downloads.isEmpty else {
+            DiagnosticLog.note("start: refused — isRunning=\(isRunning) downloads=\(downloads.count)")
+            return
+        }
+        DiagnosticLog.note("start: entered with \(downloads.count) download(s), useTor=\(useTor)")
 
         // Fail closed. If the proxy is not there, nothing is downloaded — a
         // downloader that quietly abandons the proxy it was told to use is
@@ -448,6 +457,7 @@ final class Queue {
             do {
                 try await readyProxy()
             } catch {
+                DiagnosticLog.note("start: proxy not ready — \(Self.describe(error))")
                 summary = Self.describe(error)
                 return
             }
@@ -457,9 +467,11 @@ final class Queue {
         // otherwise the folder set in Lathe.
         let chosen = inboxDestination != nil ? defaultDestination() : (destination ?? defaultDestination())
         guard let folder = chosen else {
+            DiagnosticLog.note("start: no destination — inboxDestination=\(inboxDestination?.rawValue ?? "nil")")
             summary = "Choose where downloads should go first."
             return
         }
+        DiagnosticLog.note("start: running into \(folder.lastPathComponent)")
 
         isRunning = true
         defer { isRunning = false }
@@ -570,6 +582,7 @@ final class Queue {
                 try await downloadWithGalleryExtractor(download, into: folder)
             }
         } catch {
+            DiagnosticLog.note("download failed: \(Self.describe(error, for: download)) [raw: \(error)]")
             download.state = .failed(Self.describe(error, for: download))
         }
     }

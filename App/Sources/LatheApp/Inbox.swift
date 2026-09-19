@@ -1,4 +1,5 @@
 import Foundation
+import LatheFetch
 
 /// A folder Lathe watches, so anything that can write a file can queue a
 /// download.
@@ -194,6 +195,13 @@ final class Inbox {
                 continue
             }
             let found = Self.requests(in: entry)
+            DiagnosticLog.note(
+                "inbox: \(entry.lastPathComponent) → \(found.count) request(s)"
+                + (found.first.map {
+                    " first: scope=\($0.scope.map(\.rawValue) ?? "default")"
+                    + " destination=\($0.destination?.rawValue ?? "default")"
+                    + " queueOnly=\($0.queueOnly)"
+                } ?? ""))
             guard !found.isEmpty else { continue }
             for request in found { onURL?(request) }
             try? fileManager.removeItem(at: entry)
