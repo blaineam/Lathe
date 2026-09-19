@@ -577,7 +577,14 @@ struct BrowserView {
     @MainActor
     fileprivate func container(_ context: CoordinatorHolder) -> BrowserContainer {
         let container = BrowserContainer()
+        #if os(macOS)
+        // The view a representable hands back is positioned by SwiftUI itself,
+        // which on iOS means through the autoresizing mask. Turning that off
+        // here leaves nothing to size the container and it comes out at zero,
+        // so the page loads, reports no error, and is never drawn. AppKit's
+        // side has always wanted it off.
         container.translatesAutoresizingMaskIntoConstraints = false
+        #endif
         install(tab.webView, in: container)
         context.shown = tab.webView
         return container
