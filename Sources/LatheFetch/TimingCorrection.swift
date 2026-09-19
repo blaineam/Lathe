@@ -14,6 +14,21 @@ import Foundation
 /// and freezes while the audio plays on. ``MP4MovieHeader`` documents the
 /// evidence that the files themselves are right.
 ///
+/// ## What the defect actually is, measured
+///
+/// On a 60 fps YouTube video whose header declares 40.03 seconds, the track
+/// reports 80.07. Reading the samples shows why, and it is narrower than
+/// "the timing is wrong": the presentation timestamps are spaced correctly at
+/// 1/60 second and span the right 40 seconds, while each sample's *duration*
+/// field reads 1/30 — twice what it should be. Those doubled durations are
+/// what sum to the doubled track duration.
+///
+/// So the factor is right and scaling the durations is necessary; scaling the
+/// positions as well is what produced a forty-second video playing out in
+/// twenty against its own audio. The first sample reports a duration of zero,
+/// which is ordinary and says nothing about the rest — a check that gave up
+/// on seeing it would skip a correction the file needs.
+///
 /// ## Why scale rather than rebuild
 ///
 /// The obvious alternative is to recompute every timestamp from the frame rate
