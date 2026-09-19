@@ -59,9 +59,18 @@ struct TimingCorrection: Sendable {
 
     /// Works out whether `track`'s samples disagree with `file`'s movie header.
     init(for track: AVAssetTrack, file: URL) async {
-        guard let declared = MP4MovieHeader.declaredDuration(of: file),
-              let range = try? await track.load(.timeRange)
-        else {
+        // Every path below says what it saw. A correction that silently does
+        // nothing and a correction that silently does the wrong thing look
+        // identical in the output, and telling them apart from the outside
+        // means reading durations off a finished file and guessing backwards.
+        let header = MP4MovieHeader.declaredDuration(of: file)
+        let measured = try? await track.load(.timeRange)
+
+        guard let declared = header, let range = measured else {
+            LatheFetchLog.timing.log(
+                """
+                timing: no comparison possible — header \(header == nil ? "unreadable" : "ok",                 privacy: .public), track \(measured == nil ? "unreadable" : "ok", privacy: .public)
+                """)
             self = .identity
             return
         }
@@ -71,15 +80,25 @@ struct TimingCorrection: Sendable {
         guard declaredSeconds.isFinite, observedSeconds.isFinite,
               declaredSeconds > 0, observedSeconds > 0
         else {
+            LatheFetchLog.timing.log(
+                "timing: unusable durations declared=\(declaredSeconds, privacy: .public) observed=\(observedSeconds, privacy: .public)")
             self = .identity
             return
         }
 
         guard let factor = Self.factor(declared: declaredSeconds, observed: observedSeconds) else {
+            LatheFetchLog.timing.log(
+                """
+                timing: leaving alone — declared=\(declaredSeconds, privacy: .public)s                 observed=\(observedSeconds, privacy: .public)s                 ratio=\(declaredSeconds / observedSeconds, privacy: .public)
+                """)
             self = .identity
             return
         }
 
+        LatheFetchLog.timing.log(
+            """
+            timing: correcting by \(factor, privacy: .public) —             declared=\(declaredSeconds, privacy: .public)s             observed=\(observedSeconds, privacy: .public)s             anchor=\(CMTimeGetSeconds(range.start), privacy: .public)s
+            """)
         self.init(factor: factor, anchor: range.start)
     }
 

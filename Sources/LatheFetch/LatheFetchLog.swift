@@ -17,4 +17,11 @@ enum LatheFetchLog {
 
     /// Package resolution, download and installation.
     static let packages = Logger(subsystem: LatheLog.subsystem, category: "packages")
+
+    /// Muxing, and the sample timing that goes into it.
+    ///
+    /// Durations rather than paths, so this stays on the public side of the
+    /// module's privacy rule: how long a track is says nothing about what was
+    /// fetched.
+    static let timing = Logger(subsystem: LatheLog.subsystem, category: "timing")
 }
