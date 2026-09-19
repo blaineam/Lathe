@@ -510,6 +510,12 @@ struct BrowsePane: View {
                 }
 
                 BrowserView(tab: tab)
+                    // Told to fill, because it will not do it on its own. A
+                    // UIViewRepresentable wrapping a plain container has no
+                    // intrinsic size, so in a VStack iOS hands it zero height
+                    // and the page is simply not drawn — the chrome loads, the
+                    // address resolves, and the web view is an empty gap.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(.rect(cornerRadius: 14))
                     .padding(.horizontal, 16)
             }
@@ -625,6 +631,14 @@ struct TabChip: View {
     }
 }
 
+/// The width the address row was given, measured from behind it.
+private struct AddressBarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct AddressBar: View {
     @Bindable var queue: Queue
     @Bindable var browser: BrowserModel
@@ -634,6 +648,12 @@ struct AddressBar: View {
     /// Shown while the tab strip is hidden, which is whenever there is one tab.
     var showsNewTab: Bool = false
     @State private var asking: StartIntent?
+    @State private var width: CGFloat = 0
+
+    /// Below this the row splits in two. A phone is 440 points wide and an
+    /// iPad or a Mac window is comfortably past it, so the threshold sorts
+    /// them without asking which platform this is.
+    private var isCompact: Bool { width > 0 && width < 560 }
 
     private var signedIn: Bool {
         if let host = tab.host { return adopted.contains(host) }
@@ -642,121 +662,255 @@ struct AddressBar: View {
 
     var body: some View {
         GlassEffectContainer(spacing: 12) {
-            HStack(spacing: 8) {
-                Button { tab.back() } label: { Image(systemName: "chevron.left") }
-                    .disabled(!tab.canGoBack)
-                Button { tab.forward() } label: { Image(systemName: "chevron.right") }
-                    .disabled(!tab.canGoForward)
-                // An explicit closure, not `tab.isLoading ? tab.stop : tab.reload`.
-                // A ternary between two method references gives the type checker
-                // two unbound `(BrowserTab) -> () -> Void` values to reconcile
-                // inside a ViewBuilder, and it gives up without a diagnostic.
-                Button {
-                    if tab.isLoading { tab.stop() } else { tab.reload() }
-                } label: {
-                    Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
-                }
-
-                TextField("Search, or enter an address", text: $tab.address)
-                    .textFieldStyle(.plain)
-                    .focused($addressFocused)
-                    .onSubmit(tab.go)
-                    .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
-
-                Menu {
-                    if !browser.places.bookmarks.isEmpty {
-                        Section("Bookmarks") {
-                            ForEach(browser.places.bookmarks.prefix(12)) { place in
-                                Button(place.label) { tab.load(place.url) }
+            Group {
+                if isCompact {
+                    // A phone cannot hold eleven controls and an address field
+                    // on one line. Squeezed onto one it does not scroll or
+                    // clip, it compresses: the buttons keep their height and
+                    // lose their width until "Queue" is printed one letter per
+                    // line and the row is taller than the page it belongs to.
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button { tab.back() } label: { Image(systemName: "chevron.left") }
+                                .disabled(!tab.canGoBack)
+                            Button { tab.forward() } label: { Image(systemName: "chevron.right") }
+                                .disabled(!tab.canGoForward)
+                            // An explicit closure, not `tab.isLoading ? tab.stop : tab.reload`.
+                            // A ternary between two method references gives the type checker
+                            // two unbound `(BrowserTab) -> () -> Void` values to reconcile
+                            // inside a ViewBuilder, and it gives up without a diagnostic.
+                            Button {
+                                if tab.isLoading { tab.stop() } else { tab.reload() }
+                            } label: {
+                                Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                             }
+
+                            TextField("Search, or enter an address", text: $tab.address)
+                                .textFieldStyle(.plain)
+                                .focused($addressFocused)
+                                .onSubmit(tab.go)
+                                .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
                         }
-                    }
-                    if !browser.places.recent.isEmpty {
-                        Section("Recent") {
-                            ForEach(browser.places.recent.prefix(12)) { place in
-                                Button(place.label) { tab.load(place.url) }
+                        HStack(spacing: 8) {
+                            Menu {
+                                if !browser.places.bookmarks.isEmpty {
+                                    Section("Bookmarks") {
+                                        ForEach(browser.places.bookmarks.prefix(12)) { place in
+                                                        Button(place.label) { tab.load(place.url) }
+                                        }
+                                    }
+                                }
+                                if !browser.places.recent.isEmpty {
+                                    Section("Recent") {
+                                        ForEach(browser.places.recent.prefix(12)) { place in
+                                                        Button(place.label) { tab.load(place.url) }
+                                        }
+                                    }
+                                    Divider()
+                                    // Where somebody actually looks for it: in the list
+                                    // they want emptied, not three panes away in Settings.
+                                    Button("Clear recently visited", role: .destructive) {
+                                        browser.places.clearRecent()
+                                    }
+                                }
+                                if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
+                                    Text("Nothing yet")
+                                }
+                            } label: {
+                                Image(systemName: "clock.arrow.circlepath")
                             }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .help("Bookmarks and recently visited")
+
+                            Button {
+                                if let url = tab.currentURL {
+                                    browser.places.toggleBookmark(url: url, title: tab.title)
+                                }
+                            } label: {
+                                Image(systemName: browser.places.isBookmarked(tab.currentURL)
+                                      ? "bookmark.fill" : "bookmark")
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(tab.currentURL == nil)
+                            .help("Bookmark this page")
+
+                            if tab.isPlayingAudio || tab.isMuted {
+                                Button { tab.toggleMute() } label: {
+                                    Image(systemName: tab.isMuted
+                                          ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                }
+                                .buttonStyle(.glass)
+                                .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
+                            }
+
+                            if showsNewTab {
+                                Button { browser.newTab() } label: { Image(systemName: "plus") }
+                                    .buttonStyle(.glass)
+                                    .help("New tab")
+                            }
+
+                            if queue.useTor {
+                                Image(systemName: "eye.slash.fill")
+                                    .foregroundStyle(.tint)
+                                    .help("This tab's traffic is going through the proxy. "
+                                          + "That hides where you are connecting from — it does not "
+                                          + "sign you out of anything.")
+                            }
+
+                            Button {
+                                Task {
+                                    if let host = await queue.adoptCookies(from: tab) {
+                                        adopted.insert(host)
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
+                            }
+                            .buttonStyle(.glass)
+                            .disabled(tab.host == nil)
+                            .help("Hand this site's cookies to the downloader, so it sees the same "
+                                  + "signed-in session you do. Only this site's cookies, never the rest.")
+
+                            Button("Queue") { asking = .queue }
+                                .buttonStyle(.glass)
+                                .disabled(tab.currentURL == nil)
+                                .help("Add to the queue and download it with everything else")
+
+                            Button { asking = .now } label: {
+                                Label("Download", systemImage: "arrow.down.circle.fill")
+                            }
+                            .buttonStyle(.glassProminent)
+                            .disabled(tab.currentURL == nil)
+                            .help("Start this one now, without waiting for the rest of the queue")
+                            Spacer(minLength: 0)
                         }
-                        Divider()
-                        // Where somebody actually looks for it: in the list
-                        // they want emptied, not three panes away in Settings.
-                        Button("Clear recently visited", role: .destructive) {
-                            browser.places.clearRecent()
+                    }
+                } else {
+                    HStack(spacing: 8) {
+                        Button { tab.back() } label: { Image(systemName: "chevron.left") }
+                            .disabled(!tab.canGoBack)
+                        Button { tab.forward() } label: { Image(systemName: "chevron.right") }
+                            .disabled(!tab.canGoForward)
+                        // An explicit closure, not `tab.isLoading ? tab.stop : tab.reload`.
+                        // A ternary between two method references gives the type checker
+                        // two unbound `(BrowserTab) -> () -> Void` values to reconcile
+                        // inside a ViewBuilder, and it gives up without a diagnostic.
+                        Button {
+                            if tab.isLoading { tab.stop() } else { tab.reload() }
+                        } label: {
+                            Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                         }
-                    }
-                    if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
-                        Text("Nothing yet")
-                    }
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Bookmarks and recently visited")
 
-                Button {
-                    if let url = tab.currentURL {
-                        browser.places.toggleBookmark(url: url, title: tab.title)
-                    }
-                } label: {
-                    Image(systemName: browser.places.isBookmarked(tab.currentURL)
-                          ? "bookmark.fill" : "bookmark")
-                }
-                .buttonStyle(.glass)
-                .disabled(tab.currentURL == nil)
-                .help("Bookmark this page")
+                        TextField("Search, or enter an address", text: $tab.address)
+                            .textFieldStyle(.plain)
+                            .focused($addressFocused)
+                            .onSubmit(tab.go)
+                            .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
 
-                if tab.isPlayingAudio || tab.isMuted {
-                    Button { tab.toggleMute() } label: {
-                        Image(systemName: tab.isMuted
-                              ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    }
-                    .buttonStyle(.glass)
-                    .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
-                }
+                        Menu {
+                            if !browser.places.bookmarks.isEmpty {
+                                Section("Bookmarks") {
+                                    ForEach(browser.places.bookmarks.prefix(12)) { place in
+                                                Button(place.label) { tab.load(place.url) }
+                                    }
+                                }
+                            }
+                            if !browser.places.recent.isEmpty {
+                                Section("Recent") {
+                                    ForEach(browser.places.recent.prefix(12)) { place in
+                                                Button(place.label) { tab.load(place.url) }
+                                    }
+                                }
+                                Divider()
+                                // Where somebody actually looks for it: in the list
+                                // they want emptied, not three panes away in Settings.
+                                Button("Clear recently visited", role: .destructive) {
+                                    browser.places.clearRecent()
+                                }
+                            }
+                            if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
+                                Text("Nothing yet")
+                            }
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("Bookmarks and recently visited")
 
-                if showsNewTab {
-                    Button { browser.newTab() } label: { Image(systemName: "plus") }
+                        Button {
+                            if let url = tab.currentURL {
+                                browser.places.toggleBookmark(url: url, title: tab.title)
+                            }
+                        } label: {
+                            Image(systemName: browser.places.isBookmarked(tab.currentURL)
+                                  ? "bookmark.fill" : "bookmark")
+                        }
                         .buttonStyle(.glass)
-                        .help("New tab")
-                }
+                        .disabled(tab.currentURL == nil)
+                        .help("Bookmark this page")
 
-                if queue.useTor {
-                    Image(systemName: "eye.slash.fill")
-                        .foregroundStyle(.tint)
-                        .help("This tab's traffic is going through the proxy. "
-                              + "That hides where you are connecting from — it does not "
-                              + "sign you out of anything.")
-                }
-
-                Button {
-                    Task {
-                        if let host = await queue.adoptCookies(from: tab) {
-                            adopted.insert(host)
+                        if tab.isPlayingAudio || tab.isMuted {
+                            Button { tab.toggleMute() } label: {
+                                Image(systemName: tab.isMuted
+                                      ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            }
+                            .buttonStyle(.glass)
+                            .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
                         }
+
+                        if showsNewTab {
+                            Button { browser.newTab() } label: { Image(systemName: "plus") }
+                                .buttonStyle(.glass)
+                                .help("New tab")
+                        }
+
+                        if queue.useTor {
+                            Image(systemName: "eye.slash.fill")
+                                .foregroundStyle(.tint)
+                                .help("This tab's traffic is going through the proxy. "
+                                      + "That hides where you are connecting from — it does not "
+                                      + "sign you out of anything.")
+                        }
+
+                        Button {
+                            Task {
+                                if let host = await queue.adoptCookies(from: tab) {
+                                    adopted.insert(host)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(tab.host == nil)
+                        .help("Hand this site's cookies to the downloader, so it sees the same "
+                              + "signed-in session you do. Only this site's cookies, never the rest.")
+
+                        Button("Queue") { asking = .queue }
+                            .buttonStyle(.glass)
+                            .disabled(tab.currentURL == nil)
+                            .help("Add to the queue and download it with everything else")
+
+                        Button { asking = .now } label: {
+                            Label("Download", systemImage: "arrow.down.circle.fill")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(tab.currentURL == nil)
+                        .help("Start this one now, without waiting for the rest of the queue")
                     }
-                } label: {
-                    Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
                 }
-                .buttonStyle(.glass)
-                .disabled(tab.host == nil)
-                .help("Hand this site's cookies to the downloader, so it sees the same "
-                      + "signed-in session you do. Only this site's cookies, never the rest.")
-
-                Button("Queue") { asking = .queue }
-                    .buttonStyle(.glass)
-                    .disabled(tab.currentURL == nil)
-                    .help("Add to the queue and download it with everything else")
-
-                Button { asking = .now } label: {
-                    Label("Download", systemImage: "arrow.down.circle.fill")
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(tab.currentURL == nil)
-                .help("Start this one now, without waiting for the rest of the queue")
             }
             .padding(10)
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 16))
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: AddressBarWidthKey.self,
+                                           value: proxy.size.width)
+                }
+            )
+            .onPreferenceChange(AddressBarWidthKey.self) { width = $0 }
         }
         // Asked rather than assumed. A page in a browser is as likely to be a
         // gallery, a playlist or a profile as it is to be one item, and
