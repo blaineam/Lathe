@@ -6,6 +6,7 @@
 # from the device the links are usually shared from.
 #
 #   Sources/LatheFetch/fetch-upstream.sh   # CPython, once, from the repo root
+#   App/Vendor/Tor/slim-tor.sh             # Tor, once
 #   xcodegen generate --spec App-iOS/project.yml
 #   xcodebuild -project App-iOS/Lathe.xcodeproj -scheme Lathe \
 #     -destination 'generic/platform=iOS' build
@@ -75,6 +76,17 @@ targets:
       - framework: ../.python-apple-support/Python.xcframework
         embed: true
         codeSign: true
+      # The embedded Tor client: iCepa's Tor.framework, slimmed to arm64 by
+      # App/Vendor/Tor/slim-tor.sh (git-ignored, ~16 MB a slice). A STATIC
+      # library, so it is linked into the app binary and not embedded — no
+      # separate executable ships, and TorController runs tor_run_main on a
+      # thread in this process. Tor expects zlib, liblzma and Security from
+      # the system around it.
+      - framework: ../App/Vendor/Tor/tor.xcframework
+        embed: false
+      - sdk: libz.tbd
+      - sdk: liblzma.tbd
+      - sdk: Security.framework
     postCompileScripts:
       # The standard library and the lib-dynload extension modules, which the
       # framework dependency above cannot deliver. Upstream's install_python;
@@ -107,6 +119,11 @@ targets:
         # the app under Files › On My iPhone, so downloads were unreachable.
         INFOPLIST_FILE: Info.plist
         SWIFT_VERSION: "6.0"
+        # Same switch the Mac package sets when the Tor framework is present,
+        # and the same header-only module (App/Sources/CTorShim) declaring
+        # the five tor_api.h entry points it calls.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) LATHE_EMBEDDED_TOR"
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(PROJECT_DIR)/../App/Sources/CTorShim/include"
         # embed-python.sh reads the xcframework from outside the project
         # and writes ~2,900 files and ~70 frameworks into the bundle.
         ENABLE_USER_SCRIPT_SANDBOXING: NO

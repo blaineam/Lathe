@@ -53,6 +53,7 @@ enum Entry {
 struct LatheApp: App {
     @State private var queue = Queue()
     @State private var browser = BrowserModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -74,6 +75,12 @@ struct LatheApp: App {
             // Browsing and downloading go the same way, as on the Mac.
             .task(id: queue.routingSignature) {
                 browser.setProxy(queue.useTor ? queue.activeProxy : nil)
+            }
+            // iOS suspends the process — Tor's thread with it — in the
+            // background. Coming back, prove the route again before anything
+            // is sent down it.
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await queue.resumeRouting() } }
             }
         }
     }
@@ -1570,6 +1577,7 @@ struct PrivacySettings: View {
                         Text(queue.torStatus)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
                     }
                 }
                 Text("Browsing and downloading both go through it. A toggle that "
@@ -1580,7 +1588,10 @@ struct PrivacySettings: View {
             }
 
             Section("Proxy") {
-                Picker("Use", selection: $queue.torMode) {
+                Picker("Use", selection: Binding(
+                    get: { queue.torMode },
+                    set: { queue.setTorMode($0) })
+                ) {
                     // No embedded Tor on iOS (or in a Mac build without the
                     // framework): offering it would be a choice that does nothing.
                     ForEach(TorMode.allCases.filter { $0 != .embedded || TorController.isAvailable }) {
@@ -1597,6 +1608,14 @@ struct PrivacySettings: View {
                 }
                 Text(queue.torMode.explanation)
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            // Re-check an external proxy whenever its address changes, after
+            // a short pause so typing a port does not probe every digit.
+            .task(id: "\(queue.useTor) \(queue.torMode.rawValue) \(queue.proxy.host):\(queue.proxy.port)") {
+                guard queue.useTor, queue.torMode == .external else { return }
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !Task.isCancelled else { return }
+                await queue.checkExternalProxy()
             }
 
             Section {

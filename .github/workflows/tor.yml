@@ -54,7 +54,7 @@ jobs:
           body: |
             Slimmed [Tor.framework](https://github.com/iCepa/Tor.framework)
             for the Lathe Mac app's embedded Tor client: arm64 only, debug
-            information removed, simulator slice dropped.
+            information removed, simulator slice thinned to arm64.
 
             Upstream ships 335 MB across every slice. This is the same object
             code at roughly 15 MB, with `tor_run_main`,

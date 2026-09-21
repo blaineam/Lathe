@@ -46,10 +46,12 @@ unzip -q "$WORK/tor.zip" -d "$WORK/upstream"
 SOURCE="$WORK/upstream/tor.xcframework"
 [ -d "$SOURCE" ] || { echo "the archive did not contain tor.xcframework" >&2; exit 1; }
 
-# Keep only the slices Lathe can use. The simulator slice is dropped entirely:
-# an app that needs Tor in the simulator can use a local proxy, and carrying a
-# 131 MB slice for that is not a trade worth making.
-declare -a KEEP=("macos-arm64_x86_64:macos-arm64" "ios-arm64:ios-arm64")
+# Keep only the slices Lathe can use, arm64 throughout. The simulator slice is
+# kept since the iOS app embeds Tor too: thinned and stripped it is the size of
+# the device slice rather than upstream's 131 MB, and without it the iOS target
+# cannot build for a simulator at all.
+declare -a KEEP=("macos-arm64_x86_64:macos-arm64" "ios-arm64:ios-arm64"
+                 "ios-arm64_x86_64-simulator:ios-arm64-simulator")
 
 BUILD="$WORK/slim"
 mkdir -p "$BUILD"

@@ -11,6 +11,7 @@ ways** — which changes what you have to do about each:
 | **LAME** | source vendored; built into its own **dynamic** `lame.framework`, which `LatheMP3` links | you do, as a separate framework in your app bundle |
 | **CPython** | bound at run time by `LatheFetch`; **not** in this repository | you do, *if* you embed it |
 | **Ruffle** | vendored, unmodified, as `LatheSWFRender`'s bundled resources | you do, *if* you ship `LatheSWFRender` |
+| **Tor** (iCepa Tor.framework: tor BSD-3-Clause, OpenSSL Apache-2.0, libevent BSD-3-Clause) | linked statically into the Lathe **app** (Mac and iOS), fetched by `App/Vendor/Tor/slim-tor.sh`; **not** in this repository and not part of the package | the Lathe app does |
 
 If you ship an application that depends on `LatheImage` (directly, or through the
 `Lathe` umbrella, `LatheVideo` or `LatheDoc`), you are distributing libwebp and

@@ -1,0 +1,4 @@
+module CTorShim {
+    header "CTorShim.h"
+    export *
+}

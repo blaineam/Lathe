@@ -36,14 +36,57 @@ final class Queue {
 
     let tor = TorController()
 
+    /// Whether the external proxy answers, as last checked.
+    ///
+    /// "Using 127.0.0.1:9050" used to be printed the moment the toggle was on,
+    /// in yellow, whether or not anything listened there — and on an iPhone
+    /// nothing ever does. The status now says what a real connection found.
+    enum ExternalProxyState: Equatable {
+        case unchecked
+        case checking
+        case reachable
+        case unreachable(String)
+    }
+    private(set) var externalProxyState: ExternalProxyState = .unchecked
+
+    /// Probes the external proxy, through to a real host, and records what it found.
+    func checkExternalProxy() async {
+        guard useTor, torMode == .external else {
+            externalProxyState = .unchecked
+            return
+        }
+        let probed = proxy
+        externalProxyState = .checking
+        do {
+            try await probed.verify(timeout: .seconds(5), reaching: "check.torproject.org")
+            if probed == proxy { externalProxyState = .reachable }
+        } catch {
+            if probed == proxy { externalProxyState = .unreachable(error.localizedDescription) }
+        }
+    }
+
     var torStatus: String {
         guard useTor else { return "Off" }
-        return torMode == .embedded ? tor.state.label : "Using \(proxy.host):\(proxy.port)"
+        guard torMode == .external else { return tor.state.label }
+        let address = "\(proxy.host):\(proxy.port)"
+        switch externalProxyState {
+        case .unchecked, .checking: return "Checking \(address)…"
+        case .reachable: return "Using \(address)"
+        // The reason is the probe's own sentence ("Could not reach the proxy:
+        // …"), which repeats this one; the address is what somebody can fix.
+        case .unreachable: return "No proxy answering at \(address)"
+        }
     }
 
     var torStatusColor: Color {
         guard useTor else { return .secondary }
-        if torMode == .external { return .yellow }
+        if torMode == .external {
+            switch externalProxyState {
+            case .reachable: return .green
+            case .unreachable: return .red
+            default: return .yellow
+            }
+        }
         switch tor.state {
         case .running: return .green
         case .failed, .unavailable: return .red
@@ -1092,7 +1135,29 @@ final class Queue {
             } else if !enabled {
                 tor.stop()
             }
+            await checkExternalProxy()
         }
+    }
+
+    /// Switches between the built-in client and an external proxy while
+    /// routing is on, starting or parking the built-in one to match.
+    func setTorMode(_ mode: TorMode) {
+        torMode = mode
+        invalidateFetchers()
+        Task {
+            if useTor, mode == .embedded {
+                await tor.start()
+            } else {
+                tor.stop()
+            }
+            await checkExternalProxy()
+        }
+    }
+
+    /// The app is in front again: re-prove whichever proxy is in use.
+    func resumeRouting() async {
+        guard useTor else { return }
+        if torMode == .embedded { await tor.resume() } else { await checkExternalProxy() }
     }
 
     private func saveDestinationBookmark() {

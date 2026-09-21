@@ -23,6 +23,11 @@ int tor_main_configuration_set_command_line(tor_main_configuration_t *cfg,
 
 void tor_main_configuration_free(tor_main_configuration_t *cfg);
 
+/// Returns a socket already authenticated as the owning controller, or -1.
+/// Must be called before tor_run_main. Lathe reads BOOTSTRAP progress from it
+/// and uses it to put the client to sleep and wake it again.
+int tor_main_configuration_setup_control_socket(tor_main_configuration_t *cfg);
+
 /// The version of the linked daemon.
 const char *tor_api_get_provider_version(void);
 

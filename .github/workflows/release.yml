@@ -291,6 +291,11 @@ jobs:
       - name: Fetch CPython
         run: Sources/LatheFetch/fetch-upstream.sh
 
+      # The embedded Tor client, linked statically into the iOS app. The same
+      # script the Mac's tor.yml runs: iCepa's release, thinned to arm64.
+      - name: Fetch Tor
+        run: App/Vendor/Tor/slim-tor.sh
+
       - name: Generate the project
         run: xcodegen generate --spec App-iOS/project.yml
 
