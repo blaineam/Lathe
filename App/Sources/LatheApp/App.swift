@@ -63,6 +63,18 @@ struct LatheApp: App {
                 RootView(queue: queue, browser: browser)
                     .navigationBarTitleDisplayMode(.inline)
             }
+            // The same start-up the Mac scene does. Without refreshTools an
+            // installed yt-dlp or gallery-dl was reported missing after every
+            // relaunch — and routing, which asks the same flags, sent pages
+            // to the direct downloader instead of the extractor.
+            .task {
+                IntentBridge.shared.queue = queue
+                await queue.refreshTools()
+            }
+            // Browsing and downloading go the same way, as on the Mac.
+            .task(id: queue.routingSignature) {
+                browser.setProxy(queue.useTor ? queue.activeProxy : nil)
+            }
         }
     }
 }
@@ -147,6 +159,9 @@ struct RootView: View {
     // `--browse` opens straight to the browser, for checking browser changes
     // without clicking through the queue first.
     @State private var pane: Pane = CommandLine.arguments.contains("--browse") ? .browse : .queue
+    #if os(iOS)
+    @State private var showsSettings = CommandLine.arguments.contains("--settings")
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -197,8 +212,25 @@ struct RootView: View {
                 }
                 .help("Open the folder downloads go into")
             }
+            #else
+            ToolbarItem(placement: .topBarLeading) {
+                Button { FilesApp.showDownloads() } label: {
+                    Label("Downloads folder", systemImage: "folder")
+                }
+                .accessibilityHint("Opens the Downloads folder in the Files app")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showsSettings = true } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+            }
             #endif
         }
+        #if os(iOS)
+        .sheet(isPresented: $showsSettings) {
+            IOSSettingsView(queue: queue, browser: browser)
+        }
+        #endif
     }
 }
 
@@ -271,7 +303,19 @@ struct QueueView: View {
             Text("Paste a link above, or find something in Browse.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            #if os(iOS)
+            Button { FilesApp.showDownloads() } label: {
+                Label("Downloads folder", systemImage: "folder")
+            }
+            .pillLabel()
+            .buttonStyle(.glass)
+            .padding(.top, 6)
+            Text(FilesApp.downloadsLocation)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            #endif
         }
+        .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -411,7 +455,10 @@ struct DownloadRow: View {
                     .buttonStyle(.borderless)
             }
             #else
-            // No Finder to show it in; the row still has to be dismissable.
+            if case .finished(let url) = download.state {
+                FinishedActions(output: url)
+            }
+            // The row still has to be dismissable.
             Button(action: remove) { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
             #endif
@@ -713,6 +760,28 @@ struct TabChip: View {
 
 /// The width the address row was given, measured from behind it.
 extension View {
+    /// `.link` on the Mac, where it is the settings idiom; iOS has no link
+    /// button style, and a borderless button is its equivalent in a Form.
+    @ViewBuilder
+    func linkButtonStyle() -> some View {
+        #if os(macOS)
+        buttonStyle(.link)
+        #else
+        buttonStyle(.borderless)
+        #endif
+    }
+
+    /// Buttons that share a Form row. On iOS each must be borderless or the
+    /// row forwards a tap to all of them; the Mac draws its default there.
+    @ViewBuilder
+    func rowButtonStyle() -> some View {
+        #if os(macOS)
+        self
+        #else
+        buttonStyle(.borderless)
+        #endif
+    }
+
     /// A button label that keeps its one line.
     ///
     /// Without it a pill squeezed by its neighbours does not clip or scroll —
@@ -1197,10 +1266,11 @@ struct ActivityChip: View {
 
 // MARK: - Settings
 
-// Everything below is the Mac's settings window, its menu bar item and the
-// helpers that drive them: Presence, NSApp, the pasteboard, the Shortcut
-// exporter. All of it is either a Mac mechanism or a Mac scene type. iOS ships
-// without a settings screen for now rather than with a hollow one.
+// The Mac's settings window is a TabView of the panes below; the iPhone's is
+// a sheet (IOSSettingsView) that pushes the same panes. Downloaders, Privacy
+// and Places are shared, so both platforms read and write one set of models.
+// General and Shortcuts stay Mac-only: Presence, login items, Sami and the
+// .shortcut exporter are Mac mechanisms with no iOS counterpart.
 #if os(macOS)
 
 struct SettingsView: View {
@@ -1352,6 +1422,8 @@ struct GeneralSettings: View {
     }
 }
 
+#endif
+
 /// Install, update and remove the extractors.
 ///
 /// They are fetched rather than bundled, which is what makes them updatable at
@@ -1462,10 +1534,15 @@ struct ToolRow: View {
             if busy {
                 ProgressView().controlSize(.small)
             } else if installed {
+                // Borderless on iOS: a Form row holding two default-style
+                // buttons treats a tap anywhere in it as a tap on both —
+                // Update and Remove at once.
                 Button("Update") { Task { await queue.update(tool) } }
                     .pillLabel()
+                    .rowButtonStyle()
                 Button("Remove", role: .destructive, action: remove)
                     .pillLabel()
+                    .rowButtonStyle()
             } else {
                 Button("Install") { Task { await queue.update(tool) } }
                     .pillLabel()
@@ -1504,7 +1581,11 @@ struct PrivacySettings: View {
 
             Section("Proxy") {
                 Picker("Use", selection: $queue.torMode) {
-                    ForEach(TorMode.allCases) { Text($0.label).tag($0) }
+                    // No embedded Tor on iOS (or in a Mac build without the
+                    // framework): offering it would be a choice that does nothing.
+                    ForEach(TorMode.allCases.filter { $0 != .embedded || TorController.isAvailable }) {
+                        Text($0.label).tag($0)
+                    }
                 }
                 if queue.torMode == .external {
                     HStack {
@@ -1549,7 +1630,7 @@ struct PlacesSettings: View {
                             Button("Remove", role: .destructive) {
                                 places.removeBookmark(place)
                             }
-                            .buttonStyle(.link)
+                            .linkButtonStyle()
                         }
                     }
                 }
@@ -1558,7 +1639,7 @@ struct PlacesSettings: View {
             Section("Recently visited") {
                 LabeledContent("\(places.recent.count) pages") {
                     Button("Clear") { places.clearRecent() }
-                        .buttonStyle(.link)
+                        .linkButtonStyle()
                         .disabled(places.recent.isEmpty)
                 }
                 Text("Kept so you can find yesterday's page, capped at 40, and never "
@@ -1570,7 +1651,7 @@ struct PlacesSettings: View {
     }
 }
 
-
+#if os(macOS)
 /// Walks somebody through setting up the phone-to-Mac hand-off.
 ///
 /// Instructions rather than a generated shortcut, because a `.shortcut` file is

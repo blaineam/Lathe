@@ -598,19 +598,25 @@ final class Queue {
     private func run(_ download: Download, into folder: URL, session: URLSession) async {
         download.state = .inspecting
         do {
-            let tool = try await route(download)
-            download.resolvedTool = tool
-            switch tool {
-            case .direct, .automatic:
-                let output = try await downloadDirectly(download, into: folder, session: session)
-                download.state = .finished(output)
-                download.byteCount =
-                    (try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
-            case .media:
-                try await downloadWithMediaExtractor(download, into: folder)
-            case .gallery:
-                try await downloadWithGalleryExtractor(download, into: folder)
+            var tool = try await route(download)
+            // A URL ending in .jpg is not necessarily a JPEG: a MediaWiki
+            // file page (…/wiki/File:Example.jpg) and plenty of galleries end
+            // their *page* URLs in the image's name. Ask the server before
+            // committing to a direct download, when the choice was ours.
+            if tool == .direct, download.tool == .automatic,
+               await Self.servesPage(download.url, session: session) {
+                tool = try await route(download, allowsDirect: false)
             }
+            do {
+                try await perform(tool, for: download, into: folder, session: session)
+            } catch DirectDownloadProblem.gotPage where download.tool == .automatic {
+                // The HEAD request can be refused or lie; the bytes cannot.
+                let fallback = try await route(download, allowsDirect: false)
+                try await perform(fallback, for: download, into: folder, session: session)
+            }
+        } catch DirectDownloadProblem.gotPage {
+            download.state = .failed(DownloadProblem.noExtractor(
+                host: download.url.host() ?? "That site").localizedDescription)
         } catch {
             DiagnosticLog.note("download failed: \(Self.describe(error, for: download)) [raw: \(error)]")
             download.state = .failed(Self.describe(error, for: download))
@@ -632,9 +638,9 @@ final class Queue {
     ///    fallback, so a claim from it is a real one.
     /// 4. Otherwise yt-dlp's generic extractor, which is the right last
     ///    resort: it fetches the page and looks for something media-shaped.
-    private func route(_ download: Download) async throws -> Tool {
+    private func route(_ download: Download, allowsDirect: Bool = true) async throws -> Tool {
         if download.tool != .automatic { return download.tool }
-        if Self.looksLikeMediaFile(download.url) { return .direct }
+        if allowsDirect, Self.looksLikeMediaFile(download.url) { return .direct }
 
         if tools.ytdlpInstalled,
            let fetcher = try? await mediaFetcher(cookieFile: download.cookieFile),
@@ -681,6 +687,55 @@ final class Queue {
 
     // MARK: - The three paths
 
+    /// Runs one tool on one row. Split out so a direct download that turns
+    /// out to be a web page can be retried through an extractor.
+    private func perform(
+        _ tool: Tool, for download: Download, into folder: URL, session: URLSession
+    ) async throws {
+        download.resolvedTool = tool
+        switch tool {
+        case .direct, .automatic:
+            let output = try await downloadDirectly(download, into: folder, session: session)
+            download.state = .finished(output)
+            download.byteCount =
+                (try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0 } ?? 0
+        case .media:
+            try await downloadWithMediaExtractor(download, into: folder)
+        case .gallery:
+            try await downloadWithGalleryExtractor(download, into: folder)
+        }
+    }
+
+    /// A direct download that fetched a web page rather than media.
+    private enum DirectDownloadProblem: Error { case gotPage }
+
+    /// Whether the server says this URL is an HTML page.
+    ///
+    /// `false` when it cannot tell — a refused HEAD, a timeout — because the
+    /// bytes are checked after the download anyway, and a server that does
+    /// not answer HEAD is no reason to refuse a real file.
+    private nonisolated static func servesPage(_ url: URL, session: URLSession) async -> Bool {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 15
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode),
+              let type = http.value(forHTTPHeaderField: "Content-Type")?.lowercased()
+        else { return false }
+        return type.hasPrefix("text/html") || type.hasPrefix("application/xhtml")
+    }
+
+    /// Whether a downloaded file is actually an HTML document.
+    private nonisolated static func isPage(_ file: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 512),
+              let text = String(data: head, encoding: .utf8) ?? String(data: head, encoding: .isoLatin1)
+        else { return false }
+        let start = text.drop { $0.isWhitespace || $0 == "\u{FEFF}" }.prefix(15).lowercased()
+        return start.hasPrefix("<!doctype html") || start.hasPrefix("<html")
+    }
+
     private func downloadDirectly(
         _ download: Download, into folder: URL, session: URLSession
     ) async throws -> URL {
@@ -693,6 +748,10 @@ final class Queue {
         download.state = .running(fraction: 0)
         try await URLSessionMediaTransport(session: session).download(
             download.url, to: output, limits: .standard, progress: Self.handle(for: download))
+        if Self.isPage(output) {
+            try? FileManager.default.removeItem(at: output)
+            throw DirectDownloadProblem.gotPage
+        }
         return output
     }
 
@@ -867,7 +926,12 @@ final class Queue {
     }
 
     private nonisolated static func looksLikeMediaFile(_ url: URL) -> Bool {
-        ["mp4", "m4v", "mov", "webm", "mkv", "mp3", "m4a", "opus", "flac", "wav",
+        // A colon in the last component is a wiki namespace — File:, Image:,
+        // Datei: — which names a page *about* a file, not the file. Media
+        // servers do not put colons in file names; MediaWiki always does.
+        if url.lastPathComponent.contains(":") { return false }
+        if url.pathComponents.contains("wiki") { return false }
+        return ["mp4", "m4v", "mov", "webm", "mkv", "mp3", "m4a", "opus", "flac", "wav",
          "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "pdf", "cbz", "zip"]
             .contains(url.pathExtension.lowercased())
     }
