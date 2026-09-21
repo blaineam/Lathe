@@ -240,6 +240,14 @@ embeds, and their notices belong in that application's acknowledgements.
 
 5. Expect `subprocess` and `os.fork` to raise. See PEP 730, and
    `PythonException.isPlatformRestriction`.
+6. Supply a CA bundle before Python touches the network: the bundled OpenSSL
+   has none. `installer.installTrustStore()` then `runtime.useTrustStore(_:)`,
+   and on later launches `Configuration.trustStore = PythonTrustStore.installed(in:)`.
+
+Lathe's own iOS app is the worked example: `App-iOS/project.yml` links and
+embeds the xcframework, and `App-iOS/embed-python.sh` runs upstream's
+`install_python` (from the xcframework's `build/utils.sh`) as a Run Script
+phase before Embed Frameworks. `Queue.swift` does steps 4 and 6.
 
 ### A macOS application or tool
 

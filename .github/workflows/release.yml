@@ -285,6 +285,12 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # CPython for the downloaders: the pinned, checksum-verified
+      # Python-Apple-support release. The app embeds it; without it the
+      # Install yt-dlp / gallery-dl buttons have no interpreter to run on.
+      - name: Fetch CPython
+        run: Sources/LatheFetch/fetch-upstream.sh
+
       - name: Generate the project
         run: xcodegen generate --spec App-iOS/project.yml
 

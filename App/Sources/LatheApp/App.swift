@@ -232,6 +232,7 @@ struct QueueView: View {
                     .help("Whether a link that names a collection means the one item or all of it")
 
                     Button("Add", action: add)
+                        .pillLabel()
                         .buttonStyle(.glassProminent)
                         .disabled(input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -299,12 +300,14 @@ struct QueueView: View {
             Spacer()
 
             Button("Clear finished") { queue.clearFinished() }
+                .pillLabel()
                 .buttonStyle(.glass)
                 .disabled(queue.isRunning)
 
             Button(queue.isRunning ? "Downloading…" : "Download") {
                 Task { await queue.start() }
             }
+            .pillLabel()
             .buttonStyle(.glassProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(queue.isRunning || queue.downloads.allSatisfy(\.state.isTerminal))
@@ -416,9 +419,46 @@ struct DownloadRow: View {
 
 struct OnboardingBanner: View {
     @Bindable var queue: Queue
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
+
+    /// A phone cannot fit the explanation and two pill buttons side by side:
+    /// squeezed onto one row, the buttons wrap their labels onto two lines and
+    /// the text becomes a column a few words wide. So on a compact width the
+    /// buttons go under the text instead of beside it.
+    private var stacksButtons: Bool {
+        #if os(iOS)
+        sizeClass == .compact
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
+        Group {
+            if stacksButtons {
+                VStack(alignment: .leading, spacing: 12) {
+                    header
+                    HStack(spacing: 10) {
+                        actions
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                HStack(spacing: 12) {
+                    header
+                    Spacer()
+                    actions
+                }
+            }
+        }
+        .padding(14)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: "sparkles")
                 .font(.title2)
                 .foregroundStyle(.tint)
@@ -430,30 +470,30 @@ struct OnboardingBanner: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
 
-            Spacer()
-
-            if queue.tools.ytdlpInstalling || queue.tools.galleryDLInstalling {
-                ProgressView().controlSize(.small)
-            } else {
-                if !queue.tools.ytdlpInstalled {
-                    Button("Install yt-dlp") {
-                        Task { await queue.installYouTubeDL() }
-                    }
-                    .buttonStyle(.glassProminent)
-                    .help("Video and audio sites")
+    @ViewBuilder private var actions: some View {
+        if queue.tools.ytdlpInstalling || queue.tools.galleryDLInstalling {
+            ProgressView().controlSize(.small)
+        } else {
+            if !queue.tools.ytdlpInstalled {
+                Button("Install yt-dlp") {
+                    Task { await queue.installYouTubeDL() }
                 }
-                if !queue.tools.galleryDLInstalled {
-                    Button("Install gallery-dl") {
-                        Task { await queue.installGalleryDL() }
-                    }
-                    .buttonStyle(.glass)
-                    .help("Image and gallery sites")
+                .pillLabel()
+                .buttonStyle(.glassProminent)
+                .help("Video and audio sites")
+            }
+            if !queue.tools.galleryDLInstalled {
+                Button("Install gallery-dl") {
+                    Task { await queue.installGalleryDL() }
                 }
+                .pillLabel()
+                .buttonStyle(.glass)
+                .help("Image and gallery sites")
             }
         }
-        .padding(14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 18))
     }
 
     private var message: String {
@@ -632,6 +672,18 @@ struct TabChip: View {
 }
 
 /// The width the address row was given, measured from behind it.
+extension View {
+    /// A button label that keeps its one line.
+    ///
+    /// Without it a pill squeezed by its neighbours does not clip or scroll —
+    /// it wraps, and "Download" becomes "Down-" over "load". A row that cannot
+    /// fit its labels has to re-lay itself out instead (see OnboardingBanner
+    /// and AddressBar.actionRow).
+    func pillLabel() -> some View {
+        lineLimit(1).fixedSize(horizontal: true, vertical: false)
+    }
+}
+
 private struct AddressBarWidthKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -691,99 +743,18 @@ struct AddressBar: View {
                                 .onSubmit(tab.go)
                                 .onChange(of: addressFocused) { tab.isEditingAddress = addressFocused }
                         }
-                        HStack(spacing: 8) {
-                            Menu {
-                                if !browser.places.bookmarks.isEmpty {
-                                    Section("Bookmarks") {
-                                        ForEach(browser.places.bookmarks.prefix(12)) { place in
-                                                        Button(place.label) { tab.load(place.url) }
-                                        }
-                                    }
-                                }
-                                if !browser.places.recent.isEmpty {
-                                    Section("Recent") {
-                                        ForEach(browser.places.recent.prefix(12)) { place in
-                                                        Button(place.label) { tab.load(place.url) }
-                                        }
-                                    }
-                                    Divider()
-                                    // Where somebody actually looks for it: in the list
-                                    // they want emptied, not three panes away in Settings.
-                                    Button("Clear recently visited", role: .destructive) {
-                                        browser.places.clearRecent()
-                                    }
-                                }
-                                if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
-                                    Text("Nothing yet")
-                                }
-                            } label: {
-                                Image(systemName: "clock.arrow.circlepath")
+                        // The second row still holds up to eight controls, and
+                        // pressed into 400 points the text pills wrap —
+                        // "Down-/load" on two lines. Labels never wrap; instead
+                        // the row drops the words from Queue and Download when
+                        // they do not fit, and scrolls if even that is too wide
+                        // (audio playing and a proxy on add two more).
+                        ViewThatFits(in: .horizontal) {
+                            actionRow(iconsOnly: false)
+                            actionRow(iconsOnly: true)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                actionRow(iconsOnly: true)
                             }
-                            .menuStyle(.borderlessButton)
-                            .fixedSize()
-                            .help("Bookmarks and recently visited")
-
-                            Button {
-                                if let url = tab.currentURL {
-                                    browser.places.toggleBookmark(url: url, title: tab.title)
-                                }
-                            } label: {
-                                Image(systemName: browser.places.isBookmarked(tab.currentURL)
-                                      ? "bookmark.fill" : "bookmark")
-                            }
-                            .buttonStyle(.glass)
-                            .disabled(tab.currentURL == nil)
-                            .help("Bookmark this page")
-
-                            if tab.isPlayingAudio || tab.isMuted {
-                                Button { tab.toggleMute() } label: {
-                                    Image(systemName: tab.isMuted
-                                          ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                                }
-                                .buttonStyle(.glass)
-                                .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
-                            }
-
-                            if showsNewTab {
-                                Button { browser.newTab() } label: { Image(systemName: "plus") }
-                                    .buttonStyle(.glass)
-                                    .help("New tab")
-                            }
-
-                            if queue.useTor {
-                                Image(systemName: "eye.slash.fill")
-                                    .foregroundStyle(.tint)
-                                    .help("This tab's traffic is going through the proxy. "
-                                          + "That hides where you are connecting from — it does not "
-                                          + "sign you out of anything.")
-                            }
-
-                            Button {
-                                Task {
-                                    if let host = await queue.adoptCookies(from: tab) {
-                                        adopted.insert(host)
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
-                            }
-                            .buttonStyle(.glass)
-                            .disabled(tab.host == nil)
-                            .help("Hand this site's cookies to the downloader, so it sees the same "
-                                  + "signed-in session you do. Only this site's cookies, never the rest.")
-
-                            Button("Queue") { asking = .queue }
-                                .buttonStyle(.glass)
-                                .disabled(tab.currentURL == nil)
-                                .help("Add to the queue and download it with everything else")
-
-                            Button { asking = .now } label: {
-                                Label("Download", systemImage: "arrow.down.circle.fill")
-                            }
-                            .buttonStyle(.glassProminent)
-                            .disabled(tab.currentURL == nil)
-                            .help("Start this one now, without waiting for the rest of the queue")
-                            Spacer(minLength: 0)
                         }
                     }
                 } else {
@@ -889,6 +860,7 @@ struct AddressBar: View {
                               + "signed-in session you do. Only this site's cookies, never the rest.")
 
                         Button("Queue") { asking = .queue }
+                            .pillLabel()
                             .buttonStyle(.glass)
                             .disabled(tab.currentURL == nil)
                             .help("Add to the queue and download it with everything else")
@@ -896,6 +868,7 @@ struct AddressBar: View {
                         Button { asking = .now } label: {
                             Label("Download", systemImage: "arrow.down.circle.fill")
                         }
+                        .pillLabel()
                         .buttonStyle(.glassProminent)
                         .disabled(tab.currentURL == nil)
                         .help("Start this one now, without waiting for the rest of the queue")
@@ -926,6 +899,130 @@ struct AddressBar: View {
             Button("Cancel", role: .cancel) { asking = nil }
         } message: {
             Text(tab.currentURL?.absoluteString ?? "")
+        }
+    }
+
+    /// The compact layout's second row: places, the page's own toggles, and
+    /// the two ways to download it.
+    ///
+    /// `iconsOnly` drops the words from Queue and Download, the only two
+    /// controls here that carry any, so the row can shrink without a label
+    /// ever wrapping.
+    @ViewBuilder
+    private func actionRow(iconsOnly: Bool) -> some View {
+        HStack(spacing: 8) {
+            Menu {
+                if !browser.places.bookmarks.isEmpty {
+                    Section("Bookmarks") {
+                        ForEach(browser.places.bookmarks.prefix(12)) { place in
+                            Button(place.label) { tab.load(place.url) }
+                        }
+                    }
+                }
+                if !browser.places.recent.isEmpty {
+                    Section("Recent") {
+                        ForEach(browser.places.recent.prefix(12)) { place in
+                            Button(place.label) { tab.load(place.url) }
+                        }
+                    }
+                    Divider()
+                    // Where somebody actually looks for it: in the list
+                    // they want emptied, not three panes away in Settings.
+                    Button("Clear recently visited", role: .destructive) {
+                        browser.places.clearRecent()
+                    }
+                }
+                if browser.places.bookmarks.isEmpty && browser.places.recent.isEmpty {
+                    Text("Nothing yet")
+                }
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Bookmarks and recently visited")
+
+            Button {
+                if let url = tab.currentURL {
+                    browser.places.toggleBookmark(url: url, title: tab.title)
+                }
+            } label: {
+                Image(systemName: browser.places.isBookmarked(tab.currentURL)
+                      ? "bookmark.fill" : "bookmark")
+            }
+            .buttonStyle(.glass)
+            .disabled(tab.currentURL == nil)
+            .help("Bookmark this page")
+
+            if tab.isPlayingAudio || tab.isMuted {
+                Button { tab.toggleMute() } label: {
+                    Image(systemName: tab.isMuted
+                          ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .buttonStyle(.glass)
+                .help(tab.isMuted ? "Unmute this tab" : "Mute this tab")
+            }
+
+            if showsNewTab {
+                Button { browser.newTab() } label: { Image(systemName: "plus") }
+                    .buttonStyle(.glass)
+                    .help("New tab")
+            }
+
+            if queue.useTor {
+                Image(systemName: "eye.slash.fill")
+                    .foregroundStyle(.tint)
+                    .help("This tab's traffic is going through the proxy. "
+                          + "That hides where you are connecting from — it does not "
+                          + "sign you out of anything.")
+            }
+
+            Button {
+                Task {
+                    if let host = await queue.adoptCookies(from: tab) {
+                        adopted.insert(host)
+                    }
+                }
+            } label: {
+                Image(systemName: signedIn ? "person.badge.key.fill" : "person.badge.key")
+            }
+            .buttonStyle(.glass)
+            .disabled(tab.host == nil)
+            .help("Hand this site's cookies to the downloader, so it sees the same "
+                  + "signed-in session you do. Only this site's cookies, never the rest.")
+
+            if iconsOnly {
+                Button { asking = .queue } label: {
+                    Label("Queue", systemImage: "text.badge.plus")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.glass)
+                .disabled(tab.currentURL == nil)
+                .help("Add to the queue and download it with everything else")
+
+                Button { asking = .now } label: {
+                    Label("Download", systemImage: "arrow.down.circle.fill")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(tab.currentURL == nil)
+                .help("Start this one now, without waiting for the rest of the queue")
+            } else {
+                Button("Queue") { asking = .queue }
+                    .pillLabel()
+                    .buttonStyle(.glass)
+                    .disabled(tab.currentURL == nil)
+                    .help("Add to the queue and download it with everything else")
+
+                Button { asking = .now } label: {
+                    Label("Download", systemImage: "arrow.down.circle.fill")
+                }
+                .pillLabel()
+                .buttonStyle(.glassProminent)
+                .disabled(tab.currentURL == nil)
+                .help("Start this one now, without waiting for the rest of the queue")
+            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -1326,9 +1423,12 @@ struct ToolRow: View {
                 ProgressView().controlSize(.small)
             } else if installed {
                 Button("Update") { Task { await queue.update(tool) } }
+                    .pillLabel()
                 Button("Remove", role: .destructive, action: remove)
+                    .pillLabel()
             } else {
                 Button("Install") { Task { await queue.update(tool) } }
+                    .pillLabel()
                     .buttonStyle(.borderedProminent)
             }
         }

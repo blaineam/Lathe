@@ -5,6 +5,7 @@
 # leave out. It exists so the same queue and the same browser are reachable
 # from the device the links are usually shared from.
 #
+#   Sources/LatheFetch/fetch-upstream.sh   # CPython, once, from the repo root
 #   xcodegen generate --spec App-iOS/project.yml
 #   xcodebuild -project App-iOS/Lathe.xcodeproj -scheme Lathe \
 #     -destination 'generic/platform=iOS' build
@@ -45,6 +46,12 @@ targets:
           - LoginSelfTest.swift    # asks macOS about login items
           - Presence.swift         # menu-bar item vs Dock icon
           - ShortcutExport.swift   # writes and signs a .shortcut for the Mac
+      # The same layered Icon Composer document the Mac app compiles (see
+      # App/make-app.sh). actool turns it into Assets.car plus CFBundleIcons;
+      # the system derives the dark, tinted and clear appearances from it.
+      # Without it the home screen shows the blank placeholder.
+      - path: ../App/Icon/Lathe.icon
+        buildPhase: resources
     dependencies:
       - package: Lathe
         product: LatheCore
@@ -60,6 +67,22 @@ targets:
         product: LatheMeta
       - package: Lathe
         product: LatheFetch
+      # CPython, for LatheFetch's downloaders. LatheFetch binds it at run time
+      # through dlsym, so the app must link it (the symbols are then in the
+      # process) and embed it. Fetched, never committed:
+      #   Sources/LatheFetch/fetch-upstream.sh   (from the repository root)
+      # See Sources/LatheFetch/VENDORING.md.
+      - framework: ../.python-apple-support/Python.xcframework
+        embed: true
+        codeSign: true
+    postCompileScripts:
+      # The standard library and the lib-dynload extension modules, which the
+      # framework dependency above cannot deliver. Upstream's install_python;
+      # see embed-python.sh. Runs before Embed Frameworks, as upstream's
+      # testbed does, and on every build — it copies from outside the project.
+      - name: Install Python standard library
+        script: '"$PROJECT_DIR/embed-python.sh"'
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lathe.app
@@ -67,6 +90,9 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.1.2"
         GENERATE_INFOPLIST_FILE: YES
+        # Names the .icon document above, which is how Xcode finds an icon
+        # that is not an AppIcon set inside an .xcassets.
+        ASSETCATALOG_COMPILER_APPICON_NAME: Lathe
         INFOPLIST_KEY_CFBundleDisplayName: Lathe
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: >-
@@ -78,4 +104,7 @@ targets:
         INFOPLIST_KEY_UIFileSharingEnabled: YES
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
         SWIFT_VERSION: "6.0"
+        # embed-python.sh reads the xcframework from outside the project
+        # and writes ~2,900 files and ~70 frameworks into the bundle.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         TARGETED_DEVICE_FAMILY: "1,2"

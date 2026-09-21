@@ -170,8 +170,29 @@ final class Queue {
         // bootstrap, not a plain init: loading CPython is a process-wide,
         // once-only act, and `current` is how a second caller gets the one that
         // is already up rather than a second interpreter in the same process.
-        try PythonRuntime.current
-            ?? PythonRuntime.bootstrap(PythonRuntime.Configuration(layout: PythonLayout.discover()))
+        if let running = PythonRuntime.current { return running }
+        var configuration = PythonRuntime.Configuration(layout: try PythonLayout.discover())
+        // On a later launch the CA bundle is already on disk, so it can be in
+        // the environment before the first line of Python runs. An embedded
+        // CPython's OpenSSL has no anchors of its own: without this every
+        // Python-side HTTPS request fails verification (see PythonTrustStore).
+        configuration.trustStore = PythonTrustStore.installed(in: try pythonRoot())
+        return try PythonRuntime.bootstrap(configuration)
+    }
+
+    /// Fetches the CA bundle if it is missing and points the running
+    /// interpreter at it.
+    ///
+    /// Called before installing a tool rather than at launch, because it is a
+    /// network fetch (by URLSession, against the system trust store) and a
+    /// launch with nothing installed should not make one. Installing yt-dlp or
+    /// gallery-dl is the moment Python first needs TLS, so it is the moment the
+    /// anchors have to exist. Idempotent: an installed bundle is reused.
+    private func ensureTrustStore() async throws {
+        let runtime = try runtime()
+        let installer = PythonPackageInstaller(runtime: runtime, root: try pythonRoot())
+        let store = try await installer.installTrustStore()
+        try runtime.useTrustStore(store)
     }
 
     private func mediaFetcher(cookieFile: URL?, scope: Scope = .single) async throws -> MediaFetcher {
@@ -377,6 +398,7 @@ final class Queue {
         tools.lastError = nil
         defer { tools.ytdlpInstalling = false }
         do {
+            try await ensureTrustStore()
             _ = try await mediaFetcher(cookieFile: nil).install()
             await refreshTools()
         } catch {
@@ -434,6 +456,7 @@ final class Queue {
         tools.lastError = nil
         defer { tools.galleryDLInstalling = false }
         do {
+            try await ensureTrustStore()
             _ = try await galleryFetcher(cookieFile: nil).install()
             await refreshTools()
         } catch {

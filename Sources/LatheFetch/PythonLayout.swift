@@ -209,8 +209,15 @@ public struct PythonLayout: Sendable, Equatable {
     /// An iOS application that has embedded Python gets it; a macOS tool or test
     /// that has not falls through to whatever the machine has.
     public static func discover(bundle: Bundle = .main) throws -> PythonLayout {
-        if let bundled = try? inBundle(bundle) { return bundled }
-        return try hostInstalled()
+        #if os(macOS)
+            if let bundled = try? inBundle(bundle) { return bundled }
+            return try hostInstalled()
+        #else
+            // No host fallback exists here, so the bundle's own reason is the
+            // useful one: "the standard library build phase has not run" says
+            // what to fix, where "there is no host-installed Python" does not.
+            return try inBundle(bundle)
+        #endif
     }
 
     // MARK: - Layout probing
