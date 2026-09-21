@@ -101,8 +101,11 @@ targets:
           UIInterfaceOrientationLandscapeRight
         # The inbox is a folder in iCloud Drive; the app reads what a Shortcut
         # drops there, and the Files app is how anyone gets at what it saved.
-        INFOPLIST_KEY_UIFileSharingEnabled: YES
-        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        # These two keys live in Info.plist (merged with the generated one)
+        # because UIFileSharingEnabled has no INFOPLIST_KEY_ build setting:
+        # set that way it was silently dropped, and without it iOS never lists
+        # the app under Files › On My iPhone, so downloads were unreachable.
+        INFOPLIST_FILE: Info.plist
         SWIFT_VERSION: "6.0"
         # embed-python.sh reads the xcframework from outside the project
         # and writes ~2,900 files and ~70 frameworks into the bundle.
