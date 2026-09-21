@@ -418,6 +418,18 @@ final class BrowserTab: Identifiable {
     func reload() { webView.reload() }
     func stop() { webView.stopLoading() }
 
+    /// The User-Agent this tab's web view sends.
+    ///
+    /// Exported with the cookies because many sites bind a session to the
+    /// agent that earned it — Cloudflare's clearance cookie most visibly — and
+    /// a downloader presenting the browser's cookies under its own agent is
+    /// refused exactly as if it had none (403, or a 410 for the media URL).
+    func userAgent() async -> String? {
+        let value = try? await webView.evaluateJavaScript("navigator.userAgent")
+        guard let agent = value as? String, !agent.isEmpty else { return nil }
+        return agent
+    }
+
     /// Writes this page's cookies in the Netscape format extractors read.
     ///
     /// **Only the cookies for this page's domain**, not the whole store. An

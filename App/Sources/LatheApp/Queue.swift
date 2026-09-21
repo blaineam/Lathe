@@ -123,6 +123,11 @@ final class Queue {
     /// the user has.
     private var cookieFiles: [String: URL] = [:]
 
+    /// The browser User-Agent each exported cookie file was earned under,
+    /// keyed by the file's path. Sent with those cookies and only with them;
+    /// see `BrowserTab.userAgent()` for why the two must travel together.
+    private var cookieUserAgents: [String: String] = [:]
+
     var cookieHosts: [String] { cookieFiles.keys.sorted() }
 
     /// Where a site's exported cookies live.
@@ -152,6 +157,7 @@ final class Queue {
             try? FileManager.default.setAttributes(
                 [.posixPermissions: 0o600], ofItemAtPath: file.path)
             cookieFiles[host] = file
+            cookieUserAgents[file.path] = await tab.userAgent()
             // Apply to anything already queued for that site, so pressing
             // "Use this session" after queueing does what it looks like it does.
             for download in downloads where download.host == host && !download.state.isTerminal {
@@ -167,6 +173,7 @@ final class Queue {
     /// Forgets an exported session and deletes the file.
     func forgetCookies(for host: String) {
         if let file = cookieFiles.removeValue(forKey: host) {
+            cookieUserAgents.removeValue(forKey: file.path)
             try? FileManager.default.removeItem(at: file)
         }
         for download in downloads where download.host == host {
@@ -187,6 +194,9 @@ final class Queue {
     private struct FetcherKey: Hashable {
         let cookieFile: String?
         let proxy: String?
+        /// The browser agent sent with `cookieFile`'s cookies, if any. Keyed
+        /// so re-adopting a session under a new agent builds a new fetcher.
+        var userAgent: String? = nil
         /// Whether this fetcher treats a link naming both an item and a
         /// collection as the collection. Part of the key because it is a
         /// property of the fetcher's configuration, and two rows in the same
@@ -246,12 +256,15 @@ final class Queue {
     }
 
     private func mediaFetcher(cookieFile: URL?, scope: Scope = .single) async throws -> MediaFetcher {
+        let agent = cookieFile.flatMap { cookieUserAgents[$0.path] }
         let key = FetcherKey(
-            cookieFile: cookieFile?.path, proxy: proxyURL, wantsCollections: scope == .all)
+            cookieFile: cookieFile?.path, proxy: proxyURL, userAgent: agent,
+            wantsCollections: scope == .all)
         if let existing = mediaFetchers[key] { return existing }
         let runtime = try runtime()
         var configuration = MediaFetcher.Configuration()
         configuration.cookieFile = cookieFile
+        configuration.userAgent = agent
         configuration.proxy = proxyURL
         configuration.ignoresPlaylists = scope == .single
         configuration.cacheDirectory = try? pythonRoot().appendingPathComponent("cache")
@@ -264,11 +277,13 @@ final class Queue {
     }
 
     private func galleryFetcher(cookieFile: URL?) async throws -> GalleryFetcher {
-        let key = FetcherKey(cookieFile: cookieFile?.path, proxy: proxyURL)
+        let agent = cookieFile.flatMap { cookieUserAgents[$0.path] }
+        let key = FetcherKey(cookieFile: cookieFile?.path, proxy: proxyURL, userAgent: agent)
         if let existing = galleryFetchers[key] { return existing }
         let runtime = try runtime()
         var configuration = GalleryFetcher.Configuration()
         configuration.cookieFile = cookieFile
+        configuration.userAgent = agent
         configuration.proxy = proxyURL
         let made = GalleryFetcher(
             runtime: runtime,
