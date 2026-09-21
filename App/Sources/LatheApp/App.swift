@@ -325,6 +325,10 @@ struct DownloadRow: View {
     @Bindable var download: Download
     let remove: () -> Void
     var retry: () -> Void = {}
+    /// A failure's full text. Two lines is enough for "not supported" and not
+    /// for "Could not write /var/mobile/Containers/…", which is exactly the
+    /// kind of message somebody needs whole — and needs to copy.
+    @State private var showsFullError = false
 
     private var isFailed: Bool {
         if case .failed = download.state { return true }
@@ -339,7 +343,34 @@ struct DownloadRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(download.displayTitle).lineLimit(1)
-                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if isFailed {
+                    // Tap to expand; the text is selectable, and the context
+                    // menu copies all of it.
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(showsFullError ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: showsFullError)
+                        .textSelection(.enabled)
+                        .contentShape(.rect)
+                        .onTapGesture { withAnimation(.snappy) { showsFullError.toggle() } }
+                        .contextMenu {
+                            Button {
+                                copyToPasteboard(detail)
+                            } label: {
+                                Label("Copy error", systemImage: "doc.on.doc")
+                            }
+                            Button {
+                                showsFullError.toggle()
+                            } label: {
+                                Label(showsFullError ? "Show less" : "Show all",
+                                      systemImage: showsFullError ? "chevron.up" : "chevron.down")
+                            }
+                        }
+                        .help("Tap to show the whole message")
+                } else {
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
             }
 
             Spacer()
@@ -387,6 +418,15 @@ struct DownloadRow: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        #else
+        UIPasteboard.general.string = text
+        #endif
     }
 
     @ViewBuilder private var icon: some View {

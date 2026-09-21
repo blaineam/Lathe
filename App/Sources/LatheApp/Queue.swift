@@ -177,6 +177,13 @@ final class Queue {
         // CPython's OpenSSL has no anchors of its own: without this every
         // Python-side HTTPS request fails verification (see PythonTrustStore).
         configuration.trustStore = PythonTrustStore.installed(in: try pythonRoot())
+        // The tools' own caches (gallery-dl's cache.sqlite3, anything that
+        // honours the XDG spec) default to ~/.cache. On iOS ~ is the container
+        // root, which is not writable; Library/Caches is, and is where the
+        // system expects purgeable data anyway.
+        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            configuration.additionalEnvironment["XDG_CACHE_HOME"] = caches.path
+        }
         return try PythonRuntime.bootstrap(configuration)
     }
 
@@ -961,7 +968,7 @@ final class Queue {
     func defaultDestination() -> URL? {
         switch inboxDestination {
         case .downloads:
-            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            return Self.downloadsFolder()
         case .shared:
             // Beside the inbox, so a phone can reach the results as well as
             // send the link.
@@ -970,7 +977,27 @@ final class Queue {
             break
         }
         if usesSamiFolder, let shared = samiFolder { return shared.url }
+        return Self.downloadsFolder()
+    }
+
+    /// The platform's own place for downloads.
+    ///
+    /// On macOS that is ~/Downloads. On iOS `.downloadsDirectory` resolves to
+    /// `<container>/Downloads` — a sibling of Documents at the container root,
+    /// where an app may not create anything. Every download then failed with
+    /// "Could not write /var/mobile/Containers/Data/Application/…/Downloads/…".
+    /// Documents/Downloads is writable, and with UIFileSharingEnabled and
+    /// LSSupportsOpeningDocumentsInPlace it is what the Files app shows under
+    /// On My iPhone › Lathe.
+    nonisolated static func downloadsFolder() -> URL? {
+        #if os(macOS)
         return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        #else
+        let folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+        #endif
     }
 
     /// Opens the download folder in the Finder.
