@@ -90,6 +90,26 @@ final class BrowserTab: Identifiable {
     ///   property (a different realm's prototype, say).
     /// * **Web Audio** is suspended: a player routed through an `AudioContext`
     ///   makes noise with every element muted.
+    /// Adds `playsinline` to every <video>, including ones added later. See
+    /// the iOS configuration in `init(configuration:url:)`.
+    static let inlineVideoScript = """
+        (() => {
+          const mark = (v) => {
+            if (!v.hasAttribute('playsinline')) v.setAttribute('playsinline', '');
+            if (!v.hasAttribute('webkit-playsinline')) v.setAttribute('webkit-playsinline', '');
+            v.playsInline = true;
+          };
+          const sweep = (root) => {
+            if (root.tagName === 'VIDEO') mark(root);
+            if (root.querySelectorAll) root.querySelectorAll('video').forEach(mark);
+          };
+          sweep(document);
+          new MutationObserver((records) => {
+            for (const r of records) r.addedNodes.forEach((n) => { if (n.nodeType === 1) sweep(n); });
+          }).observe(document.documentElement || document, { childList: true, subtree: true });
+        })();
+        """
+
     static let mediaScript = """
         (function () {
           if (window.__lathe) { return; }
@@ -232,6 +252,22 @@ final class BrowserTab: Identifiable {
         // web view is created, so the opener's own configuration is untouched.
         let controller = WKUserContentController()
         configuration.userContentController = controller
+        #if os(iOS)
+        // iPhone WebKit defaults to fullscreen-only video: any <video> the
+        // page starts is torn out of the page into the system player, and
+        // `playsinline` / muted autoplay previews never play in place. Set here
+        // rather than in the convenience init so popup tabs get it as well.
+        configuration.allowsInlineMediaPlayback = true
+        configuration.allowsPictureInPictureMediaPlayback = true
+        // The setting only permits inline play; a <video> without the
+        // `playsinline` attribute still leaves the page for fullscreen, and
+        // most pages never set it. Mark every video so all of them play in
+        // place, as on iPad and desktop. The fullscreen button still works.
+        controller.addUserScript(WKUserScript(
+            source: Self.inlineVideoScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false))
+        #endif
         controller.addUserScript(WKUserScript(
             source: Self.mediaScript,
             injectionTime: .atDocumentStart,
