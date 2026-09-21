@@ -109,6 +109,16 @@ public actor MediaFetcher {
         /// Set it to `false` to take the collection instead — see also
         /// ``MediaFetcher/entries(of:limit:)``, which enumerates one without
         /// downloading anything.
+        /// Whether HTTP goes through URLSession (Apple's TLS stack) rather
+        /// than the embedded interpreter's own OpenSSL.
+        ///
+        /// On by default on iOS, where the bundled OpenSSL 3.0 has a TLS
+        /// fingerprint some sites refuse outright (the first request comes back
+        /// `410 Gone`). Off by default on macOS, whose host Python is not
+        /// affected. See ``SystemNetworkBridge``. Registration is process-wide,
+        /// so this is read the first time a fetcher prepares its driver.
+        public var usesSystemNetworking: Bool = SystemNetworkDriver.defaultEnabled
+
         public var ignoresPlaylists = true
 
         /// `yt-dlp`'s `--extractor-args`, as `extractor → key → values`.
@@ -385,6 +395,14 @@ public actor MediaFetcher {
         // re-enter the provider registration.
         if (try? await runtime.evaluateDetached(MediaFetcherDriver.installExpression)) == nil {
             try await runtime.executeDetached(MediaFetcherDriver.source)
+        }
+        // Before any YoutubeDL is built, since each one snapshots the handler
+        // registry. Declined quietly when yt-dlp is not installed yet; the
+        // next call tries again.
+        if configuration.usesSystemNetworking {
+            guard await SystemNetworkDriver.register(
+                SystemNetworkDriver.registerYouTubeDLFunction, in: runtime)
+            else { return }
         }
         driverIsInstalled = true
     }

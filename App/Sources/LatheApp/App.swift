@@ -27,6 +27,11 @@ enum Entry {
             TorSelfTest.run()
             return
         }
+        /// Runs yt-dlp headlessly in the app's container; see FetchSelfTest.
+        if CommandLine.arguments.contains("--fetch-selftest") {
+            FetchSelfTest.run()
+            return
+        }
         /// Reports whether macOS will accept a login registration from this
         /// build. It refuses one from an app it cannot verify, and the failure
         /// is worth knowing about before somebody flips the switch and it

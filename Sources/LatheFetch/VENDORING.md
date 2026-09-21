@@ -206,6 +206,16 @@ that the bundle it uses is fetched by `URLSession`, against the *system* trust
 store, precisely so that acquiring it does not depend on the thing it fixes.
 Nothing here vendors a certificate either.
 
+**The bundled OpenSSL's TLS fingerprint is refused by some sites.** OpenSSL
+3.0's ClientHello is enough for them to answer the first request with `410
+Gone` and an empty body, whatever the headers say, while Apple's stack and newer
+OpenSSL are answered normally. So on iOS, yt-dlp's and gallery-dl's HTTP goes
+through URLSession instead (`SystemNetworkBridge`, `SystemNetworkDriver`,
+`Configuration.usesSystemNetworking`): the tools still decide every request,
+cookie and redirect, and only the transport — the part with the fingerprint —
+is Apple's. yt-dlp's `curl_cffi` impersonation, the usual answer, is a compiled
+wheel and cannot be installed on iOS.
+
 The pinned release bundles these, built into the framework:
 
 | Library | Version | Licence |

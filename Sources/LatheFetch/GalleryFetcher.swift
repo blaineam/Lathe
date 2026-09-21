@@ -42,6 +42,16 @@ public actor GalleryFetcher {
         public var timeout: TimeInterval = 30
 
         /// How many times a failed request is retried.
+        /// Whether HTTP goes through URLSession (Apple's TLS stack) rather
+        /// than the embedded interpreter's own OpenSSL.
+        ///
+        /// On by default on iOS, where the bundled OpenSSL 3.0 has a TLS
+        /// fingerprint some sites refuse outright (the first request comes back
+        /// `410 Gone`). Off by default on macOS, whose host Python is not
+        /// affected. See ``SystemNetworkBridge``. Registration is process-wide,
+        /// so this is read the first time a fetcher prepares its driver.
+        public var usesSystemNetworking: Bool = SystemNetworkDriver.defaultEnabled
+
         public var retryCount: Int = 3
 
         public init() {}
@@ -299,6 +309,11 @@ public actor GalleryFetcher {
         try await installer.activate()
         if (try? await runtime.evaluateDetached(GalleryFetcherDriver.installExpression)) == nil {
             try await runtime.executeDetached(GalleryFetcherDriver.source)
+        }
+        if configuration.usesSystemNetworking {
+            guard await SystemNetworkDriver.register(
+                SystemNetworkDriver.registerGalleryDLFunction, in: runtime)
+            else { return }
         }
         driverIsInstalled = true
     }
