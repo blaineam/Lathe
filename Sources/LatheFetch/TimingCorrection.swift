@@ -113,6 +113,25 @@ struct TimingCorrection: Sendable {
             return
         }
 
+        // The header disagreeing with the TRACK is not proof the SAMPLES are
+        // wrong. YouTube's AAC audio (format 140) reads exactly this way —
+        // header 19.06s, track 38.08s — yet every sample AVAssetReader hands
+        // back is timed correctly (buffers of 129 frames × 1024, spaced 129 ×
+        // 1024 apart). Correcting on the header alone halved every audio
+        // frame to 512 samples, squeezing a 3:45 song into 1:52 while the
+        // video ran at full length: choppy, jumping playback. So the samples
+        // are measured too, and only a disagreement they confirm is corrected.
+        let measuredFactor = await Self.sampleFactor(of: track)
+        guard let measuredFactor, abs(measuredFactor - factor) <= Self.tolerance else {
+            DiagnosticLog.note("timing: header disagrees (ratio \(factor)) but samples measure \(measuredFactor.map { "\($0)" } ?? "unmeasurable") — leaving alone")
+            LatheFetchLog.timing.log(
+                """
+                timing: header disagrees (ratio \(factor, privacy: .public)) but samples measure \(measuredFactor.map { "\($0)" } ?? "unmeasurable", privacy: .public) — leaving alone
+                """)
+            self = .identity
+            return
+        }
+
         DiagnosticLog.note("timing: correcting by \(factor) — declared=\(declaredSeconds)s observed=\(observedSeconds)s anchor=\(CMTimeGetSeconds(range.start))s")
         LatheFetchLog.timing.log(
             """
@@ -141,6 +160,51 @@ struct TimingCorrection: Sendable {
         guard abs(ratio - 1) > tolerance else { return nil }
         guard abs(ratio - 0.5) <= tolerance || abs(ratio - 2) <= tolerance else { return nil }
         return ratio
+    }
+
+    /// How far apart the first samples actually are, relative to how long
+    /// they say they last — the correction the samples themselves call for.
+    ///
+    /// 1 means the samples are consistent (whatever the track's duration
+    /// claims); 0.5 means each sample reports twice its real length, the
+    /// video defect this type exists for. nil when too few samples carry a
+    /// usable duration to tell.
+    static func sampleFactor(of track: AVAssetTrack, limit: Int = 48) async -> Double? {
+        guard let asset = track.asset, let reader = try? AVAssetReader(asset: asset) else { return nil }
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        output.alwaysCopiesSampleData = false
+        guard reader.canAdd(output) else { return nil }
+        reader.add(output)
+        guard reader.startReading() else { return nil }
+        defer { reader.cancelReading() }
+        var spans: [(start: Double, duration: Double)] = []
+        while spans.count < limit, let buffer = output.copyNextSampleBuffer() {
+            let dts = CMSampleBufferGetDecodeTimeStamp(buffer)
+            let start = dts.isNumeric ? dts : CMSampleBufferGetPresentationTimeStamp(buffer)
+            let duration = CMSampleBufferGetDuration(buffer)
+            guard start.isNumeric else { continue }
+            spans.append((CMTimeGetSeconds(start),
+                          duration.isNumeric ? CMTimeGetSeconds(duration) : 0))
+        }
+        return sampleFactor(spans: spans)
+    }
+
+    /// The pure half of ``sampleFactor(of:limit:)``: spacing over stated length.
+    ///
+    /// Starts are sorted first, so presentation times that arrive out of order
+    /// (B-frames, when a buffer carries no decode time) still measure the span
+    /// they cover. Zero durations — the first video sample reports one — are
+    /// not evidence either way and are left out of the mean.
+    static func sampleFactor(spans: [(start: Double, duration: Double)]) -> Double? {
+        let starts = spans.map(\.start).sorted()
+        let durations = spans.map(\.duration).filter { $0 > 0 && $0.isFinite }
+        guard starts.count >= 3, durations.count >= 2,
+              let first = starts.first, let last = starts.last, last > first
+        else { return nil }
+        let meanDuration = durations.reduce(0, +) / Double(durations.count)
+        let meanSpacing = (last - first) / Double(starts.count - 1)
+        guard meanDuration > 0 else { return nil }
+        return meanSpacing / meanDuration
     }
 
     /// The same buffer with its timing scaled, or the buffer itself when

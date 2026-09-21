@@ -163,6 +163,38 @@ struct TimingCorrectionTests {
         #expect(abs((factor ?? 0) - 2) < 0.01)
     }
 
+    /// Measured 2026-09-21 on YouTube's AAC (format 140) for a 19.06s clip:
+    /// the track claims 38.08s, but AVAssetReader's buffers each hold 129
+    /// frames of 1024 samples and are spaced exactly that far apart. The
+    /// samples are right; halving them is what broke a user's download.
+    @Test("consistent samples call for no correction, whatever the track claims")
+    func consistentSamplesMeasureOne() {
+        let spans = (0..<10).map { (start: Double($0) * 132096 / 44100, duration: 132096.0 / 44100) }
+        let factor = TimingCorrection.sampleFactor(spans: spans)
+        #expect(abs((factor ?? 0) - 1) < 0.001)
+    }
+
+    /// The defect the correction exists for: 60 fps spacing, 1/30 durations.
+    @Test("samples reporting twice their length measure one half")
+    func doubledDurationsMeasureHalf() {
+        let spans = (0..<10).map { (start: Double($0) / 60, duration: 1.0 / 30) }
+        let factor = TimingCorrection.sampleFactor(spans: spans)
+        #expect(abs((factor ?? 0) - 0.5) < 0.001)
+    }
+
+    @Test("zero durations and out-of-order starts do not skew the measurement")
+    func zeroDurationsAndReorderingIgnored() {
+        var spans = [(start: 0.0, duration: 0.0)]
+        spans += [3, 1, 2, 5, 4, 6].map { (start: Double($0) / 15, duration: 1.0 / 15) }
+        let factor = TimingCorrection.sampleFactor(spans: spans)
+        #expect(abs((factor ?? 0) - 1) < 0.001)
+    }
+
+    @Test("too few samples cannot be measured")
+    func tooFewSamples() {
+        #expect(TimingCorrection.sampleFactor(spans: [(0, 1), (1, 1)]) == nil)
+    }
+
     @Test("samples held twice too long are compressed")
     func compressesDoubledSamples() {
         let factor = TimingCorrection.factor(declared: 18.933, observed: 37.8667)

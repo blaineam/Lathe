@@ -134,8 +134,13 @@ public enum StreamMuxer {
         // of two. See `TimingCorrection` and `MP4MovieHeader`.
         let videoCorrection = await TimingCorrection(for: videoTrack, file: video)
         let audioCorrection = await TimingCorrection(for: audioTrack, file: audio)
-        let videoDuration = videoCorrection.corrected(
-            try await videoAsset.load(.duration))
+        // The header's own duration first. AVFoundation reports YouTube's
+        // fragmented streams at twice their length even when every sample is
+        // timed correctly, and this is the value that caps the movie's end:
+        // taken from the track, a 19-second clip came out 38 seconds long
+        // with its last frame held for the second half.
+        let trackDuration = videoCorrection.corrected(try await videoAsset.load(.duration))
+        let videoDuration = MP4MovieHeader.declaredDuration(of: video) ?? trackDuration
 
         // The temporary file is a sibling of the destination rather than in the
         // system temporary directory: a move within one volume is atomic and a
