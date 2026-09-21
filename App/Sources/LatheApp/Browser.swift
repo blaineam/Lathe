@@ -596,9 +596,27 @@ struct BrowserView {
         // a new one. The one that leaves keeps its page, its history and its
         // scroll position, because nothing tore it down.
         guard context.shown !== tab.webView else { return }
+        let webView = tab.webView
+        context.shown = webView
+        #if os(macOS)
         container.subviews.forEach { $0.removeFromSuperview() }
-        install(tab.webView, in: container)
-        context.shown = tab.webView
+        install(webView, in: container)
+        #else
+        // Never inside this update pass on iOS. The leaving web view usually
+        // holds first responder (the page was just typed into, or the address
+        // bar handed it focus), and removing it makes WebKit resign — which
+        // SwiftUI answers with a focus update of its own, re-entering the
+        // graph update that called us. Opening a new tab spun there until the
+        // watchdog killed the app. On the next turn, focus is dropped first,
+        // explicitly, and only then is the view swapped. A later switch that
+        // overtakes this one wins: the check skips a stale swap.
+        DispatchQueue.main.async { [self] in
+            guard context.shown === webView else { return }
+            container.endEditing(true)
+            container.subviews.forEach { $0.removeFromSuperview() }
+            install(webView, in: container)
+        }
+        #endif
     }
 
     @MainActor
