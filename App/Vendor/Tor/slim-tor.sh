@@ -28,11 +28,17 @@
 # Because that means cross-compiling OpenSSL, libevent and zlib for two
 # platforms and keeping that build working, to arrive at the same object code
 # the Tor Project's own Apple packaging already produces. The upstream build is
-# pinned to a tag and verified by checksum, which is the part that matters.
+# pinned to a tag and its SHA-256 is verified before use (see SHA256 below),
+# which is the part that matters.
 set -euo pipefail
 
 VERSION="v409.11.1"
 URL="https://github.com/iCepa/Tor.framework/releases/download/${VERSION}/tor.xcframework.zip"
+# SHA-256 of the upstream tor.xcframework.zip for $VERSION (147,849,595 bytes).
+# Confirmed two ways on 2026-09-21: the digest GitHub records for the release
+# asset, and a fresh download hashed locally. Bumping VERSION means replacing
+# this, from both sources again — a mismatch stops the build.
+SHA256="80711b4f831a0de8128038c044da07afabca32ccc7ee7affaddbbd2e3e313196"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:-$HERE}"
@@ -41,6 +47,16 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "==> downloading Tor.framework $VERSION"
 curl -fL --progress-bar -o "$WORK/tor.zip" "$URL"
+
+# Verify before unzipping anything: this archive is linked into the app.
+ACTUAL="$(shasum -a 256 "$WORK/tor.zip" | awk '{print $1}')"
+if [ "$ACTUAL" != "$SHA256" ]; then
+    echo "tor.xcframework.zip checksum mismatch" >&2
+    echo "  expected $SHA256" >&2
+    echo "  actual   $ACTUAL" >&2
+    exit 1
+fi
+echo "==> checksum ok ($SHA256)"
 unzip -q "$WORK/tor.zip" -d "$WORK/upstream"
 
 SOURCE="$WORK/upstream/tor.xcframework"
