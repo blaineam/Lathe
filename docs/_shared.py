@@ -1,6 +1,8 @@
 """Fragments every page shares, so the chrome cannot drift between them."""
 
+import hashlib
 import html
+from pathlib import Path
 
 SITE = "https://wemiller.com/apps/lathe/"
 FONTS = ("https://fonts.googleapis.com/css2?"
@@ -15,6 +17,12 @@ PAGES = [
     ("mac.html", "Mac app"),
     ("sami.html", "Sami"),
 ]
+
+
+def stamp(name):
+    """`?v=<sha1[:8]>` of a file beside the pages. The CDN in front of the site caches CSS for a
+    year, so an unversioned lathe.css kept returning readers on the old stylesheet."""
+    return hashlib.sha1((Path(__file__).parent / name).read_bytes()).hexdigest()[:8]
 
 
 def head(title, description, page, facts):
@@ -40,7 +48,7 @@ def head(title, description, page, facts):
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="{FONTS}">
-<link rel="stylesheet" href="lathe.css">
+<link rel="stylesheet" href="lathe.css?v={stamp("lathe.css")}">
 </head>
 <body>
 {masthead(page, facts)}
