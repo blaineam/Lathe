@@ -12,6 +12,7 @@ FONTS = ("https://fonts.googleapis.com/css2?"
 
 PAGES = [
     ("index.html", "The Issue"),
+    ("how-it-works.html", "How it works"),
     ("documentation.html", "Documentation"),
     ("benchmarks.html", "Benchmarks"),
     ("mac.html", "Mac app"),
@@ -85,6 +86,7 @@ def footer(facts):
     </div>
     <div>
       <h4>Lathe</h4>
+      <p><a href="how-it-works.html">How it works</a></p>
       <p><a href="documentation.html">Documentation</a></p>
       <p><a href="benchmarks.html">Benchmarks</a></p>
       <p><a href="mac.html">The Mac app</a></p>

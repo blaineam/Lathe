@@ -1,0 +1,90 @@
+<!-- title: How it works — Lathe -->
+<!-- description: Why Lathe is a thin layer over the system frameworks instead of ported C tools, every module it ships, and the details — like the audibility cliff — that took the most care. -->
+<main>
+
+<section class="pagehead">
+  <div class="wrap">
+    <div class="kicker">The long read</div>
+    <h1>How it <em>works.</em></h1>
+    <p class="dek">Why Lathe leans on the frameworks the device already has, every module it ships as its own product, and the one detail that took the most care.</p>
+  </div>
+</section>
+
+<section class="feature" id="why" style="border-top:0">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">Why it exists</div>
+        <h2 class="section-title">Porting the C tools is the wrong answer</h2>
+      </div>
+      <p class="standfirst">Most media tooling on Apple platforms is a command-line binary behind a process spawn. That works on a desktop and cannot work on a phone.</p>
+    </div>
+    <div class="columns">
+      <p>On an iPhone there is no <code>fork</code> and no <code>exec</code>. A media feature that shells out to ffmpeg is a feature the iPhone version will never have, and the usual response is to port the C tools and ship them inside the app — megabytes of codecs, licences to audit, and a second copy of work the device already knows how to do.</p>
+      <p>Because it does know how. ImageIO writes HEIC, AVIF, JPEG, PNG, GIF and TIFF. AVFoundation reads containers without decoding them and extracts frames. VideoToolbox encodes H.264 and HEVC on the media engine at a constant quality. Vision reads text. None of it costs a licence, and most of it runs in silicon built for the job.</p>
+      <blockquote class="pull">Lathe is the thin, well-tested layer over those frameworks — plus the few libraries that fill the gaps they really leave.<cite>The design, in one sentence</cite></blockquote>
+      <p>The gaps are real and there are three. Nothing Apple ships writes <b>WebP</b>, so libwebp is compiled in from source. Nothing writes <b>MP3</b>, so LAME ships as its own replaceable framework, as its licence asks. And no Apple chip encodes <b>AV1</b>, so SVT-AV1 runs on the CPU in a product of its own, for the apps that want it.</p>
+      <p>Everything else is the system doing the work it was built for — asked what it can do rather than assumed, reporting progress through one channel that can also say stop, and never overwriting a file until the new one is whole.</p>
+    </div>
+  </div>
+</section>
+
+<section class="feature" id="modules">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">The departments</div>
+        <h2 class="section-title">What it does</h2>
+      </div>
+      <p class="standfirst">Every module is its own library product, so an app links exactly what it uses — and an App&nbsp;Store target never links what it should not.</p>
+    </div>
+    <div class="depts">
+      <div class="dept"><div class="code">VIDEO</div><h3>Probe, frames, transcode</h3><p>Container headers without decoding, stills at any time or count, and H.264 or HEVC on the media engine with chapters kept.</p><span class="product">LatheVideo</span></div>
+      <div class="dept"><div class="code">IMAGE</div><h3>Stills and animations</h3><p>HEIC, AVIF, JPEG, PNG, TIFF, GIF and WebP — still or animated — with the device asked what it can write first.</p><span class="product">LatheImage</span></div>
+      <div class="dept"><div class="code">AUDIO</div><h3>Loudness and codecs</h3><p>AAC, ALAC, Opus and FLAC, a mean volume that matches the familiar filter, and an audibility check that stops early.</p><span class="product">LatheAudio</span></div>
+      <div class="dept"><div class="code">META</div><h3>Tags, chapters, subtitles</h3><p>One model over iTunes atoms, ID3, EXIF and PDF; chapter tracks written in; SubRip and WebVTT muxed as real tracks.</p><span class="product">LatheMeta</span></div>
+      <div class="dept"><div class="code">DOC</div><h3>PDFs and comics</h3><p>Reorder, insert, remove and merge PDF and CBZ pages, add a searchable text layer, and turn a folder of frames into a book.</p><span class="product">LatheDoc</span></div>
+      <div class="dept"><div class="code">AV1</div><h3>AV1, on the CPU</h3><p>SVT-AV1 into MP4, carrying rotation, colour and HDR, for the apps that want the smallest files and can wait for them.</p><span class="product">LatheAV1</span></div>
+      <div class="dept"><div class="code">MP3</div><h3>MP3, replaceably</h3><p>LAME as its own dynamic framework, so the LGPL is kept where it belongs and a user can swap it.</p><span class="product">LatheMP3</span></div>
+      <div class="dept"><div class="code">SWF</div><h3>Flash, recovered</h3><p>The images and sounds a Flash movie stores, extracted as files — and what it draws, rendered by a bundled Ruffle.</p><span class="product">LatheSWF · LatheSWFRender</span></div>
+      <div class="dept"><div class="code">LOOKUP</div><h3>Titles and artwork</h3><p>TMDb and OpenSubtitles behind one protocol, with a release-name parser. The key is always the caller's own.</p><span class="product">LatheLookup</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="feature" id="audibility">
+  <div class="wrap">
+    <div class="feature-head">
+      <div>
+        <div class="kicker">A detail worth the space</div>
+        <h2 class="section-title">The audibility cliff</h2>
+      </div>
+      <p class="standfirst">Mean volume over a whole file is how most tools answer <em>does this have sound?</em> — and it is quietly wrong.</p>
+    </div>
+    <div class="two-up">
+      <div>
+        <div class="prose">
+          <p>Ten minutes containing two seconds of speech averages about <b>−45&nbsp;dBFS</b>: by that number, indistinguishable from a file with nothing in it. That is not a corner case. It is an ordinary phone video with one sentence in it.</p>
+          <p>So Lathe answers the question the caller has. <code>meanVolumeDB</code> reports the familiar statistic, so existing thresholds keep working; <code>hasAudibleAudio</code> reads short windows and <b>returns the moment it knows</b>. A loud file is decided in its first second.</p>
+        </div>
+        {{snippet:audio}}
+      </div>
+      <aside class="spec" aria-label="Specifications">
+        <h3>Specifications</h3>
+        <dl>
+          <dt>Version</dt><dd>{{version}}</dd>
+          <dt>Platforms</dt><dd>iOS 17 · macOS 14</dd>
+          <dt>Language</dt><dd>Swift 6</dd>
+          <dt>Licence</dt><dd>Apache-2.0</dd>
+          <dt>Runtime dependencies</dt><dd>None</dd>
+          <dt>Subprocesses</dt><dd>None</dd>
+          <dt>Compiled in</dt><dd>libwebp</dd>
+          <dt>Separate products</dt><dd>LAME · SVT-AV1 · Ruffle</dd>
+          <dt>Tests</dt><dd>{{tests}}</dd>
+        </dl>
+      </aside>
+    </div>
+  </div>
+</section>
+
+</main>
