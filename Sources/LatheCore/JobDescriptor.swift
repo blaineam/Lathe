@@ -8,7 +8,7 @@ import Foundation
 /// codec settings, a vendored library, decision logic — so a cache keyed on it
 /// drops stale results after an upgrade. The two numbers may diverge.
 public enum LatheVersion {
-    public static let engine = "1.0.0"
+    public static let engine = "1.2.0"
 }
 
 /// A content fingerprint used as a **cache key, not a security hash**.
