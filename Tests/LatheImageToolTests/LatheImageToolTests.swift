@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -207,3 +208,5 @@ struct JobTests {
         #expect(summary.description.contains("60.0% smaller"))
     }
 }
+
+#endif

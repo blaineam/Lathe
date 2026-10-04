@@ -434,7 +434,15 @@ let package = Package(
             dependencies: ["LatheCore", "LatheDoc", "LatheMeta", "LatheFixtures"]
         ),
         .testTarget(name: "LatheImageTests", dependencies: ["LatheImage", "LatheFixtures"]),
-        .testTarget(name: "LatheImageToolTests", dependencies: ["LatheImageTool", "LatheImage", "LatheFixtures"]),
+        // `lathe-image` is a shell tool, so it is tested on macOS only: an
+        // executable target cannot be a test dependency in an iOS build.
+        .testTarget(
+            name: "LatheImageToolTests",
+            dependencies: [
+                .target(name: "LatheImageTool", condition: .when(platforms: [.macOS])),
+                "LatheImage", "LatheFixtures",
+            ]
+        ),
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),
