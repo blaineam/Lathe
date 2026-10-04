@@ -36,6 +36,12 @@
 # their kernels are assembly that needs nasm, and an Intel Mac encoding AV1 on
 # the CPU is not the case worth a build dependency. Logging is compiled out.
 #
+# The minimum OS goes to the assembler as well as the compilers. The arm64
+# kernels include a few `.S` files, and CMake hands those only ASM flags:
+# without one the assembler stamps them with the SDK's own version, and every
+# app linking the library warns that it was "built for newer macOS". Each
+# library is checked for exactly that before it is packaged.
+#
 # Each build gets its own CMAKE_OUTPUT_DIRECTORY. Upstream's default is
 # `Bin/<config>` inside the source tree, shared by every build directory, so
 # the slices would silently overwrite one library.
@@ -74,6 +80,7 @@ build() {
         -DCMAKE_OSX_ARCHITECTURES="$arch" \
         -DCMAKE_C_FLAGS="$min_flag -ffile-prefix-map=$SRC=svt-av1" \
         -DCMAKE_CXX_FLAGS="$min_flag -ffile-prefix-map=$SRC=svt-av1" \
+        -DCMAKE_ASM_FLAGS="$min_flag" \
         -DBUILD_SHARED_LIBS=OFF \
         -DBUILD_APPS=OFF \
         -DREPRODUCIBLE_BUILDS=ON \
@@ -86,7 +93,22 @@ build() {
     ninja -C "$dir" SvtAv1Enc >>"$dir.log" 2>&1 || { tail -40 "$dir.log" >&2; exit 1; }
     test -f "$dir/out/libSvtAv1Enc.a"
     strip -S -x "$dir/out/libSvtAv1Enc.a" 2>/dev/null || true
+    check_min_os "$dir/out/libSvtAv1Enc.a" "${min_flag#*=}"
     echo "$dir/out/libSvtAv1Enc.a"
+}
+
+# check_min_os <library> <version> — every object must say the same minimum OS.
+check_min_os() {
+    local lib="$1" want="$2" objects="$WORK/objects-$$"
+    rm -rf "$objects" && mkdir -p "$objects"
+    (cd "$objects" && ar x "$lib")
+    local found
+    found="$(for o in "$objects"/*.o; do vtool -show-build "$o" | awk '/minos/ { print $2 }'; done | sort -u)"
+    rm -rf "$objects"
+    if [ "$found" != "$want" ]; then
+        echo "$lib: minimum OS is $(echo $found), not $want" >&2
+        exit 1
+    fi
 }
 
 ARM=(-DENABLE_SVE=OFF -DENABLE_SVE2=OFF)

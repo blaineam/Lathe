@@ -9,7 +9,7 @@ linked as the `SvtAv1Enc` binary target.
 | Tag | `v4.2.0` |
 | Commit | `9292ec8e32bce26f781f277ec8739b53426c4300` |
 | Built by | `Scripts/build-svtav1-xcframework.sh` |
-| Published | release `svt-av1-4.2.0`, asset `SvtAv1Enc.xcframework.zip` |
+| Published | release `svt-av1-4.2.0-r2`, asset `SvtAv1Enc.xcframework.zip` (`-r2`: the arm64 `.S` objects now carry the minimum OS too) |
 | Slices | `macos-arm64_x86_64` (14), `ios-arm64` (17), `ios-arm64_x86_64-simulator` (17) — static, encoder only |
 | Licence | **BSD-3-Clause-Clear**, plus the **Alliance for Open Media Patent License 1.0** |
 
@@ -52,5 +52,6 @@ SVT_TAG=v4.3.0 Scripts/build-svtav1-xcframework.sh  # another release
 
 Needs `cmake` and `ninja`. A new build is a new release (`svt-av1-<version>`)
 and a new checksum in `Package.swift`, never a replacement of an existing
-asset. Then run the `AV1 encoding` suite: it encodes and decodes real clips,
-which is the only check that means anything for a bitstream.
+asset; a rebuild of the same upstream tag adds `-r<n>`. Then run the `AV1
+encoding` suite: it encodes and decodes real clips, which is the only check
+that means anything for a bitstream.

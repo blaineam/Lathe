@@ -400,8 +400,8 @@ let package = Package(
         // replaceability, so nothing is gained by a framework in the bundle.
         .binaryTarget(
             name: "SvtAv1Enc",
-            url: "https://github.com/blaineam/Lathe/releases/download/svt-av1-4.2.0/SvtAv1Enc.xcframework.zip",
-            checksum: "6b3fe67ce31a1650c12a20d44922f8750c79ecaafa7c43f046a7c5dc1783e50b"
+            url: "https://github.com/blaineam/Lathe/releases/download/svt-av1-4.2.0-r2/SvtAv1Enc.xcframework.zip",
+            checksum: "c557de0283d3e78c55c63b80b694a21540d08bea57cb11a2acec8fb5acd4a3ed"
         ),
 
         // MARK: - Test support
