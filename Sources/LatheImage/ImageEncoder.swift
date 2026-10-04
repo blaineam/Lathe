@@ -222,6 +222,16 @@ public struct ImageEncoder: Sendable {
             : storedSize
         let targetDisplaySize = request.resize.resolve(from: displaySize)
 
+        // A format that cannot be read at odd dimensions loses its last column
+        // and/or row — a crop, not a rescale, so nothing is resampled. See
+        // `ImageFormat.requiresEvenDimensions`.
+        let encodedDisplaySize = request.format.requiresEvenDimensions
+            ? PixelSize(
+                width: evenFloor(targetDisplaySize.width),
+                height: evenFloor(targetDisplaySize.height))
+            : targetDisplaySize
+        let needsEvenCrop = encodedDisplaySize != targetDisplaySize
+
         // Baking is forced — not merely preferred — when the destination cannot
         // hold the tag. Writing PNG while "preserving" an orientation tag that
         // PNG has nowhere to put is how a batch convert lands every portrait
@@ -230,6 +240,11 @@ public struct ImageEncoder: Sendable {
         let strategy: OrientationStrategy
         if sourceOrientation == .up {
             strategy = .preserveTag          // nothing to rotate; skip the redraw
+        } else if needsEvenCrop {
+            // The crop is defined on the picture a viewer sees: its right
+            // column and bottom row. Cropping stored pixels under a tag would
+            // take a different edge for every orientation, so bake first.
+            strategy = .bake
         } else if request.format.canStoreOrientationTag {
             strategy = request.orientation
         } else {
@@ -269,6 +284,17 @@ public struct ImageEncoder: Sendable {
         var image = try exactly(targetStoredSize, from: decoded)
         if strategy == .bake {
             image = try baking(sourceOrientation, into: image)
+        }
+        if needsEvenCrop {
+            // `cropping(to:)` is in top-left coordinates and copies nothing.
+            guard let cropped = image.cropping(to: CGRect(
+                x: 0, y: 0, width: encodedDisplaySize.width, height: encodedDisplaySize.height))
+            else {
+                throw LatheError.encodingFailed(
+                    stage: "scale", code: nil,
+                    reason: "could not crop \(targetDisplaySize) to \(encodedDisplaySize)")
+            }
+            image = cropped
         }
 
         // Stage 4 — metadata, then write.
@@ -405,6 +431,12 @@ public struct ImageEncoder: Sendable {
             )
         }
         return image
+    }
+
+    /// The largest even number not above `value`, except that a single pixel
+    /// stays a single pixel: there is nothing to crop it to.
+    static func evenFloor(_ value: Int) -> Int {
+        value > 1 ? value & ~1 : value
     }
 
     /// Returns `image` at exactly `target`, redrawing only when it is not

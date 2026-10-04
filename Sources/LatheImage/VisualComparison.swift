@@ -82,20 +82,22 @@ public enum VisualComparison {
 
     public static func similarity(ofImageData candidate: Data, to reference: Data) throws -> VisualSimilarity {
         let candidateImage = try displayedImage(CGImageSourceCreateWithData(candidate as CFData, nil), name: "candidate")
-        let size = comparisonSize(for: PixelSize(width: candidateImage.width, height: candidateImage.height))
-        let referenceImage = try displayedImage(
+        let candidateSize = PixelSize(width: candidateImage.width, height: candidateImage.height)
+        let size = comparisonSize(for: candidateSize)
+        let referenceImage = try referenceImage(
             CGImageSourceCreateWithData(reference as CFData, nil), name: "reference",
-            longestSide: max(size.width, size.height))
+            candidate: candidateSize, comparedAt: size)
         return try Planes(referenceImage, size: size).similarity(to: Planes(candidateImage, size: size))
     }
 
     public static func similarity(ofImageAt candidate: URL, to reference: URL) throws -> VisualSimilarity {
         let candidateImage = try displayedImage(
             CGImageSourceCreateWithURL(candidate as CFURL, nil), name: candidate.lastPathComponent)
-        let size = comparisonSize(for: PixelSize(width: candidateImage.width, height: candidateImage.height))
-        let referenceImage = try displayedImage(
+        let candidateSize = PixelSize(width: candidateImage.width, height: candidateImage.height)
+        let size = comparisonSize(for: candidateSize)
+        let referenceImage = try referenceImage(
             CGImageSourceCreateWithURL(reference as CFURL, nil), name: reference.lastPathComponent,
-            longestSide: max(size.width, size.height))
+            candidate: candidateSize, comparedAt: size)
         return try Planes(referenceImage, size: size).similarity(to: Planes(candidateImage, size: size))
     }
 
@@ -146,19 +148,21 @@ public enum VisualComparison {
         }
 
         public func similarity(of candidate: CGImage) throws -> VisualSimilarity {
-            let size = VisualComparison.comparisonSize(
-                for: PixelSize(width: candidate.width, height: candidate.height))
-            return try planes(at: size).similarity(to: Planes(candidate, size: size))
+            let candidateSize = PixelSize(width: candidate.width, height: candidate.height)
+            let size = VisualComparison.comparisonSize(for: candidateSize)
+            return try planes(for: candidateSize, comparedAt: size).similarity(to: Planes(candidate, size: size))
         }
 
-        private func planes(at size: PixelSize) throws -> Planes {
+        /// Keyed by the candidate's own size, which decides both the size
+        /// compared at and whether the reference is cropped to match.
+        private func planes(for candidate: PixelSize, comparedAt size: PixelSize) throws -> Planes {
             lock.lock()
             defer { lock.unlock() }
-            if let cached = prepared[size] { return cached }
-            let image = try VisualComparison.displayedImage(
-                source, name: "reference", longestSide: max(size.width, size.height))
+            if let cached = prepared[candidate] { return cached }
+            let image = try VisualComparison.referenceImage(
+                source, name: "reference", candidate: candidate, comparedAt: size)
             let planes = try Planes(image, size: size)
-            prepared[size] = planes
+            prepared[candidate] = planes
             return planes
         }
     }
@@ -168,6 +172,39 @@ public enum VisualComparison {
     static func comparisonSize(for size: PixelSize) -> PixelSize {
         guard size.pixelCount > maximumPixelCount else { return size }
         return ResizeTarget.maxPixels(maximumPixelCount).resolve(from: size)
+    }
+
+    /// The reference, ready to be drawn at `size`.
+    ///
+    /// When `candidate` is the reference less at most one column and one row,
+    /// it was cropped to even dimensions (see
+    /// `ImageFormat.requiresEvenDimensions`), so the reference is cropped the
+    /// same way before anything is scaled. Stretching it by a pixel instead
+    /// softens every edge at full size, and when both are then downscaled for
+    /// comparison it shifts the far edge by most of a pixel — enough to hold a
+    /// panorama's worst region near 0.74 at every quality.
+    static func referenceImage(
+        _ source: CGImageSource?, name: String, candidate: PixelSize, comparedAt size: PixelSize
+    ) throws -> CGImage {
+        if let source, let full = displayedSize(of: source), full != candidate,
+           (0...1).contains(full.width - candidate.width), (0...1).contains(full.height - candidate.height),
+           let cropped = try displayedImage(source, name: name)
+               .cropping(to: CGRect(x: 0, y: 0, width: candidate.width, height: candidate.height)) {
+            return cropped
+        }
+        return try displayedImage(source, name: name, longestSide: max(size.width, size.height))
+    }
+
+    /// Image 0's size as a viewer sees it, orientation applied.
+    static func displayedSize(of source: CGImageSource) -> PixelSize? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        let orientation = properties[kCGImagePropertyOrientation] as? UInt32 ?? 1
+        return (5...8).contains(orientation)
+            ? PixelSize(width: height, height: width)
+            : PixelSize(width: width, height: height)
     }
 
     /// Image 0 with its orientation applied, at most `longestSide` on its

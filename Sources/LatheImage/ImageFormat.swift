@@ -99,6 +99,21 @@ public enum ImageFormat: String, Sendable, Hashable, CaseIterable, CustomStringC
         }
     }
 
+    /// Whether an encode must have an even width and height to be read
+    /// everywhere.
+    ///
+    /// AVIF, because ImageIO writes odd dimensions in a way only Apple's own
+    /// decoder accepts. Measured on macOS 27 against libavif 1.4 (the decoder
+    /// in Chrome and Firefox): a small odd-sized picture is coded padded and
+    /// decodes a pixel larger than it was — 601 × 400 comes back 602 × 400 —
+    /// and once ImageIO switches to a tiled `grid` item, any odd dimension is
+    /// refused outright as an invalid grid. Even dimensions decode exactly at
+    /// every size tried, so ``ImageEncoder`` crops the last column or row
+    /// instead of shipping a file that half the web cannot open.
+    public var requiresEvenDimensions: Bool {
+        self == .avif
+    }
+
     /// Whether the format stores pixels lossily by default.
     public var isLossyByDefault: Bool {
         switch self {

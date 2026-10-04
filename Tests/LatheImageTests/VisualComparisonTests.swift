@@ -177,3 +177,31 @@ struct VisualComparisonTests {
         #expect(leftovers.isEmpty, "scratch files left behind: \(leftovers)")
     }
 }
+
+@Suite("Visual comparison of an even-cropped candidate")
+struct EvenCropComparisonTests {
+
+    /// A candidate that is its reference less one column and one row — what
+    /// an AVIF encode of an odd-sized picture is — must compare as identical.
+    /// Stretching the reference by a pixel instead blurs it at full size, and
+    /// past 12 MP, where both are downscaled, shifts the far edge by most of a
+    /// pixel: that held a real panorama's worst region at 0.74 at every quality.
+    @Test("an exact crop compares as identical",
+          arguments: [PixelSize(width: 641, height: 481), PixelSize(width: 4097, height: 3073)])
+    func exactCrop(size: PixelSize) throws {
+        let card = try VisualComparisonTests.testCard(width: size.width, height: size.height)
+        let cropped = try #require(card.cropping(
+            to: CGRect(x: 0, y: 0, width: size.width & ~1, height: size.height & ~1)))
+        let reference = try VisualComparison.Reference(
+            data: VisualComparisonTests.encode(card, as: .png, quality: 1))
+        let candidate = try VisualComparisonTests.encode(cropped, as: .png, quality: 1)
+
+        let similarity = try reference.similarity(ofImageData: candidate)
+        #expect(similarity.overall > 0.999)
+        #expect(similarity.worstRegion > 0.995)
+        // The one-shot entry point takes the same path.
+        let direct = try VisualComparison.similarity(
+            ofImageData: candidate, to: VisualComparisonTests.encode(card, as: .png, quality: 1))
+        #expect(direct.worstRegion > 0.995)
+    }
+}

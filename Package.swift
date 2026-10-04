@@ -61,6 +61,11 @@ let package = Package(
         // depending on it.
         .library(name: "LatheMP3", targets: ["LatheMP3"]),
 
+        // `lathe-image`: still-image encoding from a shell, for batch jobs a
+        // person would otherwise script against the library. A thin wrapper
+        // over `LatheImage`, so it links nothing the library does not.
+        .executable(name: "lathe-image", targets: ["LatheImageTool"]),
+
         // AV1 encoding. Its own product, and not part of the umbrella, because
         // it is a CPU encoder several megabytes large that only an app which
         // offers AV1 should carry. SVT-AV1 is BSD-3-Clause-Clear with the
@@ -419,6 +424,8 @@ let package = Package(
             path: "TestSupport/LatheFixtures"
         ),
 
+        .executableTarget(name: "LatheImageTool", dependencies: ["LatheCore", "LatheImage"]),
+
         // MARK: - Tests
 
         .testTarget(name: "LatheCoreTests", dependencies: ["LatheCore"]),
@@ -427,6 +434,7 @@ let package = Package(
             dependencies: ["LatheCore", "LatheDoc", "LatheMeta", "LatheFixtures"]
         ),
         .testTarget(name: "LatheImageTests", dependencies: ["LatheImage", "LatheFixtures"]),
+        .testTarget(name: "LatheImageToolTests", dependencies: ["LatheImageTool", "LatheImage", "LatheFixtures"]),
         .testTarget(name: "LatheVideoTests", dependencies: ["LatheVideo", "LatheFixtures"]),
         .testTarget(name: "LatheDocTests", dependencies: ["LatheDoc", "LatheFixtures"]),
         .testTarget(name: "LatheAudioTests", dependencies: ["LatheAudio", "LatheFixtures"]),

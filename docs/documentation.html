@@ -24,7 +24,7 @@
 <header class="masthead">
   <div class="wrap">
     <div class="issue-line">
-      <span>Vol. 1.1.3 &middot; September 2026</span>
+      <span>Vol. 1.1.3 &middot; October 2026</span>
       <span>Swift 6 &middot; iOS 17 &middot; macOS 14 &middot; Apache-2.0</span>
       <span>Measured, not claimed</span>
     </div>
@@ -171,6 +171,7 @@ targets: [
     source: photo, to: out, format: .heic) {
     <span class="k">print</span>(result.quality, result.similarity.overall, result.encode.outputByteCount)
 }</code></pre>
+      <p class="lede" style="margin-top:18px"><b>From a shell.</b> <code>lathe-image</code> runs the same encoder over a batch: AVIF by default, each picture at the lowest quality that still looks like it, one JSON line per file. AVIF is always written at even dimensions — ImageIO's odd-sized AVIF opens only on Apple platforms — by cropping the last column or row, never by resampling.</p>
       <div style="height:14px"></div>
       <pre><code><span class="c">// A folder of frames, in natural order, as an animation or a document.</span>
 <span class="k">let</span> frames = <span class="k">try</span> FrameSequence.contentsOfDirectory(folder)

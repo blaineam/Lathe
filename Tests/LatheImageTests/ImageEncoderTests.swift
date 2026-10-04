@@ -1273,7 +1273,7 @@ enum Fixtures {
         return url
     }
 
-    private static func write(
+    static func write(
         _ image: CGImage,
         to url: URL,
         format: ImageFormat,
@@ -1296,7 +1296,7 @@ enum Fixtures {
 
     // MARK: Building pixels
 
-    private static func gradient(_ size: PixelSize) -> CGImage? {
+    static func gradient(_ size: PixelSize) -> CGImage? {
         bitmap(size) { x, y in
             RGB(UInt8(x * 255 / max(1, size.width - 1)),
                 UInt8(y * 255 / max(1, size.height - 1)),

@@ -429,7 +429,7 @@ selects it.)
 One thing no policy may remove is the orientation: dropping it does not
 anonymise a picture, it rotates it.
 
-Two platform findings the suite pins, both of which are the reason quality 1.0
+Three platform findings the suite pins. The first two are the reason quality 1.0
 deserves suspicion:
 
 - **Quality 1.0 is not lossless.** On HEIC it still quantises, and re-encoding an
@@ -440,6 +440,15 @@ deserves suspicion:
   returns false and writes nothing, while 0.999 encodes fine and every other
   lossy format accepts 1.0. Lathe does not clamp it silently; it fails, with an
   error that names the cause, and leaves no file.
+- **ImageIO writes odd-sized AVIF that only Apple can read.** A small odd-sized
+  picture is coded padded, so libavif — the decoder in Chrome and Firefox —
+  shows 601 × 400 as 602 × 400; once ImageIO tiles the picture into a `grid`,
+  libavif refuses any odd dimension as an invalid grid. Even dimensions decode
+  exactly at every size tried, so an AVIF encode loses its last column and/or
+  row: a crop, never a rescale, taken from the picture as displayed (a rotated
+  source is baked upright first). `ImageFormat.requiresEvenDimensions` names
+  the rule, and the visual comparison crops its reference to match rather than
+  charging the encode for a one-pixel stretch.
 
 #### WebP, written by Lathe rather than ImageIO
 
@@ -509,6 +518,41 @@ downscaled to 12 MP.
 
 It is still lossy. It is a measurement, not a guarantee, and the search assumes
 fidelity rises with the setting, which real encoders nearly but not always do.
+
+### From a shell: `lathe-image`
+
+The same encoder as a command, for the batch jobs a person would otherwise
+script against the library. It is a thin wrapper: every decision about pixels
+above is the library's, so a run from the shell behaves exactly as Sami does.
+
+```sh
+swift build -c release --product lathe-image
+# Every JPEG under photos/ to AVIF beside it, each at the lowest quality whose
+# result cannot be told apart from it, metadata stripped, six at a time:
+find photos -name '*.jpg' | .build/release/lathe-image --metadata strip --jobs 6 -
+```
+
+AVIF is the default format and the visually lossless search the default
+quality. `--quality` fixes the setting instead; `--min-ssim`,
+`--min-region-ssim` and `--range` tune the search; `--max-side` downscales,
+never up; `--output-dir` with `--base` mirrors a tree somewhere else;
+`--only-if-smaller` discards an output that grew. One JSON object per input
+goes to standard output — status, bytes in and out, the chosen quality and its
+SSIM — and a summary to standard error. `lathe-image --help` lists the rest.
+
+**What the search finds on pictures that are already compressed.** Measured
+re-encoding a photography site's JPEGs. At the strict default threshold, AVIF
+is often *larger* than its source, because staying within 0.99 SSIM of a JPEG
+means reproducing the JPEG's own artefacts. At 0.97 overall and 0.92 in the
+worst region — the same side by side at full size — 1,600–2,400 px photographs
+came out a median 15–18 % smaller and about one in ten still grew; 9,000–22,000
+px panoramas came out 35 % smaller; flat app icons downscaled for a 30 px slot
+came out 99 % smaller. libaom (`avifenc`) at the same SSIM lands within a few
+per cent of ImageIO, so this is the source, not the encoder. About one panorama
+in five never passes the worst-region bound at any quality, in either encoder —
+a flat region where the source's own noise is the structure being compared — so
+a batch that must convert everything needs a second pass with
+`--min-region-ssim 0` and a floor under `--range`.
 
 **Video.** `VideoQualitySearch` cuts a few short clips with a passthrough
 export, runs the caller's encode on those at each candidate, and compares
