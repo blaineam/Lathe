@@ -100,7 +100,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.lathe.app
         PRODUCT_NAME: Lathe
         CURRENT_PROJECT_VERSION: "1"
-        MARKETING_VERSION: "1.2.0"
+        MARKETING_VERSION: "1.2.1"
         GENERATE_INFOPLIST_FILE: YES
         # Names the .icon document above, which is how Xcode finds an icon
         # that is not an AppIcon set inside an .xcassets.
