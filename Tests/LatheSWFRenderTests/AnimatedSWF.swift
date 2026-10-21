@@ -19,17 +19,21 @@ enum AnimatedSWF {
 
     /// The movie: `width` × `height` pixels, `frameCount` frames at
     /// `frameRate`, with a `side`-pixel square advancing `step` pixels a frame.
+    /// The first `emptyFrames` frames show the bare background, as a movie with
+    /// a slow start does; the square appears after them.
     static func movie(
         width: Int = 160, height: Int = 120, frameRate: Double = 8, frameCount: Int = 4,
-        side: Int = 30, step: Int = 36
+        side: Int = 30, step: Int = 36, emptyFrames: Int = 0
     ) -> Data {
         var tags = Data()
         tags += tag(9, Data([background.0, background.1, background.2]))  // SetBackgroundColor
         tags += defineSquare(id: 1, side: side)
         for frame in 0..<frameCount {
-            let x = 10 + frame * step
-            let y = (height - side) / 2
-            tags += placeObject2(id: 1, depth: 1, x: x, y: y, isMove: frame > 0)
+            if frame >= emptyFrames {
+                let x = 10 + (frame - emptyFrames) * step
+                let y = (height - side) / 2
+                tags += placeObject2(id: 1, depth: 1, x: x, y: y, isMove: frame > emptyFrames)
+            }
             tags += tag(1)  // ShowFrame
         }
         tags += tag(0)  // End
