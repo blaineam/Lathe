@@ -62,6 +62,33 @@ struct SWFThumbnailerTests {
         #expect(SWFThumbnailer.background(.black, for: .webp) != nil)
     }
 
+    @Test("detail is zero for a flat frame and grows with what is on it")
+    func detailScore() throws {
+        let directory = try scratch("detail")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        func png(_ name: String, drawing: (CGContext) -> Void) throws -> URL {
+            let context = try #require(CGContext(
+                data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(gray: 0.2, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+            drawing(context)
+            let url = directory.appendingPathComponent(name)
+            let sink = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))
+            CGImageDestinationAddImage(sink, try #require(context.makeImage()), nil)
+            #expect(CGImageDestinationFinalize(sink))
+            return url
+        }
+        let flat = try png("flat.png") { _ in }
+        let square = try png("square.png") {
+            $0.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+            $0.fill(CGRect(x: 0, y: 0, width: 50, height: 20))  // 10% of the frame
+        }
+        #expect(SWFThumbnailer.detail(of: flat) == 0)
+        #expect(abs(SWFThumbnailer.detail(of: square) - 0.1) < 0.001)
+    }
+
     // MARK: - With Ruffle
 
     @Test("a batch cuts WebP thumbnails, names each, and reports the bad file without stopping")

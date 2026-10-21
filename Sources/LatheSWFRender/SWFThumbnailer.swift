@@ -50,6 +50,21 @@ public struct SWFThumbnailOptions: Sendable {
     /// not drawn anything yet — use the latest earlier frame that is not.
     public var skipBlankFrames: Bool
 
+    /// When above zero, the thumbnail is the first frame at or after
+    /// ``position`` that is not mostly one colour: at least this fraction
+    /// (0…1) of its pixels must differ from the frame's dominant colour. Around
+    /// 0.05 passes a title card and rejects an empty stage. If no frame
+    /// qualifies, the most detailed one sampled is used.
+    ///
+    /// Frames are only sampled up to ``position`` plus ``searchSeconds``, so
+    /// this is only as persistent as that window is long.
+    public var minimumDetail: Double
+
+    /// How long past ``position`` to keep looking for a frame that meets
+    /// ``minimumDetail``. Capture is real time, so this is also the most
+    /// extra time a movie can cost. Ignored when ``minimumDetail`` is zero.
+    public var searchSeconds: Double
+
     /// How often the stage is sampled while waiting for ``position``. Only
     /// the last few samples can be used, so this stays low; it does not speed
     /// the movie up or slow it down.
@@ -64,6 +79,8 @@ public struct SWFThumbnailOptions: Sendable {
         position: SWFThumbnailPosition = .seconds(1.5),
         background: SWFThumbnailBackground = .transparent,
         skipBlankFrames: Bool = true,
+        minimumDetail: Double = 0,
+        searchSeconds: Double = 10,
         samplingRate: Double = 8,
         startupTimeout: Duration = .seconds(60)
     ) {
@@ -73,6 +90,8 @@ public struct SWFThumbnailOptions: Sendable {
         self.position = position
         self.background = background
         self.skipBlankFrames = skipBlankFrames
+        self.minimumDetail = minimumDetail
+        self.searchSeconds = searchSeconds
         self.samplingRate = samplingRate
         self.startupTimeout = startupTimeout
     }
@@ -159,16 +178,16 @@ public final class SWFThumbnailer {
 
         let header = try SWFCapture().header(of: swf)
         let rate = Self.clamp(options.samplingRate, 1, 30)
-        let frameCount: Int
         let seconds: Double
         switch options.position {
-        case .start:
-            frameCount = 1
-            seconds = 0
-        case let .seconds(position):
-            seconds = Self.clamp(position, 0, 120)
-            frameCount = max(1, Int((seconds * rate).rounded(.up)))
+        case .start: seconds = 0
+        case let .seconds(position): seconds = Self.clamp(position, 0, 120)
         }
+        let searching = options.minimumDetail > 0
+        let window = searching ? Self.clamp(options.searchSeconds, 0, 60) : 0
+        // The frame the search starts from (one-based count up to the position).
+        let startCount = options.position == .start ? 1 : max(1, Int((seconds * rate).rounded(.up)))
+        let frameCount = max(startCount, Int(((seconds + window) * rate).rounded(.up)))
 
         var render = SWFRenderOptions(
             framesPerSecond: rate,
@@ -188,13 +207,30 @@ public final class SWFThumbnailer {
             throw LatheError.invalidInput(reason: "\(swf.lastPathComponent) produced no frames")
         }
 
-        // The last frame, or the latest one with something in it.
-        var chosen = frames.count - 1
-        var blank = Self.isFlat(frames[chosen])
-        if blank, options.skipBlankFrames {
-            if let found = frames.indices.reversed().first(where: { !Self.isFlat(frames[$0]) }) {
-                chosen = found
-                blank = false
+        var chosen = startCount - 1
+        var blank: Bool
+        if searching {
+            // The first frame from the position on that has enough in it;
+            // failing that, the most detailed one seen.
+            var best = (index: chosen, detail: -1.0)
+            var found: Int?
+            for index in chosen..<frames.count {
+                try Task.checkCancellation()
+                let detail = Self.detail(of: frames[index])
+                if detail > best.detail { best = (index, detail) }
+                if detail >= options.minimumDetail { found = index; break }
+            }
+            chosen = found ?? best.index
+            blank = found == nil && best.detail < 0.001
+        } else {
+            // The last frame, or the latest one with something in it.
+            chosen = frames.count - 1
+            blank = Self.isFlat(frames[chosen])
+            if blank, options.skipBlankFrames {
+                if let found = frames.indices.reversed().first(where: { !Self.isFlat(frames[$0]) }) {
+                    chosen = found
+                    blank = false
+                }
             }
         }
 
@@ -348,6 +384,36 @@ public final class SWFThumbnailer {
             index += 4
         }
         return true
+    }
+
+    /// How much of a frame is not its dominant colour, 0…1. Colours are
+    /// grouped to four bits a channel, so gradients and noise in a background
+    /// do not read as detail.
+    nonisolated static func detail(of url: URL) -> Double {
+        guard let image = decode(url) else { return 0 }
+        let width = image.width, height = image.height
+        guard width > 0, height > 0 else { return 0 }
+        var data = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return 0 }
+        var counts = [UInt32](repeating: 0, count: 65536)
+        let pixels = width * height
+        for pixel in 0..<pixels {
+            let base = pixel * 4
+            let key = Int(data[base] >> 4) << 12 | Int(data[base + 1] >> 4) << 8
+                | Int(data[base + 2] >> 4) << 4 | Int(data[base + 3] >> 4)
+            counts[key] += 1
+        }
+        let dominant = counts.max() ?? 0
+        return 1 - Double(dominant) / Double(pixels)
     }
 
     nonisolated private static func decode(_ url: URL) -> CGImage? {
