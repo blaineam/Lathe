@@ -1257,6 +1257,23 @@ try await FrameVideoWriter().write(           // → H.264 / HEVC
     render.frames, to: mp4, frameRate: render.framesPerSecond)
 ```
 
+**Thumbnails, in bulk.** For a library of movies where one picture each is all
+that is wanted, `SWFThumbnailer` plays each movie only as far as a chosen
+position, keeps the latest frame that is not a flat colour (a preloader's blank
+first frame is skipped), and writes it in any format `ImageEncoder` can — WebP
+by default:
+
+```swift
+let outcomes = try await SWFThumbnailer().thumbnails(
+    of: movies, into: folder,
+    options: SWFThumbnailOptions(format: .webp, longestSide: 480,
+                                 position: .seconds(1.5)))
+```
+
+A movie Ruffle cannot play comes back as `.failed` with a sentence saying why;
+it never stops the rest of the batch. The cost of a thumbnail is its position,
+because capture is real time (below).
+
 **It stops at frames on purpose.** The output is a `FrameSequence` and a frame
 rate, which is exactly what `AnimatedImageWriter`, `FrameVideoWriter` and
 `FrameDocumentWriter` already take — so this module writes no encoder of its own
