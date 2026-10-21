@@ -386,34 +386,9 @@ public final class SWFThumbnailer {
         return true
     }
 
-    /// How much of a frame is not its dominant colour, 0…1. Colours are
-    /// grouped to four bits a channel, so gradients and noise in a background
-    /// do not read as detail.
+    /// See ``FrameDetail/score(of:)``; an unreadable frame scores 0.
     nonisolated static func detail(of url: URL) -> Double {
-        guard let image = decode(url) else { return 0 }
-        let width = image.width, height = image.height
-        guard width > 0, height > 0 else { return 0 }
-        var data = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-            else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return 0 }
-        var counts = [UInt32](repeating: 0, count: 65536)
-        let pixels = width * height
-        for pixel in 0..<pixels {
-            let base = pixel * 4
-            let key = Int(data[base] >> 4) << 12 | Int(data[base + 1] >> 4) << 8
-                | Int(data[base + 2] >> 4) << 4 | Int(data[base + 3] >> 4)
-            counts[key] += 1
-        }
-        let dominant = counts.max() ?? 0
-        return 1 - Double(dominant) / Double(pixels)
+        FrameDetail.score(of: url) ?? 0
     }
 
     nonisolated private static func decode(_ url: URL) -> CGImage? {
