@@ -20,12 +20,20 @@ STAPLE_TARGET="${2:-$ARTIFACT}"
 : "${APPLE_APP_PASSWORD:?APPLE_APP_PASSWORD is required}"
 
 echo "==> submitting $(basename "$ARTIFACT")"
+# `|| SUBMIT_STATUS=$?` so a failed submission (bad credentials, an agreement
+# to accept, no network) reports what notarytool said instead of exiting
+# silently under `set -e` with the message captured and never printed.
+SUBMIT_STATUS=0
 SUBMIT_OUT=$(xcrun notarytool submit "$ARTIFACT" \
   --apple-id "$APPLE_ID" \
   --team-id "$APPLE_TEAM_ID" \
   --password "$APPLE_APP_PASSWORD" \
-  --wait 2>&1)
+  --wait 2>&1) || SUBMIT_STATUS=$?
 echo "$SUBMIT_OUT"
+if [ "$SUBMIT_STATUS" -ne 0 ]; then
+  echo "::error::notarytool submit exited $SUBMIT_STATUS"
+  exit 1
+fi
 
 STATUS=$(echo "$SUBMIT_OUT" | grep "status:" | tail -1 | awk '{print $NF}')
 if [ "$STATUS" != "Accepted" ]; then
