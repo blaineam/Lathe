@@ -144,6 +144,20 @@ enum Snippets {
         // end
     }
 
+    static func inplace(_ file: URL) async throws {
+        // snippet: inplace
+        // An MP4-family file is edited where it is: only its moov atom is
+        // rewritten, the samples never move, and an interruption at any point
+        // leaves a file that plays. A file that cannot take this path says why,
+        // and the default fallback is the export above.
+        let writer = MetadataWriter()
+        if writer.canWriteInPlace(at: file).isSupported {
+            let result = try await writer.update(inPlaceAt: file) { $0.title = "Corrected" }
+            print(result.wroteInPlace, result.bytesWritten)
+        }
+        // end
+    }
+
     static func chapters(_ film: URL, _ out: URL) async throws {
         // snippet: chapters
         // Chapters are a text track, so writing them is a remux: every sample

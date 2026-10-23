@@ -117,6 +117,9 @@ targets: [
       <p class="lede">One model over four stores: iTunes atoms for video and audio, ImageIO properties for stills, PDF attributes, and ID3 for MP3. Chapters are written as real chapter tracks and subtitles as selectable tracks — both by remux, with nothing re-encoded.</p>
       {{snippet:tags}}
       <div style="height:14px"></div>
+      <p class="lede" style="margin-top:18px"><b>In place.</b> A tag change on an MP4, M4V, MOV or M4A is a few kilobytes and a cover inside one atom, and the samples never needed to move. The in-place path rewrites the <code>moov</code> atom alone — appended first, then switched over with one eight-byte header, each step forced to disk — so a crash at any point leaves a file that plays, and a film on a mounted volume takes seconds instead of minutes. A fast-start file stays fast-start when the new atom fits; every field the edit did not touch, including the ones this model has no name for, reads back unchanged; and the result is read back through AVFoundation before it is committed.</p>
+      {{snippet:inplace}}
+      <div style="height:14px"></div>
       {{snippet:chapters}}
       <div style="height:14px"></div>
       {{snippet:subtitles}}

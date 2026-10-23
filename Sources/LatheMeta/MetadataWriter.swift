@@ -26,7 +26,7 @@ import PDFKit
 ///
 /// | Store | How | What is copied |
 /// |---|---|---|
-/// | MP4 family | `AVAssetExportSession` at the passthrough preset, and ``ChapterWriter`` when the export drops the chapters | Every sample, bit for bit |
+/// | MP4 family | `AVAssetExportSession` at the passthrough preset, and ``ChapterWriter`` when the export drops the chapters — or, in place, a rewrite of the `moov` atom alone; see ``write(_:inPlaceAt:fallback:)`` | Every sample, bit for bit |
 /// | Stills | `CGImageDestinationAddImageFromSource` | The encoded image data, DCT coefficients included |
 /// | PDF | PDFKit document attributes | The page tree |
 ///
@@ -441,6 +441,17 @@ public struct MetadataWriteResult: Sendable, Equatable {
     /// any ordinary MP4 or M4A even then.
     public var droppedTracks: [String]
 
+    /// Whether the file was edited where it was, by rewriting its `moov`
+    /// atom alone — see ``MetadataWriter/write(_:inPlaceAt:fallback:)``.
+    /// False for every write that produced a new file.
+    public var wroteInPlace: Bool
+
+    /// How many bytes the write handed to the disk. For a new file that is the
+    /// file; for an in-place write it is the `moov` atom, written twice for
+    /// crash safety, plus a few headers — the number that explains why the
+    /// in-place path takes seconds where the export took minutes.
+    public var bytesWritten: UInt64
+
     public init(
         output: URL,
         store: MetadataStore,
@@ -449,7 +460,9 @@ public struct MetadataWriteResult: Sendable, Equatable {
         unrepresentedFields: [String] = [],
         removedTrailingID3v1: Bool = false,
         restoredChapterCount: Int = 0,
-        droppedTracks: [String] = []
+        droppedTracks: [String] = [],
+        wroteInPlace: Bool = false,
+        bytesWritten: UInt64? = nil
     ) {
         self.output = output
         self.store = store
@@ -459,5 +472,7 @@ public struct MetadataWriteResult: Sendable, Equatable {
         self.removedTrailingID3v1 = removedTrailingID3v1
         self.restoredChapterCount = restoredChapterCount
         self.droppedTracks = droppedTracks
+        self.wroteInPlace = wroteInPlace
+        self.bytesWritten = bytesWritten ?? outputByteCount
     }
 }

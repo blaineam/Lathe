@@ -24,7 +24,7 @@
 <header class="masthead">
   <div class="wrap">
     <div class="issue-line">
-      <span>Vol. 1.3.0 &middot; October 2026</span>
+      <span>Vol. 1.4.0 &middot; October 2026</span>
       <span>Swift 6 &middot; iOS 17 &middot; macOS 14 &middot; Apache-2.0</span>
       <span>Measured, not claimed</span>
     </div>
@@ -39,7 +39,7 @@
 
 <section class="pagehead">
   <div class="wrap">
-    <div class="kicker">The manual &middot; Lathe 1.3.0</div>
+    <div class="kicker">The manual &middot; Lathe 1.4.0</div>
     <h1>Take only what <em>you use.</em></h1>
     <p class="dek">13 library products over the system frameworks. Every sample on this page is cut from a test target the build compiles, so none of them can drift from the API they show.</p>
   </div>
@@ -67,10 +67,10 @@
   <div>
     <section class="module" id="install">
       <div class="module-head"><h2>Installation</h2></div>
-      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>1.3.0</b>.</p>
+      <p class="lede">Add the package once, then depend on products per target. The newest release is <b>1.4.0</b>.</p>
 <pre><code><span class="c">// Package.swift</span>
 dependencies: [
-    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"1.3.0"</span>),
+    .package(url: <span class="s">"https://github.com/blaineam/Lathe.git"</span>, from: <span class="s">"1.4.0"</span>),
 ],
 targets: [
     .target(name: <span class="s">"YourApp"</span>, dependencies: [
@@ -202,6 +202,17 @@ metadata.show = ShowInfo(seriesName: <span class="s">&quot;Example&quot;</span>,
 metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
 <span class="k">try</span> <span class="k">await</span> MetadataWriter().write(metadata, to: file, writingTo: out)</code></pre>
       <div style="height:14px"></div>
+      <p class="lede" style="margin-top:18px"><b>In place.</b> A tag change on an MP4, M4V, MOV or M4A is a few kilobytes and a cover inside one atom, and the samples never needed to move. The in-place path rewrites the <code>moov</code> atom alone — appended first, then switched over with one eight-byte header, each step forced to disk — so a crash at any point leaves a file that plays, and a film on a mounted volume takes seconds instead of minutes. A fast-start file stays fast-start when the new atom fits; every field the edit did not touch, including the ones this model has no name for, reads back unchanged; and the result is read back through AVFoundation before it is committed.</p>
+      <pre><code><span class="c">// An MP4-family file is edited where it is: only its moov atom is</span>
+<span class="c">// rewritten, the samples never move, and an interruption at any point</span>
+<span class="c">// leaves a file that plays. A file that cannot take this path says why,</span>
+<span class="c">// and the default fallback is the export above.</span>
+<span class="k">let</span> writer = MetadataWriter()
+<span class="k">if</span> writer.canWriteInPlace(at: file).isSupported {
+    <span class="k">let</span> result = <span class="k">try</span> <span class="k">await</span> writer.update(inPlaceAt: file) { $0.title = <span class="s">&quot;Corrected&quot;</span> }
+    <span class="k">print</span>(result.wroteInPlace, result.bytesWritten)
+}</code></pre>
+      <div style="height:14px"></div>
       <pre><code><span class="c">// Chapters are a text track, so writing them is a remux: every sample</span>
 <span class="c">// is copied, nothing is re-encoded.</span>
 <span class="k">let</span> chapters = [
@@ -282,7 +293,7 @@ metadata.artwork = [Artwork(data: jpeg, format: .jpeg, role: .cover)]
   <div class="wrap">
     <div>
       <h4>Colophon</h4>
-      <p>Lathe 1.3.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
+      <p>Lathe 1.4.0, an on-device media engine for Apple platforms, free under the Apache&nbsp;2.0 licence.</p>
       <p>Set in Newsreader, Hanken Grotesk and JetBrains Mono. Every page is generated from the repository by <code>docs/build.py</code>; every number on it was measured, and every code sample compiles.</p>
     </div>
     <div>
