@@ -256,7 +256,9 @@ jobs:
           xcrun stapler validate "dist/$APP_NAME.dmg"
 
       - name: Checksum
-        run: shasum -a 256 "dist/$APP_NAME.dmg" | tee dist/SHA256SUMS
+        # From inside dist/, so the listed name matches the file somebody
+        # downloads and `shasum -c` can find it.
+        run: (cd dist && shasum -a 256 "$APP_NAME.dmg") | tee dist/SHA256SUMS
 
       - uses: actions/upload-artifact@v4
         with:
@@ -315,7 +317,7 @@ jobs:
           mkdir -p Payload dist-ios
           cp -R "$APP" Payload/
           zip -qry "dist-ios/Lathe-iOS.ipa" Payload
-          shasum -a 256 dist-ios/Lathe-iOS.ipa | tee dist-ios/SHA256SUMS-iOS
+          (cd dist-ios && shasum -a 256 Lathe-iOS.ipa) | tee dist-ios/SHA256SUMS-iOS
 
       - uses: actions/upload-artifact@v4
         with:
