@@ -471,19 +471,58 @@ final class Queue {
         }
     }
 
-    /// Brings a tool up to the newest release.
+    /// Brings a tool up to the newest release, installing it if it is missing.
     ///
-    /// The same call as installing: the resolver re-reads the index and
-    /// replaces what has moved on. That is the whole reason these are fetched
-    /// rather than bundled — a downloader that cannot be updated without
-    /// shipping a new app is a downloader that is broken every time a site
-    /// changes, which is weekly.
+    /// The resolver re-reads the index and replaces what has moved on. That is
+    /// the whole reason these are fetched rather than bundled — a downloader
+    /// that cannot be updated without shipping a new app is a downloader that
+    /// is broken every time a site changes, which is weekly.
     func update(_ tool: Tool) async {
-        switch tool {
-        case .media: await installYouTubeDL()
-        case .gallery: await installGalleryDL()
-        default: break
+        tools.updateNote = nil
+        tools.lastError = nil
+
+        // An update drops the imported modules from under whatever is using
+        // them, so it waits for the queue rather than racing it.
+        guard !isRunning else {
+            tools.lastError = "Wait for the downloads to finish, then update."
+            return
         }
+
+        let name: String
+        let wasInstalled: Bool
+        let busy: ReferenceWritableKeyPath<ToolStatus, Bool>
+        switch tool {
+        case .media:
+            (name, wasInstalled, busy) = ("yt-dlp", tools.ytdlpInstalled, \.ytdlpInstalling)
+        case .gallery:
+            (name, wasInstalled, busy) = ("gallery-dl", tools.galleryDLInstalled, \.galleryDLInstalling)
+        default:
+            return
+        }
+
+        tools[keyPath: busy] = true
+        defer { tools[keyPath: busy] = false }
+        do {
+            try await ensureTrustStore()
+            let installation = tool == .media
+                ? try await mediaFetcher(cookieFile: nil).update()
+                : try await galleryFetcher(cookieFile: nil).update()
+            // The fetchers registered their network handlers on the modules the
+            // update just dropped, and only a new fetcher registers them again.
+            if !installation.plan.steps.isEmpty { invalidateFetchers() }
+            await refreshTools()
+            if wasInstalled { tools.updateNote = Self.updateNote(for: name, installation.plan) }
+        } catch {
+            tools.lastError = Self.describe(error)
+        }
+    }
+
+    /// What an update did, because a button that changes nothing on screen is
+    /// indistinguishable from a button that does not work.
+    private static func updateNote(for name: String, _ plan: PythonDependencyPlan) -> String {
+        guard !plan.steps.isEmpty else { return "\(name) is up to date." }
+        let replaced = plan.steps.map { "\($0.release.canonicalName) \($0.release.version)" }
+        return "Updated to " + replaced.joined(separator: ", ") + "."
     }
 
     /// Removes a tool and everything installed for it.

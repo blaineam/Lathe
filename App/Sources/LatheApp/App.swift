@@ -1465,6 +1465,8 @@ struct ToolsSettings: View {
 
             if let error = queue.tools.lastError {
                 Section { Text(error).font(.caption).foregroundStyle(.orange) }
+            } else if let note = queue.tools.updateNote {
+                Section { Text(note).font(.caption).foregroundStyle(.secondary) }
             }
 
             Section("Everything installed") {
@@ -1492,8 +1494,9 @@ struct ToolsSettings: View {
         }
         .formStyle(.grouped)
         .task { packages = await queue.installedPackages() }
-        .onChange(of: queue.tools.ytdlpInstalled) { Task { packages = await queue.installedPackages() } }
-        .onChange(of: queue.tools.galleryDLInstalled) { Task { packages = await queue.installedPackages() } }
+        // Keyed on the work finishing, not on what is installed: an update
+        // changes versions, and can change nothing but a dependency's.
+        .onChange(of: queue.tools.isInstalling) { Task { packages = await queue.installedPackages() } }
         .confirmationDialog(
             "Remove this downloader?",
             isPresented: Binding(get: { confirmingRemoval != nil },

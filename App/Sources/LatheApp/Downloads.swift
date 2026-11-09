@@ -154,6 +154,8 @@ final class ToolStatus {
     /// challenge solver is missing" is worth saying and is not a failure.
     var installMessage: String?
     var lastError: String?
+    /// What the last Update did, including that it had nothing to do.
+    var updateNote: String?
 
     var isInstalling: Bool { ytdlpInstalling || galleryDLInstalling }
 

@@ -750,6 +750,102 @@ struct DependencyResolutionTests {
         #expect(plan.alreadySatisfied.map(\.name) == ["middle"])
     }
 
+    // MARK: Upgrading
+
+    private func tool(_ versions: String...) -> FixtureSource {
+        FixtureSource(catalogue: [
+            "tool": Dictionary(uniqueKeysWithValues: versions.map {
+                ($0, FixtureSource.Entry(metadata: FixtureSource.metadataText(name: "tool", version: $0)))
+            })
+        ])
+    }
+
+    private func upgrader(toolAt version: String) throws -> PythonDependencyResolver {
+        var resolver = resolver(installed: [
+            "tool": .init(version: try #require(PythonPackageVersion(parsing: version)))
+        ])
+        resolver.upgradesInstalled = true
+        return resolver
+    }
+
+    @Test("upgrading replaces an installed package the index has moved past")
+    func upgradeTakesTheNewerRelease() async throws {
+        // The shape that went unnoticed: an unpinned requirement is satisfied by
+        // every version, and these order numerically rather than as text.
+        let source = tool("2026.8.19", "2026.10.26")
+        let plan = try await upgrader(toolAt: "2026.8.19").resolve(try requirement("tool"), using: source)
+        #expect(plan.steps.map(\.release.version.description) == ["2026.10.26"])
+        #expect(plan.alreadySatisfied.isEmpty)
+    }
+
+    @Test("without upgrading, a newer release leaves a satisfying install alone")
+    func installKeepsWhatSatisfies() async throws {
+        var resolver = try upgrader(toolAt: "2026.8.19")
+        resolver.upgradesInstalled = false
+        let source = tool("2026.8.19", "2026.10.26")
+        let plan = try await resolver.resolve(try requirement("tool"), using: source)
+        #expect(plan.steps.isEmpty)
+        #expect(source.counter.releaseRequests["tool"] == nil)
+    }
+
+    @Test("upgrading the newest release plans nothing, and says it is satisfied")
+    func upgradeOfCurrentIsANoOp() async throws {
+        let plan = try await upgrader(toolAt: "2026.10.26").resolve(
+            try requirement("tool"), using: tool("2026.8.19", "2026.10.26"))
+        #expect(plan.steps.isEmpty)
+        #expect(plan.alreadySatisfied.map(\.name) == ["tool"])
+    }
+
+    @Test("upgrading ignores nightly builds newer than the release")
+    func upgradeSkipsDevBuilds() async throws {
+        let source = tool("2026.8.19", "2026.10.26", "2026.11.4.232659.dev0")
+        let plan = try await upgrader(toolAt: "2026.8.19").resolve(try requirement("tool"), using: source)
+        #expect(plan.steps.map(\.release.version.description) == ["2026.10.26"])
+    }
+
+    @Test("upgrading never moves onto a nightly because the release was withdrawn")
+    func upgradeKeepsFinalOverDevFallback() async throws {
+        let plan = try await upgrader(toolAt: "2026.10.26").resolve(
+            try requirement("tool"), using: tool("2026.11.4.232659.dev0"))
+        #expect(plan.steps.isEmpty)
+    }
+
+    @Test("upgrading never moves a package backwards")
+    func upgradeDoesNotDowngrade() async throws {
+        let plan = try await upgrader(toolAt: "3.0").resolve(try requirement("tool"), using: tool("1.0", "2.0"))
+        #expect(plan.steps.isEmpty)
+    }
+
+    @Test("upgrading honours the requirement's own ceiling")
+    func upgradeRespectsConstraints() async throws {
+        let plan = try await upgrader(toolAt: "1.0").resolve(
+            try requirement("tool<2"), using: tool("1.0", "1.5", "2.0"))
+        #expect(plan.steps.map(\.release.version.description) == ["1.5"])
+    }
+
+    @Test("upgrading reaches dependencies, not only what was named")
+    func upgradeWalksTheGraph() async throws {
+        let source = FixtureSource(catalogue: [
+            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
+                name: "app", version: "1.0", requires: ["shared"]))],
+            "shared": [
+                "1.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.0")),
+                "1.5": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.5")),
+            ],
+        ])
+        var resolver = resolver(installed: [
+            "app": .init(
+                version: try #require(PythonPackageVersion(parsing: "1.0")),
+                metadata: try PythonPackageMetadata.parse(
+                    FixtureSource.metadataText(name: "app", version: "1.0", requires: ["shared"]))),
+            "shared": .init(version: try #require(PythonPackageVersion(parsing: "1.0"))),
+        ])
+        resolver.upgradesInstalled = true
+        let plan = try await resolver.resolve(try requirement("app"), using: source)
+        #expect(plan.steps.map(\.release.canonicalName) == ["shared"])
+        #expect(plan.alreadySatisfied.map(\.name) == ["app"])
+    }
+
     // MARK: Requires-Python
 
     @Test("a release this interpreter is too new for is not a candidate")

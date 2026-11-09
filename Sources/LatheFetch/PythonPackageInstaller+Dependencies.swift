@@ -79,14 +79,19 @@ extension PythonPackageInstaller {
     /// The same, for several requirements resolved together — which is not the
     /// same as resolving them one after another, because a constraint from one
     /// can narrow the version chosen for a dependency of another.
+    ///
+    /// - Parameter upgrading: replace installed packages the index has moved
+    ///   past, rather than keeping whatever already satisfies the requirement.
     public func plan(
         for requirements: [String],
+        upgrading: Bool = false,
         using source: any PythonPackageSource = PyPIPackageSource()
     ) async throws -> PythonDependencyPlan {
         let parsed = try requirements.map { try PythonRequirement(parsing: $0) }
         let resolver = PythonDependencyResolver(
             environment: try markerEnvironment(),
-            installed: try installedState()
+            installed: try installedState(),
+            upgradesInstalled: upgrading
         )
         return try await resolver.resolve(parsed, using: source)
     }
@@ -122,10 +127,11 @@ extension PythonPackageInstaller {
     @discardableResult
     public func install(
         requirements: [String],
+        upgrading: Bool = false,
         using source: any PythonPackageSource = PyPIPackageSource(),
         session: URLSession = .shared
     ) async throws -> Installation {
-        let plan = try await plan(for: requirements, using: source)
+        let plan = try await plan(for: requirements, upgrading: upgrading, using: source)
         return try await carryOut(plan, session: session)
     }
 
@@ -139,6 +145,13 @@ extension PythonPackageInstaller {
         var requested: [InstalledPackage] = []
         var dependencies: [InstalledPackage] = []
 
+        // In a defer because a failure on the third of five packages has still
+        // replaced the first two underneath anything already imported.
+        var replacedSomething = false
+        defer {
+            if replacedSomething { try? forgetImportedPackages() }
+        }
+
         for step in plan.steps {
             guard let wheel = step.release.wheel else {
                 // The resolver does not produce a step without a wheel; this is
@@ -150,7 +163,9 @@ extension PythonPackageInstaller {
                     candidates: step.release.publishedFiles)
             }
             let data = try await PackageIndex.download(wheel, using: session)
+            let isReplacement = (try? installedPackage(step.release.canonicalName)) != nil
             let record = try install(wheel: data, named: wheel.filename, verifying: wheel.sha256)
+            if isReplacement { replacedSomething = true }
             if step.isRoot {
                 requested.append(record)
             } else {
@@ -165,6 +180,46 @@ extension PythonPackageInstaller {
             dependencies: dependencies,
             alreadySatisfied: satisfied,
             plan: plan
+        )
+    }
+
+    /// Makes the next `import` of anything under ``root`` read it from disk.
+    ///
+    /// Replacing a package changes its files and nothing else: the interpreter
+    /// never restarts, so `import yt_dlp` would go on returning the old modules,
+    /// reporting the old version, and failing when a lazy import reached for a
+    /// file the update deleted.
+    ///
+    /// Every package under the root goes rather than only the replaced ones,
+    /// because a new `urllib3` beside an old, still-imported `requests` is a mix
+    /// neither was written for. It is safe only with nothing running: something
+    /// mid-extraction keeps its old modules and imports the new ones, so don't
+    /// call this underneath a download.
+    ///
+    /// The drivers' "already registered" flags are reset for the same reason.
+    /// Their network handler and challenge provider were registered on the
+    /// modules being dropped, so a flag left set would keep the fresh `yt_dlp`
+    /// from ever getting them. A fetcher only re-registers when it is new, so
+    /// discard any held across this call.
+    public func forgetImportedPackages() throws {
+        try runtime.execute(
+            """
+            import importlib, os, sys
+            _lathe_prefix = os.path.realpath(lathe_arguments["root"]) + os.sep
+            for _lathe_name, _lathe_module in list(sys.modules.items()):
+                _lathe_origin = getattr(_lathe_module, "__file__", None)
+                if not _lathe_origin:
+                    _lathe_origin = next(iter(getattr(_lathe_module, "__path__", None) or ()), None)
+                if isinstance(_lathe_origin, str) and os.path.realpath(_lathe_origin).startswith(_lathe_prefix):
+                    del sys.modules[_lathe_name]
+            if "_LATHE_NET" in globals():
+                _LATHE_NET["ytdlp_registered"] = False
+                _LATHE_NET["gallerydl_registered"] = False
+            if "_LATHE_YTDLP" in globals():
+                _LATHE_YTDLP["provider_registered"] = False
+            importlib.invalidate_caches()
+            """,
+            arguments: ["root": root.path]
         )
     }
 }

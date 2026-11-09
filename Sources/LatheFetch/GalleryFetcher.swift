@@ -160,6 +160,19 @@ public actor GalleryFetcher {
         return installation
     }
 
+    /// Re-resolves against the index and replaces what has moved on. As with
+    /// ``MediaFetcher/update(using:session:)``, make new fetchers afterwards.
+    @discardableResult
+    public func update(
+        using source: any PythonPackageSource = PyPIPackageSource(),
+        session: URLSession = .shared
+    ) async throws -> PythonPackageInstaller.Installation {
+        let installation = try await installer.install(
+            requirements: Self.requirements, upgrading: true, using: source, session: session)
+        try await installer.activate()
+        return installation
+    }
+
     // MARK: - Readiness
 
     public func readiness() async throws -> Readiness {

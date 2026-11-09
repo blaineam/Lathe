@@ -126,7 +126,9 @@ public struct PythonDependencyPlan: Sendable, Equatable {
 /// * **What is installed is not re-downloaded.** An installed package at a
 ///   satisfying version is a node the walk passes *through* — its own
 ///   requirements are read from its `dist-info` on disk and still expanded —
-///   rather than a subtree that is skipped.
+///   rather than a subtree that is skipped. ``upgradesInstalled`` is what turns
+///   that off, and an update has to set it: a bare `yt-dlp` is satisfied by
+///   every version ever published, so without it nothing would ever move.
 public struct PythonDependencyResolver: Sendable {
 
     /// A package that is already installed, and what it declares.
@@ -169,18 +171,29 @@ public struct PythonDependencyResolver: Sendable {
     /// rather than runs forever.
     public var stepLimit: Int
 
+    /// Whether an installed package that satisfies its constraints is replaced
+    /// anyway when the index has something newer.
+    ///
+    /// Applies to the whole graph, so an update also carries the certificates
+    /// and HTTP libraries forward. Never moves a package backwards, and never
+    /// onto a pre-release nobody asked for: a package this cannot improve on
+    /// stays as it is, even when the index no longer offers it at all.
+    public var upgradesInstalled: Bool
+
     public init(
         environment: PythonMarkerEnvironment,
         installed: [String: InstalledState] = [:],
         requiresPurePython: Bool = true,
         candidateDepth: Int = 12,
-        stepLimit: Int = 2048
+        stepLimit: Int = 2048,
+        upgradesInstalled: Bool = false
     ) {
         self.environment = environment
         self.installed = installed
         self.requiresPurePython = requiresPurePython
         self.candidateDepth = candidateDepth
         self.stepLimit = stepLimit
+        self.upgradesInstalled = upgradesInstalled
     }
 
     // MARK: Resolution
@@ -255,7 +268,17 @@ public struct PythonDependencyResolver: Sendable {
             // Already installed at a version that satisfies everything asked of
             // it so far. Not skipped — walked through, using the metadata the
             // unpack left on disk.
-            if chosen[name] == nil, let state = installed[name], merged.isSatisfied(by: state.version) {
+            //
+            // When upgrading the index is asked first. Its failure to answer
+            // propagates: "could not check" must not read as "up to date".
+            var isOutdated = false
+            if upgradesInstalled, chosen[name] == nil, let state = installed[name], merged.isSatisfied(by: state.version) {
+                let available = try await releases(of: requirement.name, keyedBy: name, from: source, cache: &releaseCache)
+                isOutdated = isUpgrade(
+                    try? pick(from: available, satisfying: merged, package: requirement.name, requiredBy: work.chain),
+                    over: state.version, constraints: merged)
+            }
+            if !isOutdated, chosen[name] == nil, let state = installed[name], merged.isSatisfied(by: state.version) {
                 satisfied[name] = .init(name: name, version: state.version, constraints: merged.description)
                 if let metadata = state.metadata,
                     !expanded.contains(Self.expansionKey(name, state.version.normalized, extras))
@@ -289,13 +312,7 @@ public struct PythonDependencyResolver: Sendable {
                 continue
             }
 
-            let available: [PythonRelease]
-            if let cached = releaseCache[name] {
-                available = cached
-            } else {
-                available = try await source.releases(of: requirement.name)
-                releaseCache[name] = available
-            }
+            let available = try await releases(of: requirement.name, keyedBy: name, from: source, cache: &releaseCache)
 
             let release = try pick(
                 from: available,
@@ -346,6 +363,33 @@ public struct PythonDependencyResolver: Sendable {
     }
 
     // MARK: Picking a version
+
+    private func releases(
+        of project: String,
+        keyedBy name: String,
+        from source: any PythonPackageSource,
+        cache: inout [String: [PythonRelease]]
+    ) async throws -> [PythonRelease] {
+        if let cached = cache[name] { return cached }
+        let available = try await source.releases(of: project)
+        cache[name] = available
+        return available
+    }
+
+    /// Whether `candidate` is worth replacing `installed` with.
+    ///
+    /// ``pick(from:satisfying:package:requiredBy:)`` falls back to a pre-release
+    /// when no final release qualifies, which is right for a package that is
+    /// missing and wrong for one that works: a final release the index has since
+    /// withdrawn is no reason to move onto a nightly.
+    private func isUpgrade(
+        _ candidate: PythonRelease?,
+        over installed: PythonPackageVersion,
+        constraints: PythonVersionSpecifierSet
+    ) -> Bool {
+        guard let candidate, candidate.version > installed else { return false }
+        return !candidate.version.isPreRelease || installed.isPreRelease || constraints.mentionsPreRelease
+    }
 
     private func pick(
         from available: [PythonRelease],

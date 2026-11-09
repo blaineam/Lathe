@@ -337,6 +337,55 @@ struct MediaFetcherTests {
         print("  \(error?.localizedDescription ?? "")")
     }
 
+    @Test(
+        "updating moves a running yt-dlp to the newest release, with its handlers back",
+        .enabled(if: SharedInterpreter.networkTestsEnabled && SharedInterpreter.isAvailable))
+    func updatesInPlace() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+        let store = try await installer.installTrustStore()
+        try runtime.useTrustStore(store)
+
+        // An old release, imported and registered, as in a running app.
+        let oldVersion = "2026.8.19"
+        _ = try await installer.install("yt-dlp", version: oldVersion)
+        _ = try await installer.install(requirement: "yt-dlp-ejs")
+        // The URLSession transport is off by default on macOS, and it is the
+        // registration an update is most liable to lose.
+        var configuration = MediaFetcher.Configuration()
+        configuration.usesSystemNetworking = true
+        let before = MediaFetcher(runtime: runtime, installer: installer, configuration: configuration)
+        let old = try await before.prepare()
+        #expect(old.version == "2026.08.19")
+
+        // Installing does not move it. Updating does.
+        #expect(try await before.install().requested.isEmpty)
+        let updated = try await before.update()
+        let record = try #require(updated.requested.first { $0.name == "yt-dlp" })
+        #expect(record.version != oldVersion)
+
+        let after = MediaFetcher(runtime: runtime, installer: installer, configuration: configuration)
+        let new = try await after.prepare()
+        print(new.report)
+        #expect(new.isInstalled)
+        #expect(new.version.flatMap(PythonPackageVersion.init(parsing:))
+            == PythonPackageVersion(parsing: record.version))
+        #expect(new.javaScriptSolverAvailable, "\(new.javaScriptUnavailableReason ?? "")")
+        #expect(try runtime.evaluate("str(_LATHE_NET['ytdlp_registered'])").value.string == "True")
+        #expect(try runtime.evaluate(
+            "str('LatheURLSession' in __import__('yt_dlp.networking.common').networking.common._REQUEST_HANDLERS)"
+        ).value.string == "True")
+
+        // And again: nothing left to do.
+        #expect(try await after.update().plan.steps.isEmpty)
+
+        // Leave nothing of this root imported for whichever test runs next.
+        try await installer.forgetImportedPackages()
+    }
+
     /// A fetcher with `yt-dlp` installed and prepared, shared by the network
     /// tests so they do not each pay for an install.
     private func preparedFetcher() async throws -> MediaFetcher {

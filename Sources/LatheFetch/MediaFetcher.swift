@@ -291,9 +291,8 @@ public actor MediaFetcher {
 
     /// Fetches `yt-dlp` and its solver scripts, and puts them on `sys.path`.
     ///
-    /// Also the update path: calling it again re-resolves against the index and
-    /// replaces what has moved on. That is the whole reason this is an install
-    /// rather than a bundle — see the type documentation.
+    /// Keeps whatever is already installed. To move to a newer release, call
+    /// ``update(using:session:)``.
     @discardableResult
     public func install(
         using source: any PythonPackageSource = PyPIPackageSource(),
@@ -301,6 +300,24 @@ public actor MediaFetcher {
     ) async throws -> PythonPackageInstaller.Installation {
         let installation = try await installer.install(
             requirements: Self.requirements, using: source, session: session)
+        try await installer.activate()
+        return installation
+    }
+
+    /// Re-resolves against the index and replaces what has moved on. That is the
+    /// whole reason this is an install rather than a bundle — see the type
+    /// documentation.
+    ///
+    /// When anything was replaced this fetcher, and every other one in the
+    /// process, is finished: see
+    /// ``PythonPackageInstaller/forgetImportedPackages()``. Make new ones.
+    @discardableResult
+    public func update(
+        using source: any PythonPackageSource = PyPIPackageSource(),
+        session: URLSession = .shared
+    ) async throws -> PythonPackageInstaller.Installation {
+        let installation = try await installer.install(
+            requirements: Self.requirements, upgrading: true, using: source, session: session)
         try await installer.activate()
         return installation
     }

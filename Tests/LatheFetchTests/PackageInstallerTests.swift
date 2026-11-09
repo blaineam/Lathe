@@ -180,6 +180,102 @@ struct PackageInstallerTests {
         #expect(try await installer.installed().first?.version == "2.0.0")
     }
 
+    @Test(
+        "updating moves a running gallery-dl and its dependencies to the newest releases",
+        .enabled(if: SharedInterpreter.networkTestsEnabled && SharedInterpreter.isAvailable))
+    func updatesGalleryDLInPlace() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+        try runtime.useTrustStore(try await installer.installTrustStore())
+
+        // Older releases, imported, as in a running app.
+        let oldVersion = "1.32.12"
+        _ = try await installer.install("gallery-dl", version: oldVersion)
+        _ = try await installer.install("certifi", version: "2026.7.22")
+        _ = try await installer.install(requirement: "gallery-dl")
+        let before = GalleryFetcher(runtime: runtime, installer: installer)
+        #expect(try await before.readiness().version == oldVersion)
+        try runtime.importModule("requests")
+
+        #expect(try await before.install().requested.isEmpty)
+        let updated = try await before.update()
+        let record = try #require(updated.requested.first { $0.name == "gallery-dl" })
+        #expect(record.version != oldVersion)
+        #expect(updated.dependencies.contains { $0.name == "certifi" })
+
+        let after = GalleryFetcher(runtime: runtime, installer: installer)
+        let new = try await after.readiness()
+        #expect(new.isInstalled)
+        #expect(new.version == record.version)
+        try runtime.importModule("gallery_dl.extractor")
+        try runtime.importModule("requests")
+
+        #expect(try await after.update().plan.steps.isEmpty)
+        try await installer.forgetImportedPackages()
+    }
+
+    @Test("after forgetting, a replaced package imports as its new version",
+          .enabled(if: SharedInterpreter.isAvailable))
+    func forgetsReplacedModules() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let installer = PythonPackageInstaller(runtime: runtime, root: root)
+        try await installer.activate()
+        let first = WheelFixtures.pureWheel(distribution: "lathe-forget", version: "1.0.0")
+        try await installer.install(wheel: first.data, named: first.filename, verifying: nil)
+        try runtime.importModule("lathe_forget")
+        #expect(try runtime.evaluate("lathe_forget.VERSION").value.string == "1.0.0")
+
+        let second = WheelFixtures.pureWheel(distribution: "lathe-forget", version: "2.0.0")
+        try await installer.install(wheel: second.data, named: second.filename, verifying: nil)
+
+        // The interpreter never restarts, so without this it is still 1.0.0.
+        try runtime.importModule("lathe_forget")
+        #expect(try runtime.evaluate("__import__('lathe_forget').VERSION").value.string == "1.0.0")
+
+        try await installer.forgetImportedPackages()
+        #expect(try runtime.evaluate("__import__('lathe_forget').VERSION").value.string == "2.0.0")
+        #expect(try runtime.evaluate("__import__('lathe_forget.core').core.greet()").value.string?.isEmpty == false)
+    }
+
+    @Test("forgetting clears the drivers' registration flags and spares the standard library",
+          .enabled(if: SharedInterpreter.isAvailable))
+    func forgettingResetsRegistrations() async throws {
+        let runtime = try #require(SharedInterpreter.outcome.runtime)
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try runtime.execute(
+            """
+            import json
+            _lathe_saved_net = globals().get("_LATHE_NET")
+            _lathe_saved_ytdlp = globals().get("_LATHE_YTDLP")
+            _LATHE_NET = {"ytdlp_registered": True, "gallerydl_registered": True}
+            _LATHE_YTDLP = {"provider_registered": True}
+            """)
+        defer {
+            try? runtime.execute(
+                """
+                _LATHE_NET = _lathe_saved_net
+                _LATHE_YTDLP = _lathe_saved_ytdlp
+                if _LATHE_NET is None: del _LATHE_NET
+                if _LATHE_YTDLP is None: del _LATHE_YTDLP
+                """)
+        }
+
+        try await PythonPackageInstaller(runtime: runtime, root: root).forgetImportedPackages()
+
+        #expect(try runtime.evaluate("str(_LATHE_NET['ytdlp_registered'])").value.string == "False")
+        #expect(try runtime.evaluate("str(_LATHE_NET['gallerydl_registered'])").value.string == "False")
+        #expect(try runtime.evaluate("str(_LATHE_YTDLP['provider_registered'])").value.string == "False")
+        #expect(try runtime.evaluate("str('json' in __import__('sys').modules)").value.string == "True")
+    }
+
     @Test("removing something that is not installed says so",
           .enabled(if: SharedInterpreter.isAvailable))
     func refusesUnknownRemoval() async throws {
