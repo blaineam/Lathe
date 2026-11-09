@@ -135,6 +135,20 @@ jobs:
       # release URL, SwiftPM downloads it and this step has nothing to do.
       # See Vendor/LAME/VENDORING.md.
 
+      # The binary targets are downloaded from release assets, which return a
+      # 504 often enough to have failed this job twice in one evening, before
+      # any test ran. Every later xcodebuild call would resolve them too, so
+      # they are fetched here, where a failure can be retried.
+      - name: Download package dependencies
+        run: |
+          for wait in 30 60 120 0; do
+            xcodebuild -resolvePackageDependencies && exit 0
+            [ "$wait" -gt 0 ] || break
+            echo "::warning::Could not resolve dependencies; trying again in ${wait}s."
+            sleep "$wait"
+          done
+          exit 1
+
       - name: Resolve the test scheme
         id: scheme
         run: |
