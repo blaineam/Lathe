@@ -76,16 +76,17 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
     /// closed mid-question — WebKit is still waiting, and it will wait
     /// forever. The fallback is the answer it gets instead, which is always
     /// the same as dismissing: no, nothing, cancelled.
-    private final class Answer<Value>: @unchecked Sendable {
+    private final class Answer<Value: Sendable>: @unchecked Sendable {
         private let lock = NSLock()
-        private var handler: ((Value) -> Void)?
+        private var handler: (@MainActor (Value) -> Void)?
         private let fallback: Value
 
-        init(fallback: Value, _ handler: @escaping (Value) -> Void) {
+        init(fallback: Value, _ handler: @escaping @MainActor (Value) -> Void) {
             self.fallback = fallback
             self.handler = handler
         }
 
+        @MainActor
         func callAsFunction(_ value: Value) {
             lock.lock()
             let handler = self.handler
@@ -99,7 +100,14 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
             let unanswered = handler
             handler = nil
             lock.unlock()
-            unanswered?(fallback)
+            guard let unanswered else { return }
+            // The last reference can go on any thread; WebKit's handlers cannot.
+            let fallback = self.fallback
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { unanswered(fallback) }
+            } else {
+                DispatchQueue.main.async { unanswered(fallback) }
+            }
         }
     }
 
@@ -188,11 +196,15 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
     }
     #endif
 
+    // WebKit finds these four at run time, and declares their handlers
+    // `@MainActor`. Leave that off and it is only a "nearly matches" warning, but
+    // WebKit no longer sees the method: alert() vanishes, confirm() is always
+    // false, and upload buttons do nothing. CI fails on that warning.
     func webView(
         _ webView: WKWebView,
         runJavaScriptAlertPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping () -> Void
+        completionHandler: @escaping @MainActor () -> Void
     ) {
         let answer = Answer<Void>(fallback: ()) { completionHandler() }
         ask(frame, message, buttons: ["OK"], field: nil) { _, _ in answer(()) }
@@ -202,7 +214,7 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         _ webView: WKWebView,
         runJavaScriptConfirmPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping (Bool) -> Void
+        completionHandler: @escaping @MainActor (Bool) -> Void
     ) {
         let answer = Answer<Bool>(fallback: false, completionHandler)
         ask(frame, message, buttons: ["OK", "Cancel"], field: nil) { button, _ in
@@ -215,7 +227,7 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         runJavaScriptTextInputPanelWithPrompt prompt: String,
         defaultText: String?,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping (String?) -> Void
+        completionHandler: @escaping @MainActor (String?) -> Void
     ) {
         let answer = Answer<String?>(fallback: nil, completionHandler)
         ask(frame, prompt, buttons: ["OK", "Cancel"], field: defaultText ?? "") { button, text in
@@ -230,7 +242,7 @@ final class TabDelegate: NSObject, WKUIDelegate, WKNavigationDelegate {
         _ webView: WKWebView,
         runOpenPanelWith parameters: WKOpenPanelParameters,
         initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping ([URL]?) -> Void
+        completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
         let answer = Answer<[URL]?>(fallback: nil, completionHandler)
         bringForward?()

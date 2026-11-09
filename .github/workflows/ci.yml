@@ -101,7 +101,21 @@ jobs:
           # Serial execution also makes the log usable. In parallel, "started"
           # lines from thirty suites interleave and the last one printed is not
           # the one that hung; run in order, the final line names it.
-          swift test --scratch-path "$SCRATCH_PATH" --no-parallel
+          set -o pipefail
+          swift test --scratch-path "$SCRATCH_PATH" --no-parallel 2>&1 | tee "$RUNNER_TEMP/package.log"
+
+      # WebKit finds optional delegate methods at run time. A signature that only
+      # "nearly matches" is a warning here and, at run time, a method that is
+      # never called: this is how alert(), confirm(), file uploads and the render
+      # host's navigation allowlist all went missing without a single failure.
+      - name: Build the app, and refuse a delegate method WebKit cannot see
+        run: |
+          set -o pipefail
+          swift build --package-path App 2>&1 | tee "$RUNNER_TEMP/app.log"
+          if grep -F "nearly matches optional requirement" "$RUNNER_TEMP/package.log" "$RUNNER_TEMP/app.log"; then
+            echo "::error::A delegate method does not match its protocol, so it will never be called."
+            exit 1
+          fi
 
   ios-simulator:
     name: iOS Simulator
