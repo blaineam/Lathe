@@ -102,7 +102,7 @@ public struct RuffleRuntime: Sendable, Equatable {
         let baseComponents = base.pathComponents
         let candidateComponents = candidate.pathComponents
         guard candidateComponents.count > baseComponents.count,
-              Array(candidateComponents.prefix(baseComponents.count)) == baseComponents
+            Array(candidateComponents.prefix(baseComponents.count)) == baseComponents
         else { return nil }
 
         return candidate

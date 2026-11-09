@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields decode the package index's own JSON keys.
+
 import Foundation
 
 /// A wheel the index has told us about: where it is, and what it should hash to.

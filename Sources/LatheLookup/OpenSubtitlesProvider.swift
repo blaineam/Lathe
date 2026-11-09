@@ -92,8 +92,8 @@ public struct OpenSubtitlesProvider: Sendable {
 
     static func candidate(from item: OSSubtitleItem) -> SubtitleCandidate? {
         guard let attributes = item.attributes,
-              let file = attributes.files?.first,
-              let fileID = file.fileID
+            let file = attributes.files?.first,
+            let fileID = file.fileID
         else { return nil }
         return SubtitleCandidate(
             fileID: fileID,
@@ -160,9 +160,11 @@ public struct OpenSubtitlesProvider: Sendable {
     }
 
     private func get<T: Decodable>(_ path: String, _ items: [URLQueryItem]) async throws -> T {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
-        ) else {
+        guard
+            var components = URLComponents(
+                url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
+            )
+        else {
             throw LookupError.transport(provider: name, detail: "could not build a URL for \(path)")
         }
         components.queryItems = items.isEmpty ? nil : items
@@ -229,7 +231,10 @@ public struct SubtitleQuery: Sendable, Equatable {
     public init(_ query: LookupQuery, imdbID: String? = nil, languages: [String] = ["en"]) {
         var season: Int?
         var episode: Int?
-        if case .episode(let s, let e) = query.kind { season = s; episode = e }
+        if case .episode(let s, let e) = query.kind {
+            season = s
+            episode = e
+        }
         self.init(
             title: query.title, imdbID: imdbID, season: season, episode: episode,
             languages: languages

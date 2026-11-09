@@ -105,7 +105,7 @@ struct WheelTests {
         #expect(inspection.compiledExtensions == [member])
 
         let error = #expect(throws: PythonPackageError.self) { try inspection.validate() }
-        guard case let .notPurePython(_, _, members) = error else {
+        guard case .notPurePython(_, _, let members) = error else {
             Issue.record("expected notPurePython, got \(String(describing: error))")
             return
         }
@@ -167,7 +167,7 @@ struct WheelTests {
         let wrong = String(repeating: "0", count: 64)
 
         let error = #expect(throws: PythonPackageError.self) { try inspection.verify(sha256: wrong) }
-        guard case let .digestMismatch(expected, actual) = error else {
+        guard case .digestMismatch(let expected, let actual) = error else {
             Issue.record("expected digestMismatch, got \(String(describing: error))")
             return
         }

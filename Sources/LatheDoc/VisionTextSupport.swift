@@ -40,7 +40,10 @@ public struct VisionTextSupport: Sendable {
 
         func languages(for key: Int, build: () -> [String]) -> [String] {
             lock.lock()
-            if let cached = languages[key] { lock.unlock(); return cached }
+            if let cached = languages[key] {
+                lock.unlock()
+                return cached
+            }
             lock.unlock()
             let value = build()
             lock.lock()

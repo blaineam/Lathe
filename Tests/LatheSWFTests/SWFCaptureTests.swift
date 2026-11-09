@@ -122,7 +122,7 @@ struct SWFCaptureTests {
             let asset = try #require(report.assets.first)
             #expect(asset.characterID == 42)
             #expect(asset.fileName == "character-00042.jpg")
-            guard case let .image(width, height, source, _) = asset.content else {
+            guard case .image(let width, let height, let source, _) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -168,7 +168,7 @@ struct SWFCaptureTests {
         try extract(data) { report, _ in
             let asset = try #require(report.assets.first)
             #expect(asset.fileName == "character-00003.png")
-            guard case let .image(_, _, source, _) = asset.content else {
+            guard case .image(_, _, let source, _) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -193,7 +193,7 @@ struct SWFCaptureTests {
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
             #expect(asset.sourceTag == "DefineBits")
-            guard case let .image(_, _, source, _) = asset.content else {
+            guard case .image(_, _, let source, _) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -250,7 +250,7 @@ struct SWFCaptureTests {
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
             #expect(asset.fileName == "character-00009.png")
-            guard case let .image(width, height, source, hasAlpha) = asset.content else {
+            guard case .image(let width, let height, let source, let hasAlpha) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -288,7 +288,7 @@ struct SWFCaptureTests {
         )
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
-            guard case let .image(width, height, source, hasAlpha) = asset.content else {
+            guard case .image(let width, let height, let source, let hasAlpha) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -365,7 +365,7 @@ struct SWFCaptureTests {
         )
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
-            guard case let .image(_, _, source, hasAlpha) = asset.content else {
+            guard case .image(_, _, let source, let hasAlpha) = asset.content else {
                 Issue.record("expected an image")
                 return
             }
@@ -402,7 +402,7 @@ struct SWFCaptureTests {
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
             #expect(asset.fileName == "character-00020.mp3")
-            guard case let .sound(info) = asset.content else {
+            guard case .sound(let info) = asset.content else {
                 Issue.record("expected a sound")
                 return
             }
@@ -438,7 +438,8 @@ struct SWFCaptureTests {
             #expect(wav[8..<12] == Data("WAVE".utf8))
             #expect(wav[36..<40] == Data("data".utf8))
             // 22050 Hz, mono, 16-bit.
-            let rate = UInt32(wav[24]) | UInt32(wav[25]) << 8 | UInt32(wav[26]) << 16
+            let rate =
+                UInt32(wav[24]) | UInt32(wav[25]) << 8 | UInt32(wav[26]) << 16
                 | UInt32(wav[27]) << 24
             #expect(rate == 22_050)
             #expect(wav[22] == 1)  // channels
@@ -486,7 +487,7 @@ struct SWFCaptureTests {
             let asset = try #require(report.assets.first)
             #expect(asset.fileName == "soundtrack-main.mp3")
             #expect(asset.characterID == nil)
-            guard case let .sound(info) = asset.content else {
+            guard case .sound(let info) = asset.content else {
                 Issue.record("expected a sound")
                 return
             }
@@ -566,7 +567,7 @@ struct SWFCaptureTests {
         try extract(data) { report, directory in
             let asset = try #require(report.assets.first)
             #expect(asset.fileName == "binary-00040.png")
-            guard case let .binaryData(sniffedAs) = asset.content else {
+            guard case .binaryData(let sniffedAs) = asset.content else {
                 Issue.record("expected binary data")
                 return
             }

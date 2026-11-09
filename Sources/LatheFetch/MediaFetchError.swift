@@ -126,7 +126,7 @@ extension MediaFetchError {
     /// one, which means giving up on a download that would succeed on a second
     /// look.
     var indicatesStaleFormatSelection: Bool {
-        guard case let .noUsableFormat(reason) = self else { return false }
+        guard case .noUsableFormat(let reason) = self else { return false }
         return reason.contains("Requested format is not available")
     }
 }
@@ -227,7 +227,7 @@ extension MediaFetchError {
         switch error {
         case let fetch as MediaFetchError:
             return fetch
-        case let PythonError.raised(exception):
+        case PythonError.raised(let exception):
             return .mapping(exception)
         case let python as PythonError:
             return .runtimeFailed(reason: python.localizedDescription)
@@ -253,43 +253,43 @@ extension MediaFetchError {
 extension MediaFetchError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case let .notInstalled(reason):
+        case .notInstalled(let reason):
             "yt-dlp is not available in this interpreter: \(reason)"
-        case let .unsupportedSite(url):
+        case .unsupportedSite(let url):
             "No extractor recognised that URL: \(url)"
-        case let .unavailable(reason):
+        case .unavailable(let reason):
             "The item is not available: \(reason)"
-        case let .geoRestricted(reason):
+        case .geoRestricted(let reason):
             "The item is blocked in this region: \(reason)"
-        case let .authenticationRequired(reason):
+        case .authenticationRequired(let reason):
             "The site wants credentials for this item: \(reason)"
-        case let .botCheckFailed(reason):
+        case .botCheckFailed(let reason):
             "The site refused this client as automated traffic: \(reason)"
-        case let .drmProtected(reason):
+        case .drmProtected(let reason):
             "Every rendition is DRM-protected, so a download would not be playable: \(reason)"
-        case let .liveStream(reason):
+        case .liveStream(let reason):
             "This is a live stream with no end: \(reason)"
-        case let .isPlaylist(title, count):
+        case .isPlaylist(let title, let count):
             "That URL is a playlist"
                 + (title.map { " (\($0))" } ?? "")
                 + (count >= 0 ? " of \(count) items" : "")
                 + ", not a single item. Extract one of its entries instead."
-        case let .noUsableFormat(reason):
+        case .noUsableFormat(let reason):
             "No rendition matched: \(reason)"
-        case let .unknownFormat(id):
+        case .unknownFormat(let id):
             "This listing has no format with the id \(id)."
-        case let .transferFailed(reason):
+        case .transferFailed(let reason):
             "The download failed: \(reason)"
-        case let .incompleteDownload(path, reason):
+        case .incompleteDownload(let path, let reason):
             "The download at \(path) is incomplete: \(reason)"
-        case let .muxingFailed(stage, reason):
+        case .muxingFailed(let stage, let reason):
             "Joining the video and audio streams failed during \(stage): \(reason)"
-        case let .subprocessRequired(reason):
+        case .subprocessRequired(let reason):
             "yt-dlp tried to start a helper process, which this platform does not permit (PEP 730). "
                 + "This is a gap in LatheFetch rather than a fault in the request: \(reason)"
-        case let .extractionFailed(reason):
+        case .extractionFailed(let reason):
             reason
-        case let .runtimeFailed(reason):
+        case .runtimeFailed(let reason):
             "The embedded interpreter failed: \(reason)"
         }
     }

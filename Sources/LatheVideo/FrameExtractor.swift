@@ -1,5 +1,5 @@
-import Accelerate
 import AVFoundation
+import Accelerate
 import CoreGraphics
 import CoreMedia
 import Foundation
@@ -39,7 +39,7 @@ public enum FrameAccuracy: Sendable, Equatable {
         switch self {
         case .precise: .zero
         case .nearestKeyframe: .positiveInfinity
-        case let .within(seconds): CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        case .within(let seconds): CMTime(seconds: max(0, seconds), preferredTimescale: 600)
         }
     }
 }
@@ -121,8 +121,9 @@ public struct FrameExtractor: Sendable {
         let frame = try await Self.copyFrame(generator, atSeconds: seconds, from: source)
         let image = try Self.exactly(target, from: frame)
 
-        try Self.write(image, to: destination, typeIdentifier: typeIdentifier,
-                       format: format, quality: quality)
+        try Self.write(
+            image, to: destination, typeIdentifier: typeIdentifier,
+            format: format, quality: quality)
         return target
     }
 
@@ -203,21 +204,26 @@ public struct FrameExtractor: Sendable {
             try progress.checkCancellation()
 
             let number = String(format: "%0\(width)d", index + 1)
-            let url = directory
+            let url =
+                directory
                 .appendingPathComponent("\(basename)-\(number)")
                 .appendingPathExtension(format.preferredFilenameExtension)
 
             let frame = try await Self.copyFrame(generator, atSeconds: seconds, from: source)
             let image = try Self.exactly(target, from: frame)
-            try Self.write(image, to: url, typeIdentifier: typeIdentifier,
-                           format: format, quality: quality)
+            try Self.write(
+                image, to: url, typeIdentifier: typeIdentifier,
+                format: format, quality: quality)
             written.append(url)
 
-            guard progress.report(LatheProgress(
-                fraction: Double(index + 1) / Double(timestamps.count),
-                stage: "frames",
-                unitIndex: UInt64(index + 1),
-                unitCount: UInt64(timestamps.count))) else {
+            guard
+                progress.report(
+                    LatheProgress(
+                        fraction: Double(index + 1) / Double(timestamps.count),
+                        stage: "frames",
+                        unitIndex: UInt64(index + 1),
+                        unitCount: UInt64(timestamps.count)))
+            else {
                 throw LatheError.cancelled(atUnit: UInt64(index + 1))
             }
         }
@@ -301,7 +307,7 @@ public struct FrameExtractor: Sendable {
         }
 
         let (generator, _) = try await Self.makeGenerator(for: source, accuracy: accuracy)
-        generator.maximumSize = .zero   // full resolution; see the note above
+        generator.maximumSize = .zero  // full resolution; see the note above
 
         let frame = try await Self.copyFrame(generator, atSeconds: seconds, from: source)
         let data = try Self.planar8(from: frame, side: size)
@@ -346,8 +352,9 @@ public struct FrameExtractor: Sendable {
 
         let natural = try await track.load(.naturalSize)
         let transform = try await track.load(.preferredTransform)
-        let coded = PixelSize(width: Int(natural.width.rounded()),
-                              height: Int(natural.height.rounded()))
+        let coded = PixelSize(
+            width: Int(natural.width.rounded()),
+            height: Int(natural.height.rounded()))
         guard !coded.isEmpty else {
             throw LatheError.invalidInput(
                 reason: "\(source.lastPathComponent)'s video track reports a zero size"
@@ -401,16 +408,18 @@ public struct FrameExtractor: Sendable {
         guard image.width != target.width || image.height != target.height else { return image }
 
         let colorSpace = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
-        guard let context = CGContext(
-            data: nil,
-            width: target.width,
-            height: target.height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,           // let Core Graphics choose its own alignment
-            space: colorSpace.model == .rgb ? colorSpace : CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: nil,
+                width: target.width,
+                height: target.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,  // let Core Graphics choose its own alignment
+                space: colorSpace.model == .rgb ? colorSpace : CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "scale", code: nil,
                 reason: "could not create a \(target) drawing context"
@@ -432,9 +441,11 @@ public struct FrameExtractor: Sendable {
         format: ImageFormat,
         quality: QualityTarget
     ) throws {
-        guard let sink = CGImageDestinationCreateWithURL(
-            destination as CFURL, typeIdentifier as CFString, 1, nil
-        ) else {
+        guard
+            let sink = CGImageDestinationCreateWithURL(
+                destination as CFURL, typeIdentifier as CFString, 1, nil
+            )
+        else {
             // The capability probe said this format encodes, so reaching here
             // means the *destination* is at fault — a directory that does not
             // exist, or one that cannot be written to.
@@ -470,13 +481,15 @@ public struct FrameExtractor: Sendable {
         // ignored by the luminance matrix below, and skipping premultiplication
         // means a frame that does carry alpha is not darkened before it is
         // measured.
-        guard var format = vImage_CGImageFormat(
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            colorSpace: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue),
-            renderingIntent: .defaultIntent
-        ) else {
+        guard
+            var format = vImage_CGImageFormat(
+                bitsPerComponent: 8,
+                bitsPerPixel: 32,
+                colorSpace: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue),
+                renderingIntent: .defaultIntent
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "grayscale", code: nil, reason: "could not describe an XRGB8888 format"
             )

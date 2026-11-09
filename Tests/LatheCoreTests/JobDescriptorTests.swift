@@ -29,11 +29,13 @@ struct JobDescriptorTests {
         }
     }
 
-    @Test("the fingerprint changes when a sampled region changes", arguments: [
-        0,               // the head
-        (1 << 20) + (3 << 20) * 2 / 5,   // the centre of the second window
-        (5 << 20) - 1,   // the tail
-    ])
+    @Test(
+        "the fingerprint changes when a sampled region changes",
+        arguments: [
+            0,  // the head
+            (1 << 20) + (3 << 20) * 2 / 5,  // the centre of the second window
+            (5 << 20) - 1,  // the tail
+        ])
     func fingerprintSeesSampledChanges(offset: Int) throws {
         var bytes = pattern(5 << 20)
         let date = Date(timeIntervalSince1970: 1_700_000_000)
@@ -95,9 +97,11 @@ struct JobDescriptorTests {
                 let out = URL(fileURLWithPath: "/tmp/out-\(UUID().uuidString).mov")
                 ids.append(try JobDescriptor(source: url, destination: out, canonicalSettingsJSON: settings).jobID())
                 ids.append(try JobDescriptor(source: url, destination: out, canonicalSettingsJSON: other).jobID())
-                ids.append(try JobDescriptor(
-                    source: url, destination: out, canonicalSettingsJSON: settings,
-                    engineVersion: "0.0.0").jobID())
+                ids.append(
+                    try JobDescriptor(
+                        source: url, destination: out, canonicalSettingsJSON: settings,
+                        engineVersion: "0.0.0"
+                    ).jobID())
             }
         }
         // Two different paths, same content: same IDs.

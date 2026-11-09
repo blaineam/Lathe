@@ -1,13 +1,14 @@
 import Foundation
 import LatheCore
+
 #if canImport(AVFoundation)
-import AVFoundation
+    import AVFoundation
 #endif
 #if canImport(ImageIO)
-import ImageIO
+    import ImageIO
 #endif
 #if canImport(PDFKit)
-import PDFKit
+    import PDFKit
 #endif
 
 /// Reads a file's metadata into the one normalised model.
@@ -86,148 +87,154 @@ public struct MetadataReader: Sendable {
     // MARK: - MP4 family and MP3
 
     #if canImport(AVFoundation)
-    private func readAVFoundation(_ url: URL) async throws -> MediaMetadata {
-        let asset = AVURLAsset(url: url)
-        let items: [AVMetadataItem]
-        do {
-            items = try await asset.load(.metadata)
-        } catch {
-            throw LatheError.readFailed(
-                path: url.lastPathComponent, reason: (error as NSError).localizedDescription
-            )
-        }
+        private func readAVFoundation(_ url: URL) async throws -> MediaMetadata {
+            let asset = AVURLAsset(url: url)
+            let items: [AVMetadataItem]
+            do {
+                items = try await asset.load(.metadata)
+            } catch {
+                throw LatheError.readFailed(
+                    path: url.lastPathComponent, reason: (error as NSError).localizedDescription
+                )
+            }
 
-        var meta = MediaMetadata()
-        var show = ShowInfo()
-        var track = TrackInfo()
+            var meta = MediaMetadata()
+            var show = ShowInfo()
+            var track = TrackInfo()
 
-        // 3GPP user data is read last, and only into fields the iTunes tags
-        // left empty: AVFoundation often writes both spellings of one fact,
-        // and reading both would list an artist twice.
-        let isoFirst: (AVMetadataItem) -> Bool = { $0.identifier?.rawValue.hasPrefix("uiso/") == true }
-        let ordered = items.filter { !isoFirst($0) } + items.filter(isoFirst)
-        var iso = MediaMetadata()
+            // 3GPP user data is read last, and only into fields the iTunes tags
+            // left empty: AVFoundation often writes both spellings of one fact,
+            // and reading both would list an artist twice.
+            let isoFirst: (AVMetadataItem) -> Bool = { $0.identifier?.rawValue.hasPrefix("uiso/") == true }
+            let ordered = items.filter { !isoFirst($0) } + items.filter(isoFirst)
+            var iso = MediaMetadata()
 
-        for item in ordered {
-            guard let key = try? await AVMetadataItemKey(item: item) else { continue }
-            if isoFirst(item) {
-                let value = try await item.stringValue()
+            for item in ordered {
+                guard let key = try? await AVMetadataItemKey(item: item) else { continue }
+                if isoFirst(item) {
+                    let value = try await item.stringValue()
+                    switch key {
+                    case .title: iso.title = iso.title ?? value
+                    case .summary: iso.summary = iso.summary ?? value
+                    case .artist: if let value { iso.creators.append(value) }
+                    case .genre: iso.genre = iso.genre ?? value
+                    case .copyright: iso.copyrightNotice = iso.copyrightNotice ?? value
+                    case .albumName: if let value, track.albumName == nil { track.albumName = value }
+                    default: break
+                    }
+                    continue
+                }
                 switch key {
-                case .title: iso.title = iso.title ?? value
-                case .summary: iso.summary = iso.summary ?? value
-                case .artist: if let value { iso.creators.append(value) }
-                case .genre: iso.genre = iso.genre ?? value
-                case .copyright: iso.copyrightNotice = iso.copyrightNotice ?? value
-                case .albumName: if let value, track.albumName == nil { track.albumName = value }
-                default: break
+                case .title: meta.title = try await item.stringValue()
+                case .summary: meta.summary = try await item.stringValue()
+                case .longDescription: meta.longDescription = try await item.stringValue()
+                case .artist:
+                    if let value = try await item.stringValue() { meta.creators.append(value) }
+                case .genre: meta.genre = try await item.stringValue()
+                case .comment: meta.comment = try await item.stringValue()
+                case .copyright: meta.copyrightNotice = try await item.stringValue()
+                case .creationDate: meta.date = try await item.dateValue()
+                case .mediaKind:
+                    if let raw = try await item.intValue() { meta.kind = MediaKind(rawValue: raw) }
+                case .artwork:
+                    if let data = try await item.dataValue(), let art = Artwork(sniffing: data) {
+                        meta.artwork.append(art)
+                    }
+                case .seriesName: show.seriesName = try await item.stringValue()
+                case .seasonNumber: show.seasonNumber = try await item.intValue()
+                case .episodeNumber: show.episodeNumber = try await item.intValue()
+                case .episodeID: show.episodeID = try await item.stringValue()
+                case .network: show.network = try await item.stringValue()
+                case .albumName: track.albumName = try await item.stringValue()
+                case .albumArtist: track.albumArtist = try await item.stringValue()
+                case .composer: track.composer = try await item.stringValue()
+                case .trackNumber: track.trackNumber = try await item.intValue()
+                case .discNumber: track.discNumber = try await item.intValue()
+                case .compilation: track.isCompilation = (try await item.intValue()).map { $0 != 0 }
+                case .unmapped(let identifier):
+                    if let value = try await item.stringValue() { meta.custom[identifier] = value }
                 }
-                continue
             }
-            switch key {
-            case .title: meta.title = try await item.stringValue()
-            case .summary: meta.summary = try await item.stringValue()
-            case .longDescription: meta.longDescription = try await item.stringValue()
-            case .artist:
-                if let value = try await item.stringValue() { meta.creators.append(value) }
-            case .genre: meta.genre = try await item.stringValue()
-            case .comment: meta.comment = try await item.stringValue()
-            case .copyright: meta.copyrightNotice = try await item.stringValue()
-            case .creationDate: meta.date = try await item.dateValue()
-            case .mediaKind:
-                if let raw = try await item.intValue() { meta.kind = MediaKind(rawValue: raw) }
-            case .artwork:
-                if let data = try await item.dataValue(), let art = Artwork(sniffing: data) {
-                    meta.artwork.append(art)
-                }
-            case .seriesName: show.seriesName = try await item.stringValue()
-            case .seasonNumber: show.seasonNumber = try await item.intValue()
-            case .episodeNumber: show.episodeNumber = try await item.intValue()
-            case .episodeID: show.episodeID = try await item.stringValue()
-            case .network: show.network = try await item.stringValue()
-            case .albumName: track.albumName = try await item.stringValue()
-            case .albumArtist: track.albumArtist = try await item.stringValue()
-            case .composer: track.composer = try await item.stringValue()
-            case .trackNumber: track.trackNumber = try await item.intValue()
-            case .discNumber: track.discNumber = try await item.intValue()
-            case .compilation: track.isCompilation = (try await item.intValue()).map { $0 != 0 }
-            case .unmapped(let identifier):
-                if let value = try await item.stringValue() { meta.custom[identifier] = value }
-            }
+
+            meta.title = meta.title ?? iso.title
+            meta.summary = meta.summary ?? iso.summary
+            meta.genre = meta.genre ?? iso.genre
+            meta.copyrightNotice = meta.copyrightNotice ?? iso.copyrightNotice
+            if meta.creators.isEmpty { meta.creators = iso.creators }
+
+            if show != ShowInfo() { meta.show = show }
+            if track != TrackInfo() { meta.track = track }
+            return meta
         }
-
-        meta.title = meta.title ?? iso.title
-        meta.summary = meta.summary ?? iso.summary
-        meta.genre = meta.genre ?? iso.genre
-        meta.copyrightNotice = meta.copyrightNotice ?? iso.copyrightNotice
-        if meta.creators.isEmpty { meta.creators = iso.creators }
-
-        if show != ShowInfo() { meta.show = show }
-        if track != TrackInfo() { meta.track = track }
-        return meta
-    }
     #else
-    private func readAVFoundation(_ url: URL) async throws -> MediaMetadata {
-        throw LatheError.decodeUnavailable(format: "container metadata needs AVFoundation")
-    }
+        private func readAVFoundation(_ url: URL) async throws -> MediaMetadata {
+            throw LatheError.decodeUnavailable(format: "container metadata needs AVFoundation")
+        }
     #endif
 
     // MARK: - Stills
 
     #if canImport(ImageIO)
-    private func readImage(_ url: URL) throws -> MediaMetadata {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
-        else {
-            throw LatheError.readFailed(path: url.lastPathComponent, reason: "no image properties")
-        }
-
-        var meta = MediaMetadata()
-        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
-        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
-        let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any] ?? [:]
-        let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
-
-        meta.title = (iptc[kCGImagePropertyIPTCObjectName] as? String)
-            ?? (tiff[kCGImagePropertyTIFFDocumentName] as? String)
-        meta.summary = (iptc[kCGImagePropertyIPTCCaptionAbstract] as? String)
-            ?? (tiff[kCGImagePropertyTIFFImageDescription] as? String)
-        if let artist = (tiff[kCGImagePropertyTIFFArtist] as? String)
-            ?? (iptc[kCGImagePropertyIPTCByline] as? String) {
-            meta.creators = [artist]
-        }
-        meta.copyrightNotice = (tiff[kCGImagePropertyTIFFCopyright] as? String)
-            ?? (iptc[kCGImagePropertyIPTCCopyrightNotice] as? String)
-        meta.comment = exif[kCGImagePropertyExifUserComment] as? String
-
-        if let stamp = (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
-            ?? (tiff[kCGImagePropertyTIFFDateTime] as? String) {
-            meta.date = Self.exifFormatter.date(from: stamp)
-        }
-
-        if let latitude = gps[kCGImagePropertyGPSLatitude] as? Double,
-           let longitude = gps[kCGImagePropertyGPSLongitude] as? Double {
-            // EXIF stores magnitude and hemisphere separately, so a southern or
-            // western coordinate read without its reference comes back mirrored
-            // onto the wrong continent.
-            let south = (gps[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased() == "S"
-            let west = (gps[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased() == "W"
-            var altitude = gps[kCGImagePropertyGPSAltitude] as? Double
-            if let reference = gps[kCGImagePropertyGPSAltitudeRef] as? Int, reference == 1 {
-                altitude = altitude.map(-)
+        private func readImage(_ url: URL) throws -> MediaMetadata {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+            else {
+                throw LatheError.readFailed(path: url.lastPathComponent, reason: "no image properties")
             }
-            meta.location = Location(
-                latitude: south ? -latitude : latitude,
-                longitude: west ? -longitude : longitude,
-                altitude: altitude
-            )
-        }
 
-        return meta
-    }
+            var meta = MediaMetadata()
+            let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
+            let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
+            let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any] ?? [:]
+            let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
+
+            meta.title =
+                (iptc[kCGImagePropertyIPTCObjectName] as? String)
+                ?? (tiff[kCGImagePropertyTIFFDocumentName] as? String)
+            meta.summary =
+                (iptc[kCGImagePropertyIPTCCaptionAbstract] as? String)
+                ?? (tiff[kCGImagePropertyTIFFImageDescription] as? String)
+            if let artist = (tiff[kCGImagePropertyTIFFArtist] as? String)
+                ?? (iptc[kCGImagePropertyIPTCByline] as? String)
+            {
+                meta.creators = [artist]
+            }
+            meta.copyrightNotice =
+                (tiff[kCGImagePropertyTIFFCopyright] as? String)
+                ?? (iptc[kCGImagePropertyIPTCCopyrightNotice] as? String)
+            meta.comment = exif[kCGImagePropertyExifUserComment] as? String
+
+            if let stamp = (exif[kCGImagePropertyExifDateTimeOriginal] as? String)
+                ?? (tiff[kCGImagePropertyTIFFDateTime] as? String)
+            {
+                meta.date = Self.exifFormatter.date(from: stamp)
+            }
+
+            if let latitude = gps[kCGImagePropertyGPSLatitude] as? Double,
+                let longitude = gps[kCGImagePropertyGPSLongitude] as? Double
+            {
+                // EXIF stores magnitude and hemisphere separately, so a southern or
+                // western coordinate read without its reference comes back mirrored
+                // onto the wrong continent.
+                let south = (gps[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased() == "S"
+                let west = (gps[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased() == "W"
+                var altitude = gps[kCGImagePropertyGPSAltitude] as? Double
+                if let reference = gps[kCGImagePropertyGPSAltitudeRef] as? Int, reference == 1 {
+                    altitude = altitude.map(-)
+                }
+                meta.location = Location(
+                    latitude: south ? -latitude : latitude,
+                    longitude: west ? -longitude : longitude,
+                    altitude: altitude
+                )
+            }
+
+            return meta
+        }
     #else
-    private func readImage(_ url: URL) throws -> MediaMetadata {
-        throw LatheError.decodeUnavailable(format: "still metadata needs ImageIO")
-    }
+        private func readImage(_ url: URL) throws -> MediaMetadata {
+            throw LatheError.decodeUnavailable(format: "still metadata needs ImageIO")
+        }
     #endif
 
     /// EXIF's own timestamp spelling, which is not ISO 8601 and is not
@@ -244,40 +251,40 @@ public struct MetadataReader: Sendable {
     // MARK: - PDF
 
     #if canImport(PDFKit)
-    private func readPDF(_ url: URL) throws -> MediaMetadata {
-        guard let document = PDFDocument(url: url) else {
-            throw LatheError.invalidInput(
-                reason: "\(url.lastPathComponent) is not a PDF PDFKit can open"
-            )
-        }
-        let attributes = document.documentAttributes ?? [:]
-        var meta = MediaMetadata()
-        meta.title = attributes[PDFDocumentAttribute.titleAttribute] as? String
-        meta.summary = attributes[PDFDocumentAttribute.subjectAttribute] as? String
-        if let author = attributes[PDFDocumentAttribute.authorAttribute] as? String {
-            meta.creators = [author]
-        }
-        meta.date = attributes[PDFDocumentAttribute.creationDateAttribute] as? Date
-        if let keywords = attributes[PDFDocumentAttribute.keywordsAttribute] {
-            // PDFKit hands keywords back as an array on read and expects one on
-            // write, but a PDF written by anything else stores a single string.
-            if let list = keywords as? [String] {
-                meta.custom["pdf.Keywords"] = list.joined(separator: ", ")
-            } else if let single = keywords as? String {
-                meta.custom["pdf.Keywords"] = single
+        private func readPDF(_ url: URL) throws -> MediaMetadata {
+            guard let document = PDFDocument(url: url) else {
+                throw LatheError.invalidInput(
+                    reason: "\(url.lastPathComponent) is not a PDF PDFKit can open"
+                )
             }
+            let attributes = document.documentAttributes ?? [:]
+            var meta = MediaMetadata()
+            meta.title = attributes[PDFDocumentAttribute.titleAttribute] as? String
+            meta.summary = attributes[PDFDocumentAttribute.subjectAttribute] as? String
+            if let author = attributes[PDFDocumentAttribute.authorAttribute] as? String {
+                meta.creators = [author]
+            }
+            meta.date = attributes[PDFDocumentAttribute.creationDateAttribute] as? Date
+            if let keywords = attributes[PDFDocumentAttribute.keywordsAttribute] {
+                // PDFKit hands keywords back as an array on read and expects one on
+                // write, but a PDF written by anything else stores a single string.
+                if let list = keywords as? [String] {
+                    meta.custom["pdf.Keywords"] = list.joined(separator: ", ")
+                } else if let single = keywords as? String {
+                    meta.custom["pdf.Keywords"] = single
+                }
+            }
+            if let creator = attributes[PDFDocumentAttribute.creatorAttribute] as? String {
+                meta.custom["pdf.Creator"] = creator
+            }
+            if let producer = attributes[PDFDocumentAttribute.producerAttribute] as? String {
+                meta.custom["pdf.Producer"] = producer
+            }
+            return meta
         }
-        if let creator = attributes[PDFDocumentAttribute.creatorAttribute] as? String {
-            meta.custom["pdf.Creator"] = creator
-        }
-        if let producer = attributes[PDFDocumentAttribute.producerAttribute] as? String {
-            meta.custom["pdf.Producer"] = producer
-        }
-        return meta
-    }
     #else
-    private func readPDF(_ url: URL) throws -> MediaMetadata {
-        throw LatheError.decodeUnavailable(format: "PDF metadata needs PDFKit")
-    }
+        private func readPDF(_ url: URL) throws -> MediaMetadata {
+            throw LatheError.decodeUnavailable(format: "PDF metadata needs PDFKit")
+        }
     #endif
 }

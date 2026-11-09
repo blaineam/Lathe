@@ -16,14 +16,18 @@ struct MP4MovieHeaderTests {
     /// Builds a box: a big-endian size, a four-character name, a payload.
     private static func box(_ name: String, _ payload: [UInt8]) -> [UInt8] {
         let size = UInt32(8 + payload.count)
-        return [UInt8(size >> 24 & 0xFF), UInt8(size >> 16 & 0xFF),
-                UInt8(size >> 8 & 0xFF), UInt8(size & 0xFF)]
+        return [
+            UInt8(size >> 24 & 0xFF), UInt8(size >> 16 & 0xFF),
+            UInt8(size >> 8 & 0xFF), UInt8(size & 0xFF),
+        ]
             + Array(name.utf8) + payload
     }
 
     private static func be32(_ value: UInt32) -> [UInt8] {
-        [UInt8(value >> 24 & 0xFF), UInt8(value >> 16 & 0xFF),
-         UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF)]
+        [
+            UInt8(value >> 24 & 0xFF), UInt8(value >> 16 & 0xFF),
+            UInt8(value >> 8 & 0xFF), UInt8(value & 0xFF),
+        ]
     }
 
     private static func be64(_ value: UInt64) -> [UInt8] {
@@ -32,18 +36,22 @@ struct MP4MovieHeaderTests {
 
     /// A version 0 header: 32-bit times, 32-bit duration.
     private static func mvhdV0(timescale: UInt32, duration: UInt32) -> [UInt8] {
-        box("mvhd", [0, 0, 0, 0]                    // version 0, flags
-            + be32(0) + be32(0)                     // creation, modification
-            + be32(timescale) + be32(duration)
-            + [UInt8](repeating: 0, count: 80))     // rate, volume, matrix, …
+        box(
+            "mvhd",
+            [0, 0, 0, 0]  // version 0, flags
+                + be32(0) + be32(0)  // creation, modification
+                + be32(timescale) + be32(duration)
+                + [UInt8](repeating: 0, count: 80))  // rate, volume, matrix, …
     }
 
     /// A version 1 header: 64-bit times, 64-bit duration.
     private static func mvhdV1(timescale: UInt32, duration: UInt64) -> [UInt8] {
-        box("mvhd", [1, 0, 0, 0]
-            + be64(0) + be64(0)
-            + be32(timescale) + be64(duration)
-            + [UInt8](repeating: 0, count: 80))
+        box(
+            "mvhd",
+            [1, 0, 0, 0]
+                + be64(0) + be64(0)
+                + be32(timescale) + be64(duration)
+                + [UInt8](repeating: 0, count: 80))
     }
 
     private static func write(_ bytes: [UInt8]) throws -> URL {
@@ -97,7 +105,8 @@ struct MP4MovieHeaderTests {
     func sixtyFourBitBoxSize() throws {
         // Size 1 means "the real size is the eight bytes after the name".
         let payload = [UInt8](repeating: 0, count: 32)
-        let large = Self.be32(1) + Array("mdat".utf8)
+        let large =
+            Self.be32(1) + Array("mdat".utf8)
             + Self.be64(UInt64(16 + payload.count)) + payload
         let file = try Self.write(
             Self.box("ftyp", Array("isom".utf8))
@@ -214,7 +223,7 @@ struct TimingCorrectionTests {
     /// does not drag the whole track earlier relative to its audio.
     @Test("the anchor is held while the span is scaled")
     func anchorIsHeld() {
-        let anchor = CMTime(value: 1024, timescale: 15360)   // one frame at 15fps
+        let anchor = CMTime(value: 1024, timescale: 15360)  // one frame at 15fps
         let correction = TimingCorrection(factor: 0.5, anchor: anchor)
         // A sample at the anchor does not move at all.
         let atAnchor = correction.corrected(CMTime.zero)

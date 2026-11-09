@@ -33,7 +33,10 @@ actor ScriptedTransport: HTTPTransport {
     /// actor first — which makes any test of that path a coin toss.
     private var byPath: [String: Reply] = [:]
 
-    init(byPath: [String: Reply]) { self.replies = []; self.byPath = byPath }
+    init(byPath: [String: Reply]) {
+        self.replies = []
+        self.byPath = byPath
+    }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
@@ -151,14 +154,14 @@ struct ProviderTests {
     @Test("a movie search decodes into candidates")
     func decodesAMovieSearch() async throws {
         let json = """
-        {"page":1,"results":[
-          {"id":603,"title":"The Matrix","original_title":"The Matrix",
-           "overview":"A computer hacker learns...","release_date":"1999-03-30",
-           "poster_path":"/f89U3ADr1oiB1s.jpg","vote_average":8.2},
-          {"id":604,"title":"The Matrix Reloaded","release_date":"2003-05-15",
-           "poster_path":"/9TGHDvWrqPBzKhrpJ.jpg","vote_average":7.0}
-        ],"total_results":2}
-        """
+            {"page":1,"results":[
+              {"id":603,"title":"The Matrix","original_title":"The Matrix",
+               "overview":"A computer hacker learns...","release_date":"1999-03-30",
+               "poster_path":"/f89U3ADr1oiB1s.jpg","vote_average":8.2},
+              {"id":604,"title":"The Matrix Reloaded","release_date":"2003-05-15",
+               "poster_path":"/9TGHDvWrqPBzKhrpJ.jpg","vote_average":7.0}
+            ],"total_results":2}
+            """
         let provider = TMDbProvider(
             credentials: ProviderCredentials(apiKey: "k"),
             transport: ScriptedTransport(json: json)
@@ -183,9 +186,9 @@ struct ProviderTests {
     @Test("episode details keep the series name and set the TV kind")
     func episodeDetailsCarryTheSeriesName() async throws {
         let json = """
-        {"id":62085,"name":"The One With The Test","overview":"They test things.",
-         "air_date":"2019-04-14","season_number":3,"episode_number":5}
-        """
+            {"id":62085,"name":"The One With The Test","overview":"They test things.",
+             "air_date":"2019-04-14","season_number":3,"episode_number":5}
+            """
         let provider = TMDbProvider(
             credentials: ProviderCredentials(apiKey: "k"),
             transport: ScriptedTransport(json: json)
@@ -207,10 +210,10 @@ struct ProviderTests {
     @Test("movie details carry both identifiers when the provider knows them")
     func movieDetailsCarryIdentifiers() async throws {
         let json = """
-        {"id":603,"title":"The Matrix","overview":"A long synopsis.",
-         "tagline":"Welcome to the Real World.","release_date":"1999-03-30",
-         "genres":[{"id":28,"name":"Action"}],"imdb_id":"tt0133093"}
-        """
+            {"id":603,"title":"The Matrix","overview":"A long synopsis.",
+             "tagline":"Welcome to the Real World.","release_date":"1999-03-30",
+             "genres":[{"id":28,"name":"Action"}],"imdb_id":"tt0133093"}
+            """
         let provider = TMDbProvider(
             credentials: ProviderCredentials(apiKey: "k"),
             transport: ScriptedTransport(json: json)
@@ -223,8 +226,9 @@ struct ProviderTests {
         #expect(meta.kind == .movie)
         #expect(meta.genre == "Action")
         #expect(meta.identifiers["tmdb"] == "603")
-        #expect(meta.identifiers["imdb"] == "tt0133093",
-                "the IMDb id is what makes a later subtitle search unambiguous")
+        #expect(
+            meta.identifiers["imdb"] == "tt0133093",
+            "the IMDb id is what makes a later subtitle search unambiguous")
         // desc and ldes are different atoms; the tagline is the short one.
         #expect(meta.summary == "Welcome to the Real World.")
         #expect(meta.longDescription == "A long synopsis.")
@@ -343,16 +347,16 @@ struct ProviderTests {
     @Test("a subtitle search decodes, and marks what a user needs to judge by")
     func decodesASubtitleSearch() async throws {
         let json = """
-        {"data":[
-          {"id":"7061050","attributes":{"language":"en","download_count":12045,
-           "ratings":8.5,"hearing_impaired":false,"machine_translated":false,
-           "release":"The.Matrix.1999.1080p.BluRay.x264",
-           "files":[{"file_id":7061050,"file_name":"The.Matrix.1999.srt"}]}},
-          {"id":"7061051","attributes":{"language":"fr","download_count":3,
-           "hearing_impaired":true,"machine_translated":true,
-           "files":[{"file_id":7061051,"file_name":"matrix.fr.srt"}]}}
-        ]}
-        """
+            {"data":[
+              {"id":"7061050","attributes":{"language":"en","download_count":12045,
+               "ratings":8.5,"hearing_impaired":false,"machine_translated":false,
+               "release":"The.Matrix.1999.1080p.BluRay.x264",
+               "files":[{"file_id":7061050,"file_name":"The.Matrix.1999.srt"}]}},
+              {"id":"7061051","attributes":{"language":"fr","download_count":3,
+               "hearing_impaired":true,"machine_translated":true,
+               "files":[{"file_id":7061051,"file_name":"matrix.fr.srt"}]}}
+            ]}
+            """
         let provider = OpenSubtitlesProvider(
             credentials: ProviderCredentials(apiKey: "k", userAgent: "App v1"),
             transport: ScriptedTransport(json: json)
@@ -364,8 +368,9 @@ struct ProviderTests {
         #expect(first.fileID == 7_061_050)
         #expect(first.language == "en")
         #expect(first.downloadCount == 12_045)
-        #expect(first.releaseName == "The.Matrix.1999.1080p.BluRay.x264",
-                "the release a subtitle was timed against predicts whether it will be in sync")
+        #expect(
+            first.releaseName == "The.Matrix.1999.1080p.BluRay.x264",
+            "the release a subtitle was timed against predicts whether it will be in sync")
         #expect(first.isMachineTranslated == false)
         // Machine translation is frequently unusable and the API says so, which
         // is worth knowing BEFORE spending a metered download on it.
@@ -428,8 +433,9 @@ struct ProviderTests {
         #expect(await transport.requests.count == 2)
         let fileRequest = try #require(await transport.requests.last)
         #expect(fileRequest.url?.host == "files.example.com")
-        #expect(fileRequest.value(forHTTPHeaderField: "Api-Key") == nil,
-                "the key was sent to the file host")
+        #expect(
+            fileRequest.value(forHTTPHeaderField: "Api-Key") == nil,
+            "the key was sent to the file host")
     }
 
     @Test("the subtitle format is read from the contents when the name does not say")
@@ -438,10 +444,11 @@ struct ProviderTests {
         #expect(SubtitleFormat(filename: "a.vtt", contents: Data()) == .webVTT)
         #expect(SubtitleFormat(filename: "a.ass", contents: Data()) == .substationAlpha)
         // A .txt holding SubRip is common, and the cue arrow is unmistakable.
-        #expect(SubtitleFormat(
-            filename: "a.txt",
-            contents: Data("1\n00:00:01,000 --> 00:00:02,000\nHi\n".utf8)
-        ) == .subRip)
+        #expect(
+            SubtitleFormat(
+                filename: "a.txt",
+                contents: Data("1\n00:00:01,000 --> 00:00:02,000\nHi\n".utf8)
+            ) == .subRip)
         #expect(SubtitleFormat(filename: "a.txt", contents: Data("WEBVTT\n\n".utf8)) == .webVTT)
         #expect(SubtitleFormat(filename: "a.bin", contents: Data([0, 1, 2])) == .unknown)
     }
@@ -451,7 +458,7 @@ struct ProviderTests {
     @Test("a subtitle that is not UTF-8 still decodes")
     func nonUTF8SubtitlesDecode() {
         // 0xE9 is "é" in Latin-1 and invalid on its own in UTF-8.
-        let latin1 = Data([0x43, 0x61, 0x66, 0xE9])   // "Café"
+        let latin1 = Data([0x43, 0x61, 0x66, 0xE9])  // "Café"
         let document = SubtitleDocument(data: latin1, format: .subRip, language: "fr")
         #expect(document.text?.contains("Caf") == true)
         #expect(document.text != nil, "a Latin-1 subtitle came back as nothing")
@@ -550,9 +557,12 @@ struct ProviderTests {
     func oneSideFailingIsSurvivable() async throws {
         let transport = ScriptedTransport(byPath: [
             "/search/movie": .init(status: 500, body: Data("{}".utf8)),
-            "/search/tv": .init(status: 200, body: Data(#"""
-            {"results":[{"id":7,"name":"A Show","first_air_date":"2011-04-17"}]}
-            """#.utf8)),
+            "/search/tv": .init(
+                status: 200,
+                body: Data(
+                    #"""
+                    {"results":[{"id":7,"name":"A Show","first_air_date":"2011-04-17"}]}
+                    """#.utf8)),
         ])
         let tmdb = TMDbProvider(
             credentials: ProviderCredentials(apiKey: "0123456789abcdef0123456789abcdef"),
@@ -562,7 +572,6 @@ struct ProviderTests {
         #expect(matches.count == 1)
         #expect(matches.first?.title == "A Show")
     }
-
 
     // MARK: - The message a person actually sees
 

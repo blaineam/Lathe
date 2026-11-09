@@ -74,15 +74,17 @@ struct Job: Sendable {
 
             let encoded: ImageEncodeResult
             switch quality {
-            case let .fixed(value):
-                encoded = try ImageEncoder().encode(ImageEncodeRequest(
-                    source: source, destination: destination, format: format,
-                    quality: .quality(value), resize: resize, metadata: metadata))
+            case .fixed(let value):
+                encoded = try ImageEncoder().encode(
+                    ImageEncodeRequest(
+                        source: source, destination: destination, format: format,
+                        quality: .quality(value), resize: resize, metadata: metadata))
                 report.quality = value
-            case let .visuallyLossless(search):
-                guard let result = try await ImageEncoder().encodeVisuallyLossless(
-                    source: source, to: destination, format: format,
-                    resize: resize, metadata: metadata, search: search)
+            case .visuallyLossless(let search):
+                guard
+                    let result = try await ImageEncoder().encodeVisuallyLossless(
+                        source: source, to: destination, format: format,
+                        resize: resize, metadata: metadata, search: search)
                 else {
                     report.status = .noQuality
                     report.inputBytes = byteCount(source)

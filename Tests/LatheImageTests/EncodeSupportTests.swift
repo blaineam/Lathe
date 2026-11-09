@@ -44,23 +44,30 @@ struct EncodeSupportTests {
         let imageIODecodeOnly = DecodeSupport.shared.supportedFormats
             .subtracting(EncodeSupport.shared.imageIOEncodableFormats)
             .sorted { $0.description < $1.description }
-        print("  ImageIO decode-only (needs a vendored encoder to write): "
-              + (imageIODecodeOnly.isEmpty ? "none"
-                 : imageIODecodeOnly.map(\.description).joined(separator: ", ")))
+        print(
+            "  ImageIO decode-only (needs a vendored encoder to write): "
+                + (imageIODecodeOnly.isEmpty
+                    ? "none"
+                    : imageIODecodeOnly.map(\.description).joined(separator: ", ")))
         let stillUnwritable = DecodeSupport.shared.supportedFormats
             .subtracting(EncodeSupport.shared.supportedFormats)
             .sorted { $0.description < $1.description }
-        print("  …of which Lathe still cannot write: "
-              + (stillUnwritable.isEmpty ? "none"
-                 : stillUnwritable.map(\.description).joined(separator: ", ")))
-        print("  vendored encoders: "
-              + EncodeSupport.builtInFormats.map(\.description).sorted().joined(separator: ", "))
-        print("  animated: "
-              + EncodeSupport.shared.animatedFormats.map(\.description).sorted().joined(separator: ", "))
+        print(
+            "  …of which Lathe still cannot write: "
+                + (stillUnwritable.isEmpty
+                    ? "none"
+                    : stillUnwritable.map(\.description).joined(separator: ", ")))
+        print(
+            "  vendored encoders: "
+                + EncodeSupport.builtInFormats.map(\.description).sorted().joined(separator: ", "))
+        print(
+            "  animated: "
+                + EncodeSupport.shared.animatedFormats.map(\.description).sorted().joined(separator: ", "))
         print("")
 
-        #expect(!EncodeSupport.shared.reportedTypeIdentifiers.isEmpty,
-                "ImageIO advertised no destination types at all, which should be impossible")
+        #expect(
+            !EncodeSupport.shared.reportedTypeIdentifiers.isEmpty,
+            "ImageIO advertised no destination types at all, which should be impossible")
         #expect(!EncodeSupport.shared.supportedFormats.isEmpty)
     }
 
@@ -93,10 +100,12 @@ struct EncodeSupportTests {
     /// > do, and what Lathe will write for you.
     @Test("ImageIO reads WebP and does not write it")
     func imageIODoesNotEncodeWebP() {
-        #expect(!EncodeSupport.shared.imageIOEncodableFormats.contains(.webp),
-                "ImageIO now encodes WebP. That is a real change — revisit the vendored libwebp.")
-        #expect(EncodeSupport.shared.destinationTypeIdentifier(for: .webp) == nil,
-                "a WebP UTI would mean ImageIO grew a destination for it")
+        #expect(
+            !EncodeSupport.shared.imageIOEncodableFormats.contains(.webp),
+            "ImageIO now encodes WebP. That is a real change — revisit the vendored libwebp.")
+        #expect(
+            EncodeSupport.shared.destinationTypeIdentifier(for: .webp) == nil,
+            "a WebP UTI would mean ImageIO grew a destination for it")
         #expect(!EncodeSupport.canCreateDestination(for: ImageFormat.webp.typeIdentifier))
         #expect(DecodeSupport.shared.canDecode(.webp), "ImageIO should still decode WebP")
     }
@@ -140,8 +149,9 @@ struct EncodeSupportTests {
 
     /// The animated answer is the still answer narrowed by "has somewhere to
     /// keep a delay" — never wider.
-    @Test("canEncodeAnimated implies canEncode and a timing container",
-          arguments: ImageFormat.allCases)
+    @Test(
+        "canEncodeAnimated implies canEncode and a timing container",
+        arguments: ImageFormat.allCases)
     func animatedImpliesEncodable(format: ImageFormat) {
         let support = EncodeSupport.shared
         if support.canEncodeAnimated(format) {
@@ -182,9 +192,10 @@ struct EncodeSupportTests {
     func advertisedListOverReports() {
         let over = EncodeSupport.shared.overReportedTypeIdentifiers
         print("")
-        print("  advertised-but-unusable destination types (\(over.count) of "
-              + "\(EncodeSupport.shared.reportedTypeIdentifiers.count)): "
-              + (over.isEmpty ? "none" : over.joined(separator: ", ")))
+        print(
+            "  advertised-but-unusable destination types (\(over.count) of "
+                + "\(EncodeSupport.shared.reportedTypeIdentifiers.count)): "
+                + (over.isEmpty ? "none" : over.joined(separator: ", ")))
         print("")
 
         // WebP is advertised. If that ever stops being true the probe still
@@ -192,15 +203,17 @@ struct EncodeSupportTests {
         let advertisesWebP = EncodeSupport.shared.reportedTypeIdentifiers
             .contains { $0.caseInsensitiveCompare(ImageFormat.webp.typeIdentifier) == .orderedSame }
         if advertisesWebP {
-            #expect(over.contains { $0.caseInsensitiveCompare(ImageFormat.webp.typeIdentifier) == .orderedSame },
-                    "WebP is advertised, so it must show up as advertised-but-unusable")
+            #expect(
+                over.contains { $0.caseInsensitiveCompare(ImageFormat.webp.typeIdentifier) == .orderedSame },
+                "WebP is advertised, so it must show up as advertised-but-unusable")
         }
 
         // Every over-reported identifier must genuinely fail to create a
         // destination — the probe should not be inventing discrepancies.
         for identifier in over {
-            #expect(!EncodeSupport.canCreateDestination(for: identifier),
-                    "\(identifier) was listed as unusable but a destination could be created")
+            #expect(
+                !EncodeSupport.canCreateDestination(for: identifier),
+                "\(identifier) was listed as unusable but a destination could be created")
         }
     }
 
@@ -212,8 +225,9 @@ struct EncodeSupportTests {
     func requireEncodableThrows() {
         let unsupported = EncodeSupport.shared.unsupportedFormats
             .sorted { $0.rawValue < $1.rawValue }
-        print("  formats with no encoder here: "
-              + (unsupported.isEmpty ? "none" : unsupported.map(\.description).joined(separator: ", ")))
+        print(
+            "  formats with no encoder here: "
+                + (unsupported.isEmpty ? "none" : unsupported.map(\.description).joined(separator: ", ")))
 
         for format in unsupported {
             #expect(throws: LatheError.encodeUnavailable(format: format.description)) {
@@ -227,10 +241,12 @@ struct EncodeSupportTests {
 
     // MARK: - Structural consistency
 
-    @Test("canEncode and supportedFormats agree for every format",
-          arguments: ImageFormat.allCases)
+    @Test(
+        "canEncode and supportedFormats agree for every format",
+        arguments: ImageFormat.allCases)
     func canEncodeMatchesSupportedFormats(format: ImageFormat) {
-        #expect(EncodeSupport.shared.canEncode(format)
+        #expect(
+            EncodeSupport.shared.canEncode(format)
                 == EncodeSupport.shared.supportedFormats.contains(format))
     }
 
@@ -238,7 +254,8 @@ struct EncodeSupportTests {
     func partition() {
         let support = EncodeSupport.shared
         #expect(support.supportedFormats.isDisjoint(with: support.unsupportedFormats))
-        #expect(support.supportedFormats.union(support.unsupportedFormats)
+        #expect(
+            support.supportedFormats.union(support.unsupportedFormats)
                 == Set(ImageFormat.allCases))
     }
 
@@ -248,8 +265,9 @@ struct EncodeSupportTests {
     /// The question is asked of `imageIOEncodableFormats`, not of `canEncode`: a
     /// UTI is an ImageIO concept, and a format with a built-in backend must have
     /// no UTI precisely *because* ImageIO cannot write it.
-    @Test("a supported format's UTI really does create a destination",
-          arguments: ImageFormat.allCases)
+    @Test(
+        "a supported format's UTI really does create a destination",
+        arguments: ImageFormat.allCases)
     func destinationIdentifierIsUsable(format: ImageFormat) {
         let uti = EncodeSupport.shared.destinationTypeIdentifier(for: format)
         if EncodeSupport.shared.imageIOEncodableFormats.contains(format) {
@@ -312,12 +330,15 @@ struct EncodeSupportTests {
 
         print("")
         for format in EncodeSupport.shared.imageIOEncodableFormats
-            .sorted(by: { $0.description < $1.description }) {
+            .sorted(by: { $0.description < $1.description })
+        {
             let uti = try #require(EncodeSupport.shared.destinationTypeIdentifier(for: format))
             let data = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(
-                data as CFMutableData, uti as CFString, 1, nil
-            ) else {
+            guard
+                let destination = CGImageDestinationCreateWithData(
+                    data as CFMutableData, uti as CFString, 1, nil
+                )
+            else {
                 discrepancies.append("\(format): probe says yes, destination creation returned nil")
                 continue
             }
@@ -344,14 +365,16 @@ struct EncodeSupportTests {
         print("")
 
         // The one direction worth asserting rather than reporting.
-        #expect(!EncodeSupport.canCreateDestination(for: ImageFormat.webp.typeIdentifier),
-                "ImageIO created a WebP destination — it may now encode WebP")
+        #expect(
+            !EncodeSupport.canCreateDestination(for: ImageFormat.webp.typeIdentifier),
+            "ImageIO created a WebP destination — it may now encode WebP")
     }
 
     /// A 4x4 opaque RGBA image. Small enough for every encoder, big enough that
     /// none of them reject it out of hand.
     private static func makeTestImage() -> CGImage? {
-        let width = 4, height = 4
+        let width = 4
+        let height = 4
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         for i in 0..<(width * height) {
             pixels[i * 4 + 0] = UInt8((i * 16) % 256)
@@ -414,18 +437,22 @@ struct ImageFormatTests {
 
     // MARK: - Naming a format from a filename
 
-    @Test("every format is found by its own preferred extension",
-          arguments: ImageFormat.allCases)
+    @Test(
+        "every format is found by its own preferred extension",
+        arguments: ImageFormat.allCases)
     func roundTripsThroughItsPreferredExtension(_ format: ImageFormat) {
         #expect(ImageFormat.named(byFilenameExtension: format.preferredFilenameExtension) == format)
     }
 
-    @Test("the spellings that mean the same format all resolve",
-          arguments: [("JPG", ImageFormat.jpeg), ("jpeg", .jpeg), (".JPEG", .jpeg),
-                      ("tif", .tiff), ("TIFF", .tiff),
-                      ("heif", .heic), ("heic", .heic),
-                      ("j2k", .jp2), ("jp2", .jp2),
-                      ("png", .png), ("webp", .webp)])
+    @Test(
+        "the spellings that mean the same format all resolve",
+        arguments: [
+            ("JPG", ImageFormat.jpeg), ("jpeg", .jpeg), (".JPEG", .jpeg),
+            ("tif", .tiff), ("TIFF", .tiff),
+            ("heif", .heic), ("heic", .heic),
+            ("j2k", .jp2), ("jp2", .jp2),
+            ("png", .png), ("webp", .webp),
+        ])
     func alternativeSpellings(_ fileExtension: String, _ expected: ImageFormat) {
         #expect(ImageFormat.named(byFilenameExtension: fileExtension) == expected)
     }
@@ -433,8 +460,9 @@ struct ImageFormatTests {
     /// An extension nobody recognises must be `nil` rather than a default.
     /// Guessing JPEG here would turn a caller's typo into a silently wrong
     /// output format.
-    @Test("an unrecognised extension names no format",
-          arguments: ["", ".", "mov", "txt", "sideways", "jpgx"])
+    @Test(
+        "an unrecognised extension names no format",
+        arguments: ["", ".", "mov", "txt", "sideways", "jpgx"])
     func unrecognisedExtensions(_ fileExtension: String) {
         #expect(ImageFormat.named(byFilenameExtension: fileExtension) == nil)
     }

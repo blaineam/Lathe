@@ -47,7 +47,7 @@ public enum FrameDelays: Sendable, Equatable {
     func resolve(frameCount: Int) throws -> [TimeInterval] {
         let raw: [TimeInterval]
         switch self {
-        case let .uniform(seconds):
+        case .uniform(let seconds):
             guard seconds >= 0 else {
                 throw LatheError.invalidConfiguration(
                     reason: "a frame delay cannot be negative, got \(seconds)s"
@@ -55,7 +55,7 @@ public enum FrameDelays: Sendable, Equatable {
             }
             raw = Array(repeating: seconds, count: frameCount)
 
-        case let .framesPerSecond(rate):
+        case .framesPerSecond(let rate):
             guard rate > 0, rate.isFinite else {
                 throw LatheError.invalidConfiguration(
                     reason: "the frame rate must be positive and finite, got \(rate)"
@@ -63,7 +63,7 @@ public enum FrameDelays: Sendable, Equatable {
             }
             raw = Array(repeating: 1 / rate, count: frameCount)
 
-        case let .perFrame(delays):
+        case .perFrame(let delays):
             guard delays.count == frameCount else {
                 throw LatheError.invalidConfiguration(
                     reason: "\(delays.count) delays were given for \(frameCount) frames; "
@@ -78,9 +78,10 @@ public enum FrameDelays: Sendable, Equatable {
             raw = delays
         }
 
-        return raw.map { $0 <= ImageInspector.zeroDelayThreshold
-            ? ImageInspector.zeroDelayReplacement
-            : $0
+        return raw.map {
+            $0 <= ImageInspector.zeroDelayThreshold
+                ? ImageInspector.zeroDelayReplacement
+                : $0
         }
     }
 }
@@ -248,7 +249,8 @@ public struct AnimatedImageWriter: Sendable {
         // `encodeUnavailable`, which tells the caller to pick another format.
         try EncodeSupport.shared.requireEncodable(format)
         guard EncodeSupport.shared.canEncodeAnimated(format),
-              let backend = EncodeSupport.shared.backend(for: format) else {
+            let backend = EncodeSupport.shared.backend(for: format)
+        else {
             // Encodable, with a timing dictionary, and still not animatable:
             // a built-in still encoder with no animation encoder beside it.
             // Nothing reaches this today; the message says what is missing
@@ -268,7 +270,8 @@ public struct AnimatedImageWriter: Sendable {
         // a file called `.gif` succeeds at every layer here and fails in the
         // caller's viewer, which is the worst place to find out.
         if let named = ImageFormat.named(byFilenameExtension: destination.pathExtension),
-           named != format {
+            named != format
+        {
             throw LatheError.invalidConfiguration(
                 reason: "\(destination.lastPathComponent) is named a \(named.description) but "
                     + "\(format.description) was asked for; an animation whose extension lies "
@@ -322,8 +325,10 @@ public struct AnimatedImageWriter: Sendable {
             // first smaller than the request, and millisecond rounding can move
             // the second by a hair. A one-frame result is a still and reports
             // the requested delay, as the ImageIO path does.
-            written = (bytes, output.frameCount,
-                       output.frameCount > 1 ? output.duration : resolvedDelays.reduce(0, +))
+            written = (
+                bytes, output.frameCount,
+                output.frameCount > 1 ? output.duration : resolvedDelays.reduce(0, +)
+            )
         }
 
         return AnimatedImageResult(
@@ -352,9 +357,11 @@ public struct AnimatedImageWriter: Sendable {
         progress: ProgressHandle
     ) throws -> UInt64 {
         try ImageEncoder.writingAtomically(to: destination, format: format) { scratch in
-            guard let sink = CGImageDestinationCreateWithURL(
-                scratch as CFURL, typeIdentifier as CFString, urls.count, nil
-            ) else {
+            guard
+                let sink = CGImageDestinationCreateWithURL(
+                    scratch as CFURL, typeIdentifier as CFString, urls.count, nil
+                )
+            else {
                 // The probe said this format encodes, so the destination is at
                 // fault — a directory that is not writable.
                 throw LatheError.writeFailed(
@@ -366,9 +373,11 @@ public struct AnimatedImageWriter: Sendable {
             // The loop count is a **file** property, not a frame property, and
             // setting it per frame — which ImageIO accepts without complaint —
             // produces an animation that plays exactly once.
-            CGImageDestinationSetProperties(sink, [
-                container.dictionaryKey: [container.loopKey: loopCount] as CFDictionary,
-            ] as CFDictionary)
+            CGImageDestinationSetProperties(
+                sink,
+                [
+                    container.dictionaryKey: [container.loopKey: loopCount] as CFDictionary
+                ] as CFDictionary)
 
             for (index, url) in urls.enumerated() {
                 try progress.checkCancellation()
@@ -377,8 +386,8 @@ public struct AnimatedImageWriter: Sendable {
 
                 var frameProperties: [CFString: Any] = [
                     container.dictionaryKey: [
-                        container.delayKey: delays[index],
-                    ] as CFDictionary,
+                        container.delayKey: delays[index]
+                    ] as CFDictionary
                 ]
                 if format.isLossyByDefault, let normalised = quality.normalizedQuality {
                     frameProperties[kCGImageDestinationLossyCompressionQuality] = normalised
@@ -399,11 +408,14 @@ public struct AnimatedImageWriter: Sendable {
 
     /// One `"frames"` tick, and a cancellation checkpoint.
     private static func reportFrame(_ index: Int, of count: Int, to progress: ProgressHandle) throws {
-        guard progress.report(LatheProgress(
-            fraction: Double(index + 1) / Double(count),
-            stage: "frames",
-            unitIndex: UInt64(index + 1),
-            unitCount: UInt64(count))) else {
+        guard
+            progress.report(
+                LatheProgress(
+                    fraction: Double(index + 1) / Double(count),
+                    stage: "frames",
+                    unitIndex: UInt64(index + 1),
+                    unitCount: UInt64(count)))
+        else {
             throw LatheError.cancelled(atUnit: UInt64(index + 1))
         }
     }

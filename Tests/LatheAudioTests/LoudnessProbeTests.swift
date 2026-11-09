@@ -42,9 +42,13 @@ struct LoudnessProbeTests {
 
     @Test("a file with no audio track is not a number and not an error")
     func noAudioTrack() async throws {
-        guard let movie = await fixture("silent-video.mov", {
-            try await FixtureLibrary.shared.movie(named: "silent-video.mov", audio: .none)
-        }) else { return }
+        guard
+            let movie = await fixture(
+                "silent-video.mov",
+                {
+                    try await FixtureLibrary.shared.movie(named: "silent-video.mov", audio: .none)
+                })
+        else { return }
 
         let volume = try await probe.meanVolumeDB(url: movie)
         #expect(volume == .noAudioTrack)
@@ -57,13 +61,17 @@ struct LoudnessProbeTests {
 
     @Test("a track of digital silence is distinguishable from having no track")
     func digitalSilenceIsItsOwnResult() async throws {
-        guard let silent = await fixture("silence.wav", {
-            try await FixtureLibrary.shared.wav(named: "silence.wav", seconds: 3, audio: .silence)
-        }) else { return }
+        guard
+            let silent = await fixture(
+                "silence.wav",
+                {
+                    try await FixtureLibrary.shared.wav(named: "silence.wav", seconds: 3, audio: .silence)
+                })
+        else { return }
 
         let volume = try await probe.meanVolumeDB(url: silent)
         #expect(volume == .digitalSilence)
-        #expect(volume.hasAudioTrack)      // ...unlike the case above
+        #expect(volume.hasAudioTrack)  // ...unlike the case above
         #expect(volume.decibels == nil)
         #expect(volume.decibelsOrFloor == MeanVolume.digitalSilenceFloorDB)
         #expect(try await probe.hasAudibleAudio(url: silent) == false)
@@ -76,9 +84,13 @@ struct LoudnessProbeTests {
     @Test("mean volume matches the level the samples were written at")
     func meanVolumeIsAccurate() async throws {
         let audio = FixtureAudio.tone(hertz: 440, amplitude: 0.5)
-        guard let tone = await fixture("tone.wav", {
-            try await FixtureLibrary.shared.wav(named: "tone.wav", seconds: 3, audio: audio)
-        }) else { return }
+        guard
+            let tone = await fixture(
+                "tone.wav",
+                {
+                    try await FixtureLibrary.shared.wav(named: "tone.wav", seconds: 3, audio: audio)
+                })
+        else { return }
 
         let expected = try #require(FixtureLibrary.expectedMeanVolumeDB(for: audio, seconds: 3))
         // A 0.5-amplitude sine has an RMS of 0.5/√2, i.e. 10·log₁₀(0.125) ≈ −9.03 dBFS.
@@ -93,12 +105,16 @@ struct LoudnessProbeTests {
 
     @Test("mean volume is reported for a real container, not only for WAV")
     func meanVolumeThroughAAC() async throws {
-        guard let movie = await fixture("loud-video.mov", {
-            try await FixtureLibrary.shared.movie(
-                named: "loud-video.mov", seconds: 2,
-                audio: .tone(hertz: 440, amplitude: 0.5)
-            )
-        }) else { return }
+        guard
+            let movie = await fixture(
+                "loud-video.mov",
+                {
+                    try await FixtureLibrary.shared.movie(
+                        named: "loud-video.mov", seconds: 2,
+                        audio: .tone(hertz: 440, amplitude: 0.5)
+                    )
+                })
+        else { return }
 
         let measured = try #require(try await probe.meanVolumeDB(url: movie).decibels)
         // Wider than the WAV case on purpose: AAC is lossy, and its encoder
@@ -119,11 +135,15 @@ struct LoudnessProbeTests {
     /// once, or the pair of methods is not earning its keep.
     @Test("a sparse clip reads as quiet by mean volume and is still audible")
     func sparseAudioIsQuietOnAverageAndAudibleInFact() async throws {
-        guard let sparse = await fixture("sparse.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
-            )
-        }) else { return }
+        guard
+            let sparse = await fixture(
+                "sparse.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
+                    )
+                })
+        else { return }
 
         let mean = try #require(try await probe.meanVolumeDB(url: sparse).decibels)
 
@@ -151,11 +171,15 @@ struct LoudnessProbeTests {
             hertz: 440, amplitude: 0.2,
             onsetSeconds: Self.sparseSeconds - 0.4, lengthSeconds: 0.2
         )
-        guard let sparse = await fixture("sparse-tail.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "sparse-tail.wav", seconds: Self.sparseSeconds, audio: audio
-            )
-        }) else { return }
+        guard
+            let sparse = await fixture(
+                "sparse-tail.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "sparse-tail.wav", seconds: Self.sparseSeconds, audio: audio
+                    )
+                })
+        else { return }
 
         #expect(try await probe.hasAudibleAudio(url: sparse))
     }
@@ -170,26 +194,35 @@ struct LoudnessProbeTests {
     /// decided inside the first second or two, not after 2.6 million frames.
     @Test("audibility stops reading as soon as it has an answer")
     func audibilityExitsEarly() async throws {
-        guard let sparse = await fixture("sparse.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
-            )
-        }) else { return }
+        guard
+            let sparse = await fixture(
+                "sparse.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
+                    )
+                })
+        else { return }
 
         let scan = try await probe.audibilityScan(url: sparse)
         #expect(scan.isAudible)
         #expect(scan.framesAvailable > 2_000_000)
-        #expect(scan.framesExamined < scan.framesAvailable / 10,
-                "examined \(scan.framesExamined) of \(scan.framesAvailable) frames")
+        #expect(
+            scan.framesExamined < scan.framesAvailable / 10,
+            "examined \(scan.framesExamined) of \(scan.framesAvailable) frames")
     }
 
     @Test("a silent file is scanned to the end, because it has to be")
     func silenceIsScannedInFull() async throws {
-        guard let silent = await fixture("silence-long.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "silence-long.wav", seconds: 5, audio: .silence
-            )
-        }) else { return }
+        guard
+            let silent = await fixture(
+                "silence-long.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "silence-long.wav", seconds: 5, audio: .silence
+                    )
+                })
+        else { return }
 
         let scan = try await probe.audibilityScan(url: silent)
         #expect(!scan.isAudible)
@@ -206,17 +239,25 @@ struct LoudnessProbeTests {
         // 0 dBFS — as loud as digital audio gets — so any peak-only test calls
         // it audible. Spread over a 400 ms window its RMS is about −42 dBFS,
         // which is what the second threshold is for.
-        guard let click = await fixture("click.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "click.wav", seconds: 3,
-                audio: .click(amplitude: 1.0, atSeconds: 1.0)
-            )
-        }) else { return }
-        guard let tone = await fixture("sparse.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
-            )
-        }) else { return }
+        guard
+            let click = await fixture(
+                "click.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "click.wav", seconds: 3,
+                        audio: .click(amplitude: 1.0, atSeconds: 1.0)
+                    )
+                })
+        else { return }
+        guard
+            let tone = await fixture(
+                "sparse.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "sparse.wav", seconds: Self.sparseSeconds, audio: Self.sparseAudio
+                    )
+                })
+        else { return }
 
         // The default thresholds are deliberately permissive — the type's own
         // documentation says to tune them on a real corpus — so this pins a
@@ -236,9 +277,13 @@ struct LoudnessProbeTests {
 
     @Test("a file that is not media fails, rather than reporting silence")
     func notMediaThrows() async throws {
-        guard let url = await fixture("not-media.wav", {
-            try await FixtureLibrary.shared.notMedia(named: "not-media.wav")
-        }) else { return }
+        guard
+            let url = await fixture(
+                "not-media.wav",
+                {
+                    try await FixtureLibrary.shared.notMedia(named: "not-media.wav")
+                })
+        else { return }
 
         await #expect(throws: LatheError.self) {
             _ = try await probe.meanVolumeDB(url: url)

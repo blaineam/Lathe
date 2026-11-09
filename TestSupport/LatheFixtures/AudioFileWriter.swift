@@ -239,7 +239,10 @@ private final class InputPump: @unchecked Sendable {
 
     private func settle(_ error: (any Error)?) {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

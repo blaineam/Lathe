@@ -238,10 +238,10 @@ public final class SWFRenderer {
         // to open them into.
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         #if canImport(UIKit)
-        // Flash content has sound. Without this, iOS refuses to start audio
-        // without a user gesture and Ruffle may wait for one that never comes.
-        configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
+            // Flash content has sound. Without this, iOS refuses to start audio
+            // without a user gesture and Ruffle may wait for one that never comes.
+            configuration.allowsInlineMediaPlayback = true
+            configuration.mediaTypesRequiringUserActionForPlayback = []
         #endif
 
         let size = CGSize(width: plan.width, height: plan.height)
@@ -324,13 +324,15 @@ public final class SWFRenderer {
         // A panic during the last frames would otherwise pass unnoticed.
         try await failIfPageReportedAnError(webView)
 
-        let renderer = try? await webView.callAsyncJavaScript(
-            "return window.latheState.renderer;", contentWorld: .page
-        ) as? String
+        let renderer =
+            try? await webView.callAsyncJavaScript(
+                "return window.latheState.renderer;", contentWorld: .page
+            ) as? String
 
-        let elapsed = Double(
-            (clock.now - started).components.seconds
-        ) + Double((clock.now - started).components.attoseconds) / 1e18
+        let elapsed =
+            Double(
+                (clock.now - started).components.seconds
+            ) + Double((clock.now - started).components.attoseconds) / 1e18
 
         return SWFRenderResult(
             frames: FrameSequence(frames),
@@ -359,9 +361,10 @@ public final class SWFRenderer {
         while clock.now < deadline {
             try Task.checkCancellation()
             try await failIfPageReportedAnError(webView)
-            let status = try await webView.callAsyncJavaScript(
-                "return window.latheState.status;", contentWorld: .page
-            ) as? String
+            let status =
+                try await webView.callAsyncJavaScript(
+                    "return window.latheState.status;", contentWorld: .page
+                ) as? String
             if status == "ready" { return }
             try await Task.sleep(for: .milliseconds(50))
         }
@@ -370,13 +373,14 @@ public final class SWFRenderer {
         try await failIfPageReportedAnError(webView)
         // What the page was doing when time ran out is the only evidence there
         // is — nobody has an inspector on this WebView — so it goes in the error.
-        let pageState = (try? await webView.callAsyncJavaScript(
-            """
-            return JSON.stringify({ state: window.latheState, frames: window.latheFrames,
-                                    console: window.latheLog });
-            """,
-            contentWorld: .page
-        ) as? String) ?? "unavailable"
+        let pageState =
+            (try? await webView.callAsyncJavaScript(
+                """
+                return JSON.stringify({ state: window.latheState, frames: window.latheFrames,
+                                        console: window.latheLog });
+                """,
+                contentWorld: .page
+            ) as? String) ?? "unavailable"
         throw LatheError.invalidInput(
             reason: "the player did not put anything on the stage within \(timeout); the movie may "
                 + "be one Ruffle cannot open, or WebAssembly may be unavailable here — run "
@@ -385,16 +389,17 @@ public final class SWFRenderer {
     }
 
     private func failIfPageReportedAnError(_ webView: WKWebView) async throws {
-        let state = try await webView.callAsyncJavaScript(
-            // `lathePanic` directly, not only the status the page's watch sets
-            // from it: that watch is a timer, and a hidden page's timers can run
-            // once a second, which is longer than a short capture.
-            """
-            return { status: window.latheState.status, detail: window.latheState.detail,
-                     panicked: window.latheState.panicked === true, panic: window.lathePanic };
-            """,
-            contentWorld: .page
-        ) as? [String: Any]
+        let state =
+            try await webView.callAsyncJavaScript(
+                // `lathePanic` directly, not only the status the page's watch sets
+                // from it: that watch is a timer, and a hidden page's timers can run
+                // once a second, which is longer than a short capture.
+                """
+                return { status: window.latheState.status, detail: window.latheState.detail,
+                         panicked: window.latheState.panicked === true, panic: window.lathePanic };
+                """,
+                contentWorld: .page
+            ) as? [String: Any]
         if let panic = state?["panic"] as? String {
             throw PlayerPanic(detail: "Ruffle panicked: \(panic)")
         }
@@ -418,15 +423,15 @@ public final class SWFRenderer {
             contentWorld: .page
         )
         guard let payload = answer as? [String: Any],
-              let dataURL = payload["dataURL"] as? String
+            let dataURL = payload["dataURL"] as? String
         else {
             throw LatheError.invalidInput(
                 reason: "the page returned \(String(describing: answer)) instead of a frame"
             )
         }
         guard let comma = dataURL.firstIndex(of: ","),
-              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
-              !data.isEmpty
+            let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])),
+            !data.isEmpty
         else {
             throw LatheError.invalidInput(reason: "a captured frame was not a readable data URL")
         }
@@ -438,7 +443,7 @@ public final class SWFRenderer {
     /// The host page, which is Lathe's own rather than upstream's.
     nonisolated static func shimHTML() throws -> Data {
         guard let url = Bundle.module.resourceURL?.appendingPathComponent("RenderHost/shim.html"),
-              let data = try? Data(contentsOf: url)
+            let data = try? Data(contentsOf: url)
         else {
             throw LatheError.unsupportedOnThisPlatform(
                 feature: "SWF rendering — the render host page is missing from the resource bundle"

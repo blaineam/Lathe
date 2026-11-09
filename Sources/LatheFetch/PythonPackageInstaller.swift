@@ -133,8 +133,9 @@ public actor PythonPackageInstaller {
 
     /// What is installed, by canonical name.
     public func installed() throws -> [InstalledPackage] {
-        guard let receipts = try? fileManager.contentsOfDirectory(
-            at: receiptsDirectory, includingPropertiesForKeys: nil)
+        guard
+            let receipts = try? fileManager.contentsOfDirectory(
+                at: receiptsDirectory, includingPropertiesForKeys: nil)
         else { return [] }
 
         let decoder = JSONDecoder()

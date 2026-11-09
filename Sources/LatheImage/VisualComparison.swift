@@ -81,7 +81,8 @@ public enum VisualComparison {
     }
 
     public static func similarity(ofImageData candidate: Data, to reference: Data) throws -> VisualSimilarity {
-        let candidateImage = try displayedImage(CGImageSourceCreateWithData(candidate as CFData, nil), name: "candidate")
+        let candidateImage = try displayedImage(
+            CGImageSourceCreateWithData(candidate as CFData, nil), name: "candidate")
         let candidateSize = PixelSize(width: candidateImage.width, height: candidateImage.height)
         let size = comparisonSize(for: candidateSize)
         let referenceImage = try referenceImage(
@@ -112,14 +113,14 @@ public enum VisualComparison {
 
         public init(data: Data) throws {
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  CGImageSourceGetCount(source) > 0
+                CGImageSourceGetCount(source) > 0
             else { throw LatheError.invalidInput(reason: "the reference is not an image ImageIO can read") }
             self.source = source
         }
 
         public init(url: URL) throws {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-                  CGImageSourceGetCount(source) > 0
+                CGImageSourceGetCount(source) > 0
             else { throw LatheError.readFailed(path: url.lastPathComponent, reason: "not an image ImageIO can read") }
             self.source = source
         }
@@ -130,8 +131,10 @@ public enum VisualComparison {
             else { throw LatheError.encodingFailed(stage: "compare", code: nil, reason: "no PNG writer") }
             CGImageDestinationAddImage(destination, image, nil)
             guard CGImageDestinationFinalize(destination),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil)
-            else { throw LatheError.encodingFailed(stage: "compare", code: nil, reason: "could not stage the reference") }
+                let source = CGImageSourceCreateWithData(data as CFData, nil)
+            else {
+                throw LatheError.encodingFailed(stage: "compare", code: nil, reason: "could not stage the reference")
+            }
             self.source = source
         }
 
@@ -187,9 +190,10 @@ public enum VisualComparison {
         _ source: CGImageSource?, name: String, candidate: PixelSize, comparedAt size: PixelSize
     ) throws -> CGImage {
         if let source, let full = displayedSize(of: source), full != candidate,
-           (0...1).contains(full.width - candidate.width), (0...1).contains(full.height - candidate.height),
-           let cropped = try displayedImage(source, name: name)
-               .cropping(to: CGRect(x: 0, y: 0, width: candidate.width, height: candidate.height)) {
+            (0...1).contains(full.width - candidate.width), (0...1).contains(full.height - candidate.height),
+            let cropped = try displayedImage(source, name: name)
+                .cropping(to: CGRect(x: 0, y: 0, width: candidate.width, height: candidate.height))
+        {
             return cropped
         }
         return try displayedImage(source, name: name, longestSide: max(size.width, size.height))
@@ -198,8 +202,8 @@ public enum VisualComparison {
     /// Image 0's size as a viewer sees it, orientation applied.
     static func displayedSize(of source: CGImageSource) -> PixelSize? {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
         let orientation = properties[kCGImagePropertyOrientation] as? UInt32 ?? 1
         return (5...8).contains(orientation)
@@ -243,8 +247,8 @@ final class Planes: @unchecked Sendable {
         width = size.width
         height = size.height
         guard width > 0, height > 0,
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(
+            let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let context = CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { throw LatheError.encodingFailed(stage: "compare", code: nil, reason: "could not draw the picture") }
@@ -341,7 +345,8 @@ final class Planes: @unchecked Sendable {
         let ab = try blur(vDSP.multiply(a, b), width: width, height: height)
         var map = [Float](repeating: 0, count: a.count)
         for i in 0..<a.count {
-            let ma = muA[i], mb = muB[i]
+            let ma = muA[i]
+            let mb = muB[i]
             let varA = max(aa[i] - ma * ma, 0)
             let varB = max(bb[i] - mb * mb, 0)
             let cov = ab[i] - ma * mb
@@ -357,7 +362,8 @@ final class Planes: @unchecked Sendable {
         var out = [Float](repeating: 0, count: w * h)
         values.withUnsafeBufferPointer { source in
             for row in 0..<h {
-                let top = row * 2 * width, bottom = top + width
+                let top = row * 2 * width
+                let bottom = top + width
                 for column in 0..<w {
                     let x = column * 2
                     out[row * w + column] =

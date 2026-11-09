@@ -172,7 +172,10 @@ public struct TMDbProvider: MetadataProvider {
         let payload: TMDbSearchResponse<TMDbSeries> = try await get("/search/tv", items)
         var season: Int?
         var episode: Int?
-        if case .episode(let s, let e) = query.kind { season = s; episode = e }
+        if case .episode(let s, let e) = query.kind {
+            season = s
+            episode = e
+        }
 
         return payload.results.map { series in
             MetadataMatch(
@@ -197,8 +200,14 @@ public struct TMDbProvider: MetadataProvider {
         var indexA = a.startIndex
         var indexB = b.startIndex
         while indexA < a.endIndex || indexB < b.endIndex {
-            if indexA < a.endIndex { out.append(a[indexA]); indexA += 1 }
-            if indexB < b.endIndex { out.append(b[indexB]); indexB += 1 }
+            if indexA < a.endIndex {
+                out.append(a[indexA])
+                indexA += 1
+            }
+            if indexB < b.endIndex {
+                out.append(b[indexB])
+                indexB += 1
+            }
         }
         return out
     }
@@ -263,11 +272,12 @@ public struct TMDbProvider: MetadataProvider {
 
     public func artwork(for match: MetadataMatch, size: ArtworkSize) async throws -> Artwork? {
         guard let path = match.artworkReference, !path.isEmpty else { return nil }
-        let component = switch size {
-        case .thumbnail: "w185"
-        case .embedded: "w500"
-        case .original: "original"
-        }
+        let component =
+            switch size {
+            case .thumbnail: "w185"
+            case .embedded: "w500"
+            case .original: "original"
+            }
         let url = imageBaseURL.appendingPathComponent(component)
             .appendingPathComponent(path.hasPrefix("/") ? String(path.dropFirst()) : path)
 
@@ -287,9 +297,11 @@ public struct TMDbProvider: MetadataProvider {
     }
 
     private func get<T: Decodable>(_ path: String, _ items: [URLQueryItem]) async throws -> T {
-        guard var components = URLComponents(
-            url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
-        ) else {
+        guard
+            var components = URLComponents(
+                url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
+            )
+        else {
             throw LookupError.transport(provider: name, detail: "could not build a URL for \(path)")
         }
         components.queryItems = items + Self.credentialQueryItems(for: credentials.apiKey)

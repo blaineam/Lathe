@@ -46,7 +46,7 @@ public struct Chapter: Sendable, Equatable {
     public var endSeconds: Double { startSeconds + durationSeconds }
 }
 
-public extension Array where Element == Chapter {
+extension Array where Element == Chapter {
 
     /// The list in start order, with overlaps and zero-length entries removed.
     ///
@@ -60,7 +60,7 @@ public extension Array where Element == Chapter {
     /// the later one: a chapter's START is the thing a listener navigates to and
     /// the thing a producer chose, and its duration is usually implied rather
     /// than authored.
-    func normalizedChapters(totalDuration: Double? = nil) -> [Chapter] {
+    public func normalizedChapters(totalDuration: Double? = nil) -> [Chapter] {
         var sorted = filter { $0.startSeconds.isFinite && $0.startSeconds >= 0 }
             .sorted { $0.startSeconds < $1.startSeconds }
         guard !sorted.isEmpty else { return [] }

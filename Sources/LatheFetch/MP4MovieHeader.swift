@@ -109,8 +109,9 @@ enum MP4MovieHeader {
 
             var size = UInt64(beUInt32(header.prefix(4)))
             var contentStart = offset + 8
-            let kind = String(decoding: header[header.startIndex + 4..<header.startIndex + 8],
-                              as: UTF8.self)
+            let kind = String(
+                decoding: header[header.startIndex + 4..<header.startIndex + 8],
+                as: UTF8.self)
 
             if size == 1 {
                 // A 64-bit size, carried in the eight bytes after the name.

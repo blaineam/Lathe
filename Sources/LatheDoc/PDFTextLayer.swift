@@ -307,7 +307,7 @@ public struct PDFTextLayerWriter: Sendable {
             to: destination, pathExtension: "pdf", stage: "write"
         ) { scratch in
             guard let consumer = CGDataConsumer(url: scratch as CFURL),
-                  let context = CGContext(consumer: consumer, mediaBox: nil, nil)
+                let context = CGContext(consumer: consumer, mediaBox: nil, nil)
             else {
                 throw LatheError.writeFailed(
                     path: scratch.lastPathComponent, reason: "Core Graphics would not open a PDF context"
@@ -315,14 +315,16 @@ public struct PDFTextLayerWriter: Sendable {
             }
 
             for index in 0..<pages.count {
-                try progress.checkpoint(LatheProgress(
-                    stage: "page", unitIndex: UInt64(index), unitCount: UInt64(pages.count)
-                ))
+                try progress.checkpoint(
+                    LatheProgress(
+                        stage: "page", unitIndex: UInt64(index), unitCount: UInt64(pages.count)
+                    ))
 
                 let page = try pages.page(at: index)
                 var runs: [TextRun] = []
 
-                let hasText = options.skipPagesWithText
+                let hasText =
+                    options.skipPagesWithText
                     && page.extractableTextLength >= options.existingTextThreshold
                 if hasText {
                     skipped += 1
@@ -342,9 +344,10 @@ public struct PDFTextLayerWriter: Sendable {
             context.closePDF()
         }
 
-        progress.report(LatheProgress(
-            stage: "page", unitIndex: UInt64(pages.count), unitCount: UInt64(pages.count)
-        ))
+        progress.report(
+            LatheProgress(
+                stage: "page", unitIndex: UInt64(pages.count), unitCount: UInt64(pages.count)
+            ))
 
         return PDFTextLayerResult(
             output: destination,
@@ -368,25 +371,28 @@ public struct PDFTextLayerWriter: Sendable {
     /// resampling it to a nominal DPI would only throw detail away before the
     /// recogniser sees it.
     private static func rasterise(_ page: SourcePage, dpi: Double) throws -> CGImage {
-        if case let .image(image) = page.content { return image }
+        if case .image(let image) = page.content { return image }
 
         let size = page.displayedSize
         let requested = dpi / 72.0
         let longest = max(size.width, size.height) * requested
-        let scale = longest > Double(maximumRasterPixels)
+        let scale =
+            longest > Double(maximumRasterPixels)
             ? Double(maximumRasterPixels) / max(size.width, size.height)
             : requested
 
         let width = max(1, Int((size.width * scale).rounded()))
         let height = max(1, Int((size.height * scale).rounded()))
 
-        guard let context = CGContext(
-            data: nil, width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "raster", code: nil,
                 reason: "could not create a \(width)x\(height) drawing context for page rendering"
@@ -440,7 +446,7 @@ public struct PDFTextLayerWriter: Sendable {
 
         for observation in observations {
             guard let candidate = observation.topCandidates(1).first,
-                  candidate.confidence >= options.minimumConfidence
+                candidate.confidence >= options.minimumConfidence
             else { continue }
 
             switch options.placement {
@@ -456,9 +462,10 @@ public struct PDFTextLayerWriter: Sendable {
                     // rotated to match would put its selection rectangle at an
                     // angle no reader draws.
                     guard let quad = try? candidate.boundingBox(for: range) else { continue }
-                    runs.append(TextRun(
-                        text: String(candidate.string[range]), box: quad.boundingBox
-                    ))
+                    runs.append(
+                        TextRun(
+                            text: String(candidate.string[range]), box: quad.boundingBox
+                        ))
                 }
                 // A candidate whose per-word geometry Vision declined entirely
                 // still belongs in the layer; one line-sized run beats a missing
@@ -487,7 +494,10 @@ public struct PDFTextLayerWriter: Sendable {
         while index < string.endIndex {
             let isSpace = string[index].isWhitespace
             if isSpace {
-                if let from = start { ranges.append(from..<index); start = nil }
+                if let from = start {
+                    ranges.append(from..<index)
+                    start = nil
+                }
             } else if start == nil {
                 start = index
             }
@@ -534,13 +544,15 @@ public struct PDFTextLayerWriter: Sendable {
 
         let font = CTFontCreateWithName(textLayerFontName as CFString, rect.height, nil)
         let attributes: [NSAttributedString.Key: Any] = [
-            kCTFontAttributeName as NSAttributedString.Key: font,
+            kCTFontAttributeName as NSAttributedString.Key: font
         ]
         let measured = CTLineCreateWithAttributedString(
             NSAttributedString(string: run.text, attributes: attributes)
         )
 
-        var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
         let natural = CGFloat(CTLineGetTypographicBounds(measured, &ascent, &descent, &leading))
         guard natural > 0 else { return }
 
@@ -607,12 +619,12 @@ struct SourcePage {
 
     func draw(into context: CGContext) {
         switch content {
-        case let .pdf(page, transform):
+        case .pdf(let page, let transform):
             context.saveGState()
             context.concatenate(transform)
             context.drawPDFPage(page)
             context.restoreGState()
-        case let .image(image):
+        case .image(let image):
             context.draw(image, in: CGRect(origin: .zero, size: displayedSize))
         }
     }
@@ -685,17 +697,17 @@ struct SourceDocument {
 
     func page(at index: Int) throws -> SourcePage {
         switch backing {
-        case let .pdf(document):
+        case .pdf(let document):
             guard let page = document.page(at: index), let reference = page.pageRef else {
                 throw LatheError.invalidInput(reason: "page \(index + 1) could not be opened")
             }
             return Self.pdfPage(reference, existingText: page.string)
 
-        case let .image(url):
+        case .image(let url):
             let data = try Data(contentsOf: url)
             return try Self.imagePage(data, name: url.lastPathComponent)
 
-        case let .archive(url, name, entries):
+        case .archive(let url, let name, let entries):
             let entry = entries[index]
             let data = try ZIPDirectory.extract(entry, from: url, name: name)
             return try Self.imagePage(data, name: entry.baseName)
@@ -710,7 +722,8 @@ struct SourceDocument {
         // the wild; rounding to the nearest quarter turn is what viewers do, and
         // is what `getDrawingTransform` will apply.
         let quarterTurns = ((Int(page.rotationAngle) / 90) % 4 + 4) % 4
-        let displayed = quarterTurns % 2 == 1
+        let displayed =
+            quarterTurns % 2 == 1
             ? CGSize(width: mediaBox.height, height: mediaBox.width)
             : mediaBox.size
         let target = CGRect(origin: .zero, size: displayed)
@@ -734,17 +747,23 @@ struct SourceDocument {
     }
 
     private static func imagePage(_ data: Data, name: String) throws -> SourcePage {
-        guard let source = CGImageSourceCreateWithData(
-            data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
-        ), CGImageSourceGetCount(source) > 0, CGImageSourceGetType(source) != nil else {
+        guard
+            let source = CGImageSourceCreateWithData(
+                data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
+            ), CGImageSourceGetCount(source) > 0, CGImageSourceGetType(source) != nil
+        else {
             throw LatheError.invalidInput(reason: "\(name) is not an image ImageIO can read")
         }
 
         // Frame 0, always. An animated page is one page, and its first frame is
         // the one a reader shows — see `DocumentInspector`.
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, [
-            kCGImageSourceShouldCacheImmediately: true,
-        ] as CFDictionary) else {
+        guard
+            let image = CGImageSourceCreateImageAtIndex(
+                source, 0,
+                [
+                    kCGImageSourceShouldCacheImmediately: true
+                ] as CFDictionary)
+        else {
             throw LatheError.encodingFailed(
                 stage: "decode", code: nil,
                 reason: "ImageIO read \(name)'s headers but could not decode it"

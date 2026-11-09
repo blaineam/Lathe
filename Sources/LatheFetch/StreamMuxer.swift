@@ -297,10 +297,10 @@ public enum StreamMuxer {
                     if !clock.hasLogged(isVideo: isVideo) {
                         DiagnosticLog.note(
                             "mux \(isVideo ? "video" : "audio") first sample: "
-                            + "raw pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(raw)))s "
-                            + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(raw)))s → "
-                            + "pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))s "
-                            + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(sample)))s")
+                                + "raw pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(raw)))s "
+                                + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(raw)))s → "
+                                + "pts=\(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)))s "
+                                + "dur=\(CMTimeGetSeconds(CMSampleBufferGetDuration(sample)))s")
                     }
                 } catch {
                     throw MediaFetchError.muxingFailed(
@@ -330,12 +330,13 @@ public enum StreamMuxer {
                 // makes a progress bar that visibly stutters in reverse.
                 if isVideo {
                     let seconds = CMTimeGetSeconds(clock.endTime ?? end)
-                    guard progress.report(
-                        LatheProgress(
-                            fraction: totalSeconds > 0 ? seconds / totalSeconds : nil,
-                            stage: "mux",
-                            unitIndex: UInt64(max(0, seconds)),
-                            unitCount: UInt64(max(0, totalSeconds))))
+                    guard
+                        progress.report(
+                            LatheProgress(
+                                fraction: totalSeconds > 0 ? seconds / totalSeconds : nil,
+                                stage: "mux",
+                                unitIndex: UInt64(max(0, seconds)),
+                                unitCount: UInt64(max(0, totalSeconds))))
                     else {
                         throw LatheError.cancelled(atUnit: UInt64(max(0, seconds)))
                     }
@@ -353,12 +354,14 @@ public enum StreamMuxer {
         // so only the box crosses into the child tasks.
         let videoPump = WriterPump(
             input: videoInput, label: "mux.video",
-            step: makeStep(output: videoOutput, reader: videoReader, input: videoInput,
-                           isVideo: true, correction: videoCorrection))
+            step: makeStep(
+                output: videoOutput, reader: videoReader, input: videoInput,
+                isVideo: true, correction: videoCorrection))
         let audioPump = WriterPump(
             input: audioInput, label: "mux.audio",
-            step: makeStep(output: audioOutput, reader: audioReader, input: audioInput,
-                           isVideo: false, correction: audioCorrection))
+            step: makeStep(
+                output: audioOutput, reader: audioReader, input: audioInput,
+                isVideo: false, correction: audioCorrection))
 
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -398,13 +401,14 @@ public enum StreamMuxer {
         let audioDeclared = MP4MovieHeader.declaredDuration(of: audioAsset.url) ?? .zero
         let longestDeclared = CMTimeMaximum(totalDuration, audioDeclared)
         if let observed = clock.endTime {
-            let end = longestDeclared > .zero
+            let end =
+                longestDeclared > .zero
                 ? CMTimeMinimum(observed, longestDeclared)
                 : observed
             DiagnosticLog.note(
                 "mux: endSession at \(CMTimeGetSeconds(end))s "
-                + "(observed \(CMTimeGetSeconds(observed))s, "
-                + "declared cap \(CMTimeGetSeconds(longestDeclared))s)")
+                    + "(observed \(CMTimeGetSeconds(observed))s, "
+                    + "declared cap \(CMTimeGetSeconds(longestDeclared))s)")
             writer.endSession(atSourceTime: end)
         } else {
             DiagnosticLog.note("mux: no end time observed — endSession skipped")
@@ -562,7 +566,10 @@ private final class WriterPump: @unchecked Sendable {
     /// and resuming a continuation twice traps.
     private func settle(_ error: (any Error)?) {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

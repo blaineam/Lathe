@@ -72,27 +72,31 @@ public final class ProgressHandle: @unchecked Sendable {
 
     /// Whether cancellation has been requested. Latched.
     public var isCancelled: Bool {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return cancelled
     }
 
     /// The last unit index seen by ``report(_:)``, for the
     /// ``LatheError/cancelled(atUnit:)`` payload and for resume manifests.
     public var currentUnitIndex: UInt64 {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return lastUnitIndex
     }
 
     /// Number of samples actually forwarded to the sink (after throttling).
     /// Exposed for tests and for verifying throttle behaviour in the field.
     public var deliveredSampleCount: Int {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return deliveredCount
     }
 
     /// Number of ``report(_:)`` calls, throttled or not.
     public var observedSampleCount: Int {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return observedCount
     }
 

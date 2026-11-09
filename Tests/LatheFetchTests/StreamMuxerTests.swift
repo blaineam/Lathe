@@ -108,7 +108,8 @@ struct StreamMuxerTests {
         let joinedVideoBytes = try await MuxFixture.encodedByteCount(of: destination, mediaType: .video)
         #expect(
             sourceVideoBytes == joinedVideoBytes,
-            "the video track's encoded size changed (\(sourceVideoBytes) → \(joinedVideoBytes)), which means it was re-encoded")
+            "the video track's encoded size changed (\(sourceVideoBytes) → \(joinedVideoBytes)), which means it was re-encoded"
+        )
     }
 
     @Test("the source's rotation survives the join")
@@ -122,8 +123,9 @@ struct StreamMuxerTests {
 
         // A quarter turn, which is what a phone-shot vertical clip records.
         let rotation = CGAffineTransform(rotationAngle: .pi / 2)
-        guard try await MuxFixture.writeVideoOnly(
-            to: videoURL, seconds: 1, frameRate: 30, transform: rotation),
+        guard
+            try await MuxFixture.writeVideoOnly(
+                to: videoURL, seconds: 1, frameRate: 30, transform: rotation),
             try MuxFixture.writeAudioOnly(to: audioURL, seconds: 1)
         else {
             withKnownIssue("this machine cannot encode the fixtures") { Issue.record("no encoder") }
@@ -156,7 +158,7 @@ struct StreamMuxerTests {
         let error = await #expect(throws: MediaFetchError.self) {
             try await StreamMuxer.mux(video: audioURL, audio: audioURL, to: destination)
         }
-        guard case let .muxingFailed(stage, reason) = error else {
+        guard case .muxingFailed(let stage, let reason) = error else {
             Issue.record("expected muxingFailed, got \(String(describing: error))")
             return
         }
@@ -481,7 +483,10 @@ private final class FixturePump: @unchecked Sendable {
 
     private func settle() {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

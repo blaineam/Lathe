@@ -85,8 +85,9 @@ struct AnimatedWebPTests {
             #expect(image.width == 64 && image.height == 48)
             let source = try FrameFixtures.centreGray(of: try FrameReader.decode(stills[index]))
             let measured = try FrameFixtures.centreGray(of: image)
-            #expect(abs(measured - source) <= 2.0 / 255,
-                    "frame \(index + 1) reads \(measured), its source \(source)")
+            #expect(
+                abs(measured - source) <= 2.0 / 255,
+                "frame \(index + 1) reads \(measured), its source \(source)")
             if let previous {
                 #expect(abs(measured - previous) > 10.0 / 255, "frame \(index + 1) repeats its predecessor")
             }
@@ -117,8 +118,9 @@ struct AnimatedWebPTests {
     /// `.quality` means the lossy coder, `.lossless` the lossless one — the
     /// same mapping a WebP still gets — and it is visible in each frame's
     /// bitstream chunk, not just in the size.
-    @Test("quality picks the coder for every frame",
-          arguments: [(QualityTarget.quality(0.6), "VP8 "), (.lossless, "VP8L")])
+    @Test(
+        "quality picks the coder for every frame",
+        arguments: [(QualityTarget.quality(0.6), "VP8 "), (.lossless, "VP8L")])
     func qualitySelectsCoder(_ quality: QualityTarget, coder: String) throws {
         let directory = try temporaryDirectory("coder-\(coder.trimmingCharacters(in: .whitespaces))")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -132,8 +134,9 @@ struct AnimatedWebPTests {
 
         let layout = try WebPLayout(try Data(contentsOf: output))
         #expect(layout.frames.count == 3)
-        #expect(layout.frames.allSatisfy { $0.coder == coder },
-                "expected \(coder), got \(layout.frames.map(\.coder))")
+        #expect(
+            layout.frames.allSatisfy { $0.coder == coder },
+            "expected \(coder), got \(layout.frames.map(\.coder))")
 
         // Lossy or not, the greys come back in order.
         let decoded = try FrameFixtures.decodeFrames(of: output)
@@ -171,8 +174,9 @@ struct AnimatedWebPTests {
 
         let layout = try WebPLayout(try Data(contentsOf: output))
         #expect(layout.frames.count == 4)
-        #expect(layout.frames.dropFirst().contains { $0.size.width < canvas.width },
-                "the encoder should have stored a sub-rectangle; this test needs it to")
+        #expect(
+            layout.frames.dropFirst().contains { $0.size.width < canvas.width },
+            "the encoder should have stored a sub-rectangle; this test needs it to")
 
         let decoded = try FrameFixtures.decodeFrames(of: output)
         #expect(decoded.count == 4)
@@ -184,8 +188,9 @@ struct AnimatedWebPTests {
                 if other == index {
                     #expect(sample == Self.square, "frame \(index + 1): square missing at x=\(x)")
                 } else {
-                    #expect(sample == Self.background,
-                            "frame \(index + 1): x=\(x) should be background, reads \(sample)")
+                    #expect(
+                        sample == Self.background,
+                        "frame \(index + 1): x=\(x) should be background, reads \(sample)")
                 }
             }
         }
@@ -200,11 +205,13 @@ struct AnimatedWebPTests {
         let directory = try temporaryDirectory("mismatch")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 80, height: 60),
-            CGSize(width: 40, height: 40),
-            CGSize(width: 200, height: 50),
-        ])
+        try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 80, height: 60),
+                CGSize(width: 40, height: 40),
+                CGSize(width: 200, height: 50),
+            ])
         let output = directory.appendingPathComponent("out.webp")
         let result = try writer.write(
             try FrameSequence.contentsOfDirectory(directory), to: output, format: .webp,
@@ -316,8 +323,9 @@ struct AnimatedWebPTests {
             )
         }
         #expect(!FileManager.default.fileExists(atPath: output.path))
-        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path)
-            .allSatisfy { !$0.hasPrefix(".lathe-") }, "no scratch file may be left behind")
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path)
+                .allSatisfy { !$0.hasPrefix(".lathe-") }, "no scratch file may be left behind")
     }
 
     @Test("cancelling part way leaves the previous WebP untouched")
@@ -394,8 +402,9 @@ struct AnimatedWebPTests {
     }
 
     /// A RIFF/WEBP header in front of garbage is not an image.
-    @Test("a WebP header over garbage is refused as not an image",
-          arguments: WebPGarbage.allCases)
+    @Test(
+        "a WebP header over garbage is refused as not an image",
+        arguments: WebPGarbage.allCases)
     func garbage(_ kind: WebPGarbage) throws {
         let directory = try temporaryDirectory("garbage-\(kind)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -409,19 +418,22 @@ struct AnimatedWebPTests {
     // MARK: - Helpers
 
     private static let background = Fixtures.bottomLeftColour  // blue
-    private static let square = Fixtures.topLeftColour         // red
+    private static let square = Fixtures.topLeftColour  // red
 
     /// A `canvas` of background with an 8x16 square at (`squareX`, 16).
     private static func movingSquare(canvas: PixelSize, squareX: Int) -> CGImage? {
-        guard let context = CGContext(
-            data: nil, width: canvas.width, height: canvas.height,
-            bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { return nil }
+        guard
+            let context = CGContext(
+                data: nil, width: canvas.width, height: canvas.height,
+                bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )
+        else { return nil }
         let colour = { (rgb: RGB) in
-            CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255,
-                    blue: CGFloat(rgb.b) / 255, alpha: 1)
+            CGColor(
+                srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255,
+                blue: CGFloat(rgb.b) / 255, alpha: 1)
         }
         context.setFillColor(colour(background))
         context.fill(CGRect(x: 0, y: 0, width: canvas.width, height: canvas.height))
@@ -506,8 +518,8 @@ struct WebPLayout {
     init(_ data: Data) throws {
         let bytes = [UInt8](data)
         guard bytes.count >= 12,
-              String(decoding: bytes[0..<4], as: UTF8.self) == "RIFF",
-              String(decoding: bytes[8..<12], as: UTF8.self) == "WEBP"
+            String(decoding: bytes[0..<4], as: UTF8.self) == "RIFF",
+            String(decoding: bytes[8..<12], as: UTF8.self) == "WEBP"
         else { throw FixtureError.writeFailed("not a RIFF/WEBP file") }
         #expect(Int(Self.le(bytes, 4, 4)) == bytes.count - 8, "the RIFF size must cover the file")
 
@@ -529,8 +541,9 @@ struct WebPLayout {
     var vp8xCanvas: PixelSize? {
         guard let payload = chunks.first(where: { $0.tag == "VP8X" }).map({ [UInt8]($0.payload) })
         else { return nil }
-        return PixelSize(width: Int(Self.le(payload, 4, 3)) + 1,
-                         height: Int(Self.le(payload, 7, 3)) + 1)
+        return PixelSize(
+            width: Int(Self.le(payload, 4, 3)) + 1,
+            height: Int(Self.le(payload, 7, 3)) + 1)
     }
 
     var loopCount: Int? {
@@ -544,8 +557,9 @@ struct WebPLayout {
             let payload = [UInt8](chunk.payload)
             return Frame(
                 offset: chunk.offset,
-                size: PixelSize(width: Int(Self.le(payload, 6, 3)) + 1,
-                                height: Int(Self.le(payload, 9, 3)) + 1),
+                size: PixelSize(
+                    width: Int(Self.le(payload, 6, 3)) + 1,
+                    height: Int(Self.le(payload, 9, 3)) + 1),
                 durationMilliseconds: Int(Self.le(payload, 12, 3)),
                 coder: String(decoding: payload[16..<20], as: UTF8.self) == "ALPH"
                     ? Self.bitstreamAfterAlpha(payload)

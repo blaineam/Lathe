@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields decode JSON keys written by the Python driver.
+
 import Foundation
 import LatheCore
 
@@ -417,8 +420,9 @@ public actor MediaFetcher {
         // registry. Declined quietly when yt-dlp is not installed yet; the
         // next call tries again.
         if configuration.usesSystemNetworking {
-            guard await SystemNetworkDriver.register(
-                SystemNetworkDriver.registerYouTubeDLFunction, in: runtime)
+            guard
+                await SystemNetworkDriver.register(
+                    SystemNetworkDriver.registerYouTubeDLFunction, in: runtime)
             else { return }
         }
         driverIsInstalled = true
@@ -472,7 +476,8 @@ public actor MediaFetcher {
             throw MediaFetchError.extractionFailed(reason: "the extractor returned no media")
         }
         LatheFetchLog.packages.notice(
-            "Extracted \(listing.formats.count, privacy: .public) format(s) from \(listing.extractor ?? "?", privacy: .public)")
+            "Extracted \(listing.formats.count, privacy: .public) format(s) from \(listing.extractor ?? "?", privacy: .public)"
+        )
         return listing
     }
 
@@ -610,7 +615,7 @@ public actor MediaFetcher {
             throw MediaFetchError.liveStream(
                 reason: "this is a live stream, which has no end to download to")
         }
-        if case let .pair(video, audio) = selection {
+        if case .pair(let video, let audio) = selection {
             guard StreamMuxer.canMuxVideo(video) else {
                 throw MediaFetchError.muxingFailed(
                     stage: "select",
@@ -649,7 +654,8 @@ public actor MediaFetcher {
         var parts: [URL] = []
         for (index, format) in selection.formats.enumerated() {
             try Task.checkCancellation()
-            let part = workingDirectory
+            let part =
+                workingDirectory
                 .appendingPathComponent("part\(index).\(format.ext ?? "bin")")
             try await downloadOne(
                 format: format,

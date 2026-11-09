@@ -67,10 +67,11 @@ struct SWFThumbnailerTests {
         let directory = try scratch("detail")
         defer { try? FileManager.default.removeItem(at: directory) }
         func png(_ name: String, drawing: (CGContext) -> Void) throws -> URL {
-            let context = try #require(CGContext(
-                data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            let context = try #require(
+                CGContext(
+                    data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.setFillColor(CGColor(gray: 0.2, alpha: 1))
             context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
             drawing(context)
@@ -111,7 +112,7 @@ struct SWFThumbnailerTests {
 
         #expect(outcomes.count == 3)
         #expect(events == 6)
-        guard case let .made(first) = outcomes[0] else {
+        guard case .made(let first) = outcomes[0] else {
             Issue.record("the first movie should have produced a thumbnail: \(outcomes[0])")
             return
         }

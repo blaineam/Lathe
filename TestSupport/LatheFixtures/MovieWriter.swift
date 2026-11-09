@@ -1,6 +1,6 @@
 import AVFoundation
-import CoreMedia
 import CoreGraphics
+import CoreMedia
 import CoreVideo
 import Foundation
 import LatheCore
@@ -164,7 +164,7 @@ struct MovieWriter {
         }
         var pixelBuffer: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBuffer) == kCVReturnSuccess,
-              let pixelBuffer
+            let pixelBuffer
         else {
             throw FixtureError.writeFailed("could not take a pixel buffer from the pool")
         }
@@ -197,7 +197,8 @@ struct MovieWriter {
                     // xorshift64, seeded from the pixel's position and the frame
                     // number: reproducible across runs and machines, and
                     // different in every frame.
-                    var state = UInt64(index &* 2_654_435_761)
+                    var state =
+                        UInt64(index &* 2_654_435_761)
                         ^ UInt64(row &* 40_503) ^ UInt64(column &* 2_246_822_519) ^ 0x9E37_79B9
                     state ^= state << 13
                     state ^= state >> 7
@@ -390,7 +391,10 @@ private final class InputPump: @unchecked Sendable {
     /// `markAsFinished()`, and resuming twice traps.
     private func settle(_ error: (any Error)?) {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

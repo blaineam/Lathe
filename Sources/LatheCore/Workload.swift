@@ -105,13 +105,14 @@ public struct ResourcePool: Sendable, Equatable {
         // the same amount more slowly: fewer concurrent jobs finish sooner in
         // wall time once throttling starts, and each one holds its memory for
         // less of the run.
-        let scale: Double = switch thermal {
-        case .nominal: saving ? 0.5 : 1.0
-        case .fair: saving ? 0.4 : 0.75
-        case .serious: 0.4
-        case .critical: 0.25
-        @unknown default: 0.5
-        }
+        let scale: Double =
+            switch thermal {
+            case .nominal: saving ? 0.5 : 1.0
+            case .fair: saving ? 0.4 : 0.75
+            case .serious: 0.4
+            case .critical: 0.25
+            @unknown default: 0.5
+            }
 
         func scaled(_ value: Int, floor: Int = 1) -> Int {
             Swift.max(floor, Int((Double(value) * scale).rounded()))

@@ -15,9 +15,10 @@ struct VisualComparisonTests {
     /// and fine detail.
     static func testCard(width: Int = 640, height: Int = 480) throws -> CGImage {
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-            space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let context = try #require(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         for x in 0..<width {
             let t = CGFloat(x) / CGFloat(width)
             context.setFillColor(CGColor(red: 0.1 + 0.5 * t, green: 0.2 + 0.3 * t, blue: 0.7 - 0.4 * t, alpha: 1))
@@ -25,8 +26,9 @@ struct VisualComparisonTests {
         }
         var seed: UInt64 = 42
         for _ in 0..<400 {
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            let x = Int(seed >> 33) % width, y = Int(seed >> 13) % height
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            let x = Int(seed >> 33) % width
+            let y = Int(seed >> 13) % height
             let shade = CGFloat(seed & 255) / 255
             context.setFillColor(CGColor(red: shade, green: 1 - shade, blue: 0.5, alpha: 1))
             context.fill(CGRect(x: x, y: y, width: 3 + Int(seed & 7), height: 2 + Int((seed >> 8) & 5)))
@@ -44,7 +46,8 @@ struct VisualComparisonTests {
     static func encode(_ image: CGImage, as type: UTType, quality: Double) throws -> Data {
         let data = NSMutableData()
         let destination = try #require(CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil))
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        CGImageDestinationAddImage(
+            destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
         #expect(CGImageDestinationFinalize(destination))
         return data as Data
     }
@@ -76,9 +79,10 @@ struct VisualComparisonTests {
     func localDamage() throws {
         let card = try Self.testCard()
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
-        let context = try #require(CGContext(
-            data: nil, width: card.width, height: card.height, bitsPerComponent: 8,
-            bytesPerRow: card.width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let context = try #require(
+            CGContext(
+                data: nil, width: card.width, height: card.height, bitsPerComponent: 8,
+                bytesPerRow: card.width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.draw(card, in: CGRect(x: 0, y: 0, width: card.width, height: card.height))
         context.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
         context.fill(CGRect(x: 300, y: 300, width: 24, height: 24))
@@ -95,10 +99,13 @@ struct VisualComparisonTests {
         let card = try Self.testCard()
         let png = try Self.encode(card, as: .png, quality: 1)
         let pngSource = try #require(CGImageSourceCreateWithData(png as CFData, nil))
-        let smaller = try #require(CGImageSourceCreateThumbnailAtIndex(
-            pngSource, 0,
-            [kCGImageSourceCreateThumbnailFromImageAlways: true,
-             kCGImageSourceThumbnailMaxPixelSize: 320] as CFDictionary))
+        let smaller = try #require(
+            CGImageSourceCreateThumbnailAtIndex(
+                pngSource, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 320,
+                ] as CFDictionary))
         let similarity = try VisualComparison.similarity(
             ofImageData: try Self.encode(smaller, as: .png, quality: 1), to: png)
         #expect(similarity.comparedSize == PixelSize(width: 320, height: 240))
@@ -109,8 +116,9 @@ struct VisualComparisonTests {
 
     private static func fake(_ value: Double) -> VisualSimilarity {
         // Passes at 0.62 and above.
-        VisualSimilarity(overall: 0.9 + value * 0.15, worstRegion: 0.99,
-                         comparedSize: PixelSize(width: 1, height: 1))
+        VisualSimilarity(
+            overall: 0.9 + value * 0.15, worstRegion: 0.99,
+            comparedSize: PixelSize(width: 1, height: 1))
     }
 
     @Test("the search settles near the lowest passing value")
@@ -186,12 +194,14 @@ struct EvenCropComparisonTests {
     /// Stretching the reference by a pixel instead blurs it at full size, and
     /// past 12 MP, where both are downscaled, shifts the far edge by most of a
     /// pixel: that held a real panorama's worst region at 0.74 at every quality.
-    @Test("an exact crop compares as identical",
-          arguments: [PixelSize(width: 641, height: 481), PixelSize(width: 4097, height: 3073)])
+    @Test(
+        "an exact crop compares as identical",
+        arguments: [PixelSize(width: 641, height: 481), PixelSize(width: 4097, height: 3073)])
     func exactCrop(size: PixelSize) throws {
         let card = try VisualComparisonTests.testCard(width: size.width, height: size.height)
-        let cropped = try #require(card.cropping(
-            to: CGRect(x: 0, y: 0, width: size.width & ~1, height: size.height & ~1)))
+        let cropped = try #require(
+            card.cropping(
+                to: CGRect(x: 0, y: 0, width: size.width & ~1, height: size.height & ~1)))
         let reference = try VisualComparison.Reference(
             data: VisualComparisonTests.encode(card, as: .png, quality: 1))
         let candidate = try VisualComparisonTests.encode(cropped, as: .png, quality: 1)

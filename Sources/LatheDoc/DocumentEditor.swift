@@ -1,7 +1,8 @@
 import Foundation
 import LatheCore
+
 #if canImport(PDFKit)
-import PDFKit
+    import PDFKit
 #endif
 
 /// Rearranges the pages of a document.
@@ -205,59 +206,59 @@ public struct DocumentEditor: Sendable {
 
     private func assemblePDF(_ pages: [PageReference], into destination: URL) throws -> UInt64 {
         #if canImport(PDFKit)
-        var documents: [URL: PDFDocument] = [:]
-        for page in pages where documents[page.source] == nil {
-            guard let document = PDFDocument(url: page.source) else {
-                throw LatheError.invalidInput(
-                    reason: "\(page.source.lastPathComponent) is not a PDF PDFKit can open"
-                )
+            var documents: [URL: PDFDocument] = [:]
+            for page in pages where documents[page.source] == nil {
+                guard let document = PDFDocument(url: page.source) else {
+                    throw LatheError.invalidInput(
+                        reason: "\(page.source.lastPathComponent) is not a PDF PDFKit can open"
+                    )
+                }
+                // An encrypted document opens and reports a page count while handing
+                // back nothing for any page, so the output would be a PDF of the
+                // right length made entirely of nothing. Refuse here rather than
+                // write that.
+                if document.isEncrypted && document.isLocked {
+                    throw LatheError.invalidInput(
+                        reason: "\(page.source.lastPathComponent) is locked; its pages cannot be read"
+                    )
+                }
+                documents[page.source] = document
             }
-            // An encrypted document opens and reports a page count while handing
-            // back nothing for any page, so the output would be a PDF of the
-            // right length made entirely of nothing. Refuse here rather than
-            // write that.
-            if document.isEncrypted && document.isLocked {
-                throw LatheError.invalidInput(
-                    reason: "\(page.source.lastPathComponent) is locked; its pages cannot be read"
-                )
-            }
-            documents[page.source] = document
-        }
 
-        let output = PDFDocument()
-        for (position, page) in pages.enumerated() {
-            guard let document = documents[page.source] else { continue }
-            guard page.index >= 0, page.index < document.pageCount,
-                  let sourcePage = document.page(at: page.index)
-            else {
-                throw LatheError.invalidInput(
-                    reason: "page \(page.index) is outside \(page.source.lastPathComponent), "
-                        + "which has \(document.pageCount) pages"
-                )
+            let output = PDFDocument()
+            for (position, page) in pages.enumerated() {
+                guard let document = documents[page.source] else { continue }
+                guard page.index >= 0, page.index < document.pageCount,
+                    let sourcePage = document.page(at: page.index)
+                else {
+                    throw LatheError.invalidInput(
+                        reason: "page \(page.index) is outside \(page.source.lastPathComponent), "
+                            + "which has \(document.pageCount) pages"
+                    )
+                }
+                // A copy, because inserting a page object that belongs to another
+                // open document moves it out of that document — and a source used
+                // twice would then lose the page on its second use.
+                guard let copy = sourcePage.copy() as? PDFPage else {
+                    throw LatheError.encodingFailed(
+                        stage: "pdf-page-copy", code: nil,
+                        reason: "page \(page.index) of \(page.source.lastPathComponent) could not be copied"
+                    )
+                }
+                output.insert(copy, at: position)
             }
-            // A copy, because inserting a page object that belongs to another
-            // open document moves it out of that document — and a source used
-            // twice would then lose the page on its second use.
-            guard let copy = sourcePage.copy() as? PDFPage else {
-                throw LatheError.encodingFailed(
-                    stage: "pdf-page-copy", code: nil,
-                    reason: "page \(page.index) of \(page.source.lastPathComponent) could not be copied"
-                )
-            }
-            output.insert(copy, at: position)
-        }
 
-        return try DocumentFiles.writingAtomically(
-            to: destination, pathExtension: "pdf", stage: "pdf-assemble"
-        ) { scratch in
-            guard output.write(to: scratch) else {
-                throw LatheError.writeFailed(
-                    path: destination.lastPathComponent, reason: "PDFKit declined to write the document"
-                )
+            return try DocumentFiles.writingAtomically(
+                to: destination, pathExtension: "pdf", stage: "pdf-assemble"
+            ) { scratch in
+                guard output.write(to: scratch) else {
+                    throw LatheError.writeFailed(
+                        path: destination.lastPathComponent, reason: "PDFKit declined to write the document"
+                    )
+                }
             }
-        }
         #else
-        throw LatheError.encodingUnavailable(format: "PDF editing needs PDFKit")
+            throw LatheError.encodingUnavailable(format: "PDF editing needs PDFKit")
         #endif
     }
 
@@ -305,16 +306,17 @@ public struct DocumentEditor: Sendable {
 
             let number = String(format: "%0\(width)d", position + 1)
             let suffix = entry.fileExtension.isEmpty ? "" : ".\(entry.fileExtension)"
-            members.append(ZIPWriter.Member(
-                name: number + suffix,
-                payload: payload,
-                method: entry.compressionMethod,
-                crc32: entry.crc32,
-                uncompressedSize: entry.uncompressedSize,
-                modificationTime: entry.modificationTime,
-                modificationDate: entry.modificationDate,
-                externalAttributes: entry.externalAttributes
-            ))
+            members.append(
+                ZIPWriter.Member(
+                    name: number + suffix,
+                    payload: payload,
+                    method: entry.compressionMethod,
+                    crc32: entry.crc32,
+                    uncompressedSize: entry.uncompressedSize,
+                    modificationTime: entry.modificationTime,
+                    modificationDate: entry.modificationDate,
+                    externalAttributes: entry.externalAttributes
+                ))
         }
 
         return try DocumentFiles.writingAtomically(

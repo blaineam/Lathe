@@ -280,7 +280,8 @@ public struct EncodeSupport: Sendable {
         var lines: [String] = []
         lines.append("ImageIO encode capability — \(Self.platformDescription)")
         lines.append("")
-        lines.append("  advertised by CGImageDestinationCopyTypeIdentifiers() (\(reportedTypeIdentifiers.count) entries):")
+        lines.append(
+            "  advertised by CGImageDestinationCopyTypeIdentifiers() (\(reportedTypeIdentifiers.count) entries):")
         for identifier in reportedTypeIdentifiers {
             let usable = Self.cachedProbe.encodable.contains(identifier.lowercased())
             lines.append("    \(usable ? "ok  " : "FAIL") \(identifier)")
@@ -289,8 +290,9 @@ public struct EncodeSupport: Sendable {
         if overReportedTypeIdentifiers.isEmpty {
             lines.append("  advertised but unusable: none")
         } else {
-            lines.append("  advertised but unusable (\(overReportedTypeIdentifiers.count)): "
-                         + overReportedTypeIdentifiers.joined(separator: ", "))
+            lines.append(
+                "  advertised but unusable (\(overReportedTypeIdentifiers.count)): "
+                    + overReportedTypeIdentifiers.joined(separator: ", "))
         }
         lines.append("")
         lines.append("  Lathe formats (ImageIO verified by attempting to create a destination):")
@@ -301,8 +303,9 @@ public struct EncodeSupport: Sendable {
             let animated = canEncodeAnimated(format) ? "animated YES" : "animated no "
             let via = backend(for: format).map { "via \($0.description)" } ?? "—"
             let uti = destinationTypeIdentifier(for: format) ?? format.typeIdentifier
-            lines.append("    \(name)  \(mark)  \(animated)  "
-                         + "\(via.padding(toLength: 20, withPad: " ", startingAt: 0))  (\(uti))")
+            lines.append(
+                "    \(name)  \(mark)  \(animated)  "
+                    + "\(via.padding(toLength: 20, withPad: " ", startingAt: 0))  (\(uti))")
         }
         return lines.joined(separator: "\n")
     }
@@ -310,16 +313,16 @@ public struct EncodeSupport: Sendable {
     static var platformDescription: String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         #if targetEnvironment(simulator)
-        let environment = "simulator"
+            let environment = "simulator"
         #else
-        let environment = "device"
+            let environment = "device"
         #endif
         #if os(macOS)
-        let platform = "macOS"
+            let platform = "macOS"
         #elseif os(iOS)
-        let platform = "iOS"
+            let platform = "iOS"
         #else
-        let platform = "unknown platform"
+            let platform = "unknown platform"
         #endif
         return "\(platform) \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(environment))"
     }

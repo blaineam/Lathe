@@ -324,8 +324,9 @@ public actor GalleryFetcher {
             try await runtime.executeDetached(GalleryFetcherDriver.source)
         }
         if configuration.usesSystemNetworking {
-            guard await SystemNetworkDriver.register(
-                SystemNetworkDriver.registerGalleryDLFunction, in: runtime)
+            guard
+                await SystemNetworkDriver.register(
+                    SystemNetworkDriver.registerGalleryDLFunction, in: runtime)
             else { return }
         }
         driverIsInstalled = true

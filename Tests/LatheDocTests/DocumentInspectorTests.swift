@@ -40,9 +40,10 @@ struct DocumentInspectorTests {
         #expect(frames.frameCount == frameCount)
 
         let archive = try DocumentFixtures.write(
-            DocumentFixtures.zipArchive((0..<pageCount).map {
-                DocumentFixtures.ArchiveEntry(name: String(format: "page%02d.gif", $0), data: gif)
-            }),
+            DocumentFixtures.zipArchive(
+                (0..<pageCount).map {
+                    DocumentFixtures.ArchiveEntry(name: String(format: "page%02d.gif", $0), data: gif)
+                }),
             to: directory.appendingPathComponent("animated.cbz")
         )
 
@@ -237,7 +238,7 @@ struct DocumentInspectorTests {
         )
         let zipNamedPDF = try DocumentFixtures.write(
             DocumentFixtures.zipArchive([
-                DocumentFixtures.ArchiveEntry(name: "01.png", data: try DocumentFixtures.solidPNG()),
+                DocumentFixtures.ArchiveEntry(name: "01.png", data: try DocumentFixtures.solidPNG())
             ]),
             to: directory.appendingPathComponent("actually-a-zip.pdf")
         )
@@ -250,25 +251,27 @@ struct DocumentInspectorTests {
 
     // MARK: - The classification rule itself
 
-    @Test("page classification", arguments: [
-        ("001.jpg", true),
-        ("001.JPEG", true),
-        ("sub/dir/002.png", true),
-        ("003.gif", true),
-        ("004.webp", true),
-        ("005.tif", true),
-        ("pages/", false),
-        ("__MACOSX/._001.jpg", false),
-        ("__MACOSX/sub/001.jpg", false),
-        ("._001.jpg", false),
-        ("ComicInfo.xml", false),
-        (".DS_Store", false),
-        ("Thumbs.db", false),
-        ("desktop.ini", false),
-        ("readme.txt", false),
-        ("bundled.pdf", false),
-        ("noextension", false),
-    ])
+    @Test(
+        "page classification",
+        arguments: [
+            ("001.jpg", true),
+            ("001.JPEG", true),
+            ("sub/dir/002.png", true),
+            ("003.gif", true),
+            ("004.webp", true),
+            ("005.tif", true),
+            ("pages/", false),
+            ("__MACOSX/._001.jpg", false),
+            ("__MACOSX/sub/001.jpg", false),
+            ("._001.jpg", false),
+            ("ComicInfo.xml", false),
+            (".DS_Store", false),
+            ("Thumbs.db", false),
+            ("desktop.ini", false),
+            ("readme.txt", false),
+            ("bundled.pdf", false),
+            ("noextension", false),
+        ])
     func classification(_ name: String, _ isPage: Bool) {
         let entry = ZIPEntry(
             name: name,

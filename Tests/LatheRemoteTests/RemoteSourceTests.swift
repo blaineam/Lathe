@@ -191,9 +191,10 @@ struct RemoteSourceTests {
     /// downloading, because the answer still has to be correct.
     @Test("a server that ignores ranges falls back to downloading, and still counts correctly")
     func fallsBackWhenRangesAreIgnored() async throws {
-        let archive = DocumentFixtures.zipArchive((0..<5).map {
-            DocumentFixtures.ArchiveEntry(name: "p\($0).png", data: Data(repeating: 1, count: 64))
-        })
+        let archive = DocumentFixtures.zipArchive(
+            (0..<5).map {
+                DocumentFixtures.ArchiveEntry(name: "p\($0).png", data: Data(repeating: 1, count: 64))
+            })
         let transport = StubTransport(payload: archive, supportsRanges: false)
         let source = try MediaSource(URL(string: "https://example.com/comic.cbz")!)
 

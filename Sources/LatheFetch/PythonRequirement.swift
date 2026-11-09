@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These are the PEP 508 environment marker names.
+
 import Foundation
 
 // MARK: - The environment a marker is evaluated against
@@ -222,11 +225,11 @@ public indirect enum PythonMarker: Sendable, Equatable {
     /// that cannot be installed at all.
     public func evaluate(in environment: PythonMarkerEnvironment) -> Bool {
         switch self {
-        case let .and(left, right):
+        case .and(let left, let right):
             return left.evaluate(in: environment) && right.evaluate(in: environment)
-        case let .or(left, right):
+        case .or(let left, let right):
             return left.evaluate(in: environment) || right.evaluate(in: environment)
-        case let .comparison(left, comparison, right):
+        case .comparison(let left, let comparison, let right):
             return Self.evaluate(left, comparison, right, in: environment)
         }
     }
@@ -235,9 +238,9 @@ public indirect enum PythonMarker: Sendable, Equatable {
     /// a dependency was left out.
     public var mentionsExtra: Bool {
         switch self {
-        case let .and(left, right), let .or(left, right):
+        case .and(let left, let right), .or(let left, let right):
             return left.mentionsExtra || right.mentionsExtra
-        case let .comparison(left, _, right):
+        case .comparison(let left, _, let right):
             return left == .variable("extra") || right == .variable("extra")
         }
     }
@@ -248,7 +251,7 @@ public indirect enum PythonMarker: Sendable, Equatable {
         // `extra` is set-valued, so it is handled before the string machinery:
         // `extra == "socks"` asks whether socks is among the extras being
         // expanded, and `extra != "socks"` is its negation.
-        if case let .variable(name) = left, name == "extra", case let .literal(wanted) = right {
+        if case .variable(let name) = left, name == "extra", case .literal(let wanted) = right {
             let present = environment.activeExtras.contains(PythonRequirement.canonicalExtra(wanted))
             switch comparison {
             case .equal: return present
@@ -258,7 +261,7 @@ public indirect enum PythonMarker: Sendable, Equatable {
             default: return false
             }
         }
-        if case let .variable(name) = right, name == "extra", case let .literal(wanted) = left {
+        if case .variable(let name) = right, name == "extra", case .literal(let wanted) = left {
             let present = environment.activeExtras.contains(PythonRequirement.canonicalExtra(wanted))
             return comparison == .equal ? present : (comparison == .notEqual ? !present : false)
         }
@@ -298,14 +301,15 @@ public indirect enum PythonMarker: Sendable, Equatable {
     }
 
     private static func isVersionTerm(_ term: Term, in environment: PythonMarkerEnvironment) -> Bool {
-        if case let .variable(name) = term { return PythonMarkerEnvironment.versionVariables.contains(name) }
+        if case .variable(let name) = term { return PythonMarkerEnvironment.versionVariables.contains(name) }
         return false
     }
 
     private static func resolve(_ term: Term, in environment: PythonMarkerEnvironment) -> String? {
         switch term {
-        case let .literal(text): return text
-        case let .variable(name): return name == "extra" ? environment.activeExtras.sorted().first ?? "" : environment.value(for: name)
+        case .literal(let text): return text
+        case .variable(let name):
+            return name == "extra" ? environment.activeExtras.sorted().first ?? "" : environment.value(for: name)
         }
     }
 
@@ -357,7 +361,7 @@ public indirect enum PythonMarker: Sendable, Equatable {
         }
 
         let left = try parseTerm(&tokens, source: source)
-        guard case let .comparison(text)? = tokens.first, let comparison = Comparison(rawValue: text) else {
+        guard case .comparison(let text)? = tokens.first, let comparison = Comparison(rawValue: text) else {
             throw PythonPackageError.malformedRequirement(
                 source, reason: "expected a comparison operator in the marker")
         }
@@ -368,10 +372,10 @@ public indirect enum PythonMarker: Sendable, Equatable {
 
     private static func parseTerm(_ tokens: inout [MarkerToken], source: String) throws -> Term {
         switch tokens.first {
-        case let .identifier(name)?:
+        case .identifier(let name)?:
             tokens.removeFirst()
             return .variable(name)
-        case let .string(value)?:
+        case .string(let value)?:
             tokens.removeFirst()
             return .literal(value)
         default:
@@ -436,7 +440,8 @@ enum MarkerTokenizer {
                     index += 1
                 }
                 guard index < characters.count else {
-                    throw PythonPackageError.malformedRequirement(source, reason: "an unterminated string in the marker")
+                    throw PythonPackageError.malformedRequirement(
+                        source, reason: "an unterminated string in the marker")
                 }
                 index += 1
                 tokens.append(.string(value))
@@ -449,7 +454,9 @@ enum MarkerTokenizer {
             }
             if character.isLetter || character == "_" {
                 var word = ""
-                while index < characters.count, characters[index].isLetter || characters[index].isNumber || characters[index] == "_" {
+                while index < characters.count,
+                    characters[index].isLetter || characters[index].isNumber || characters[index] == "_"
+                {
                     word.append(characters[index])
                     index += 1
                 }
@@ -564,7 +571,8 @@ public struct PythonRequirement: Sendable, Equatable, CustomStringConvertible {
 
         // The name runs until the first `[`, a comparison character, or a space.
         var nameEnd = head.startIndex
-        while nameEnd < head.endIndex, head[nameEnd].isLetter || head[nameEnd].isNumber || "-_.".contains(head[nameEnd]) {
+        while nameEnd < head.endIndex, head[nameEnd].isLetter || head[nameEnd].isNumber || "-_.".contains(head[nameEnd])
+        {
             nameEnd = head.index(after: nameEnd)
         }
         let parsedName = String(head[head.startIndex..<nameEnd])

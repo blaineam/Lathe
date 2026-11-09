@@ -237,7 +237,7 @@ enum Clips {
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_2020,
             ]
             settings[AVVideoCompressionPropertiesKey] = [
-                AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main10_AutoLevel as String,
+                AVVideoProfileLevelKey: kVTProfileLevel_HEVC_Main10_AutoLevel as String
             ]
         }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
@@ -245,11 +245,13 @@ enum Clips {
         if options.portrait {
             input.transform = CGAffineTransform(rotationAngle: .pi / 2)
         }
-        let format = options.hdr
+        let format =
+            options.hdr
             ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
             : kCVPixelFormatType_32BGRA
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input, sourcePixelBufferAttributes: [
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
                 kCVPixelBufferPixelFormatTypeKey as String: format,
                 kCVPixelBufferWidthKey as String: options.width,
                 kCVPixelBufferHeightKey as String: options.height,
@@ -258,11 +260,13 @@ enum Clips {
 
         var audioInput: AVAssetWriterInput?
         if options.audio {
-            let audio = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1,
-                AVEncoderBitRateKey: 64_000,
-            ])
+            let audio = AVAssetWriterInput(
+                mediaType: .audio,
+                outputSettings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 1,
+                    AVEncoderBitRateKey: 64_000,
+                ])
             audio.expectsMediaDataInRealTime = false
             writer.add(audio)
             audioInput = audio
@@ -277,14 +281,17 @@ enum Clips {
         // until the other catches up, on a schedule the loop cannot see.
         // Each is only touched from its own track's serial queue.
         nonisolated(unsafe) let pool = try #require(adaptor.pixelBufferPool)
-        nonisolated(unsafe) let tone = options.audio
+        nonisolated(unsafe) let tone =
+            options.audio
             ? try toneSamples(seconds: Double(options.frames) / Double(options.fps))
             : []
         nonisolated(unsafe) let videoTrack = input
         nonisolated(unsafe) let pixelAdaptor = adaptor
         nonisolated(unsafe) let audioTrack = audioInput
-        let frames = options.frames, fps = options.fps
-        let width = options.width, height = options.height
+        let frames = options.frames
+        let fps = options.fps
+        let width = options.width
+        let height = options.height
 
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
@@ -297,8 +304,10 @@ enum Clips {
                             CVPixelBufferPoolCreatePixelBuffer(nil, pool, &buffer)
                             guard let pixels = buffer else { break }
                             fill(pixels, frame: frame, width: width, height: height)
-                            pixelAdaptor.append(pixels, withPresentationTime:
-                                CMTime(value: CMTimeValue(frame), timescale: fps))
+                            pixelAdaptor.append(
+                                pixels,
+                                withPresentationTime:
+                                    CMTime(value: CMTimeValue(frame), timescale: fps))
                             next.value += 1
                         }
                         if next.value >= frames {
@@ -464,9 +473,11 @@ enum Clips {
         // frames are counted without decoding, as on a machine with none.
         if codec != kCMVideoCodecType_AV1 || (VTIsHardwareDecodeSupported(codec) && !isVirtualMachine) {
             let reader = try AVAssetReader(asset: asset)
-            let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-            ])
+            let output = AVAssetReaderTrackOutput(
+                track: track,
+                outputSettings: [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                ])
             reader.add(output)
             #expect(reader.startReading())
             var count = 0

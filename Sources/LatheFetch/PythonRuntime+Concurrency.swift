@@ -166,8 +166,9 @@ extension PythonRuntime {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Report, any Error>) in
                     Self.workQueue.async {
                         do {
-                            continuation.resume(returning: try self.call(
-                                source, mode: mode, arguments: arguments, callID: callID))
+                            continuation.resume(
+                                returning: try self.call(
+                                    source, mode: mode, arguments: arguments, callID: callID))
                         } catch {
                             continuation.resume(throwing: error)
                         }

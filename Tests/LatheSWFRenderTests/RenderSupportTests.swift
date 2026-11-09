@@ -43,7 +43,7 @@ struct RenderSupportTests {
             try runtime.requireInstalled()
             Issue.record("expected a refusal")
         } catch let error as LatheError {
-            guard case let .unsupportedOnThisPlatform(feature) = error else {
+            guard case .unsupportedOnThisPlatform(let feature) = error else {
                 Issue.record("expected unsupportedOnThisPlatform, got \(error)")
                 return
             }

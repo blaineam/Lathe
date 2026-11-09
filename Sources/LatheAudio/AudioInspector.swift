@@ -239,8 +239,9 @@ public struct AudioInspector: Sendable {
         // the one way this estimate can be catastrophically wrong.
         let byteCount = AudioFiles.byteCount(of: url)
         if stream?.bitsPerSecond == nil,
-           let byteCount, byteCount > 0, duration > 0,
-           (try? await AudioFiles.loadTracks(of: asset, url: url))?.count == 1 {
+            let byteCount, byteCount > 0, duration > 0,
+            (try? await AudioFiles.loadTracks(of: asset, url: url))?.count == 1
+        {
             stream?.bitsPerSecond = Int((Double(byteCount) * 8 / duration).rounded())
         }
 
@@ -329,7 +330,7 @@ public struct AudioInspector: Sendable {
     static func channelLayoutData(of description: CMAudioFormatDescription) -> Data? {
         var size = 0
         guard let pointer = CMAudioFormatDescriptionGetChannelLayout(description, sizeOut: &size),
-              size > 0
+            size > 0
         else { return nil }
         return Data(bytes: pointer, count: size)
     }
@@ -347,16 +348,18 @@ public struct AudioInspector: Sendable {
         if locales.isEmpty {
             // No locale is declared; the nil-locale overload returns every group
             // regardless of language, which is what "how many chapters" means.
-            let groups = (try? await asset.loadChapterMetadataGroups(
-                bestMatchingPreferredLanguages: Locale.preferredLanguages
-            )) ?? []
+            let groups =
+                (try? await asset.loadChapterMetadataGroups(
+                    bestMatchingPreferredLanguages: Locale.preferredLanguages
+                )) ?? []
             return groups.count
         }
         var total = 0
         for locale in locales {
-            let groups = (try? await asset.loadChapterMetadataGroups(
-                withTitleLocale: locale, containingItemsWithCommonKeys: []
-            )) ?? []
+            let groups =
+                (try? await asset.loadChapterMetadataGroups(
+                    withTitleLocale: locale, containingItemsWithCommonKeys: []
+                )) ?? []
             total = max(total, groups.count)
         }
         return total
@@ -400,8 +403,8 @@ extension AudioStreamInfo {
     static func isLosslessFormat(_ formatID: AudioFormatID) -> Bool {
         switch formatID {
         case kAudioFormatLinearPCM,
-             kAudioFormatAppleLossless,
-             kAudioFormatFLAC:
+            kAudioFormatAppleLossless,
+            kAudioFormatFLAC:
             true
         default:
             false
@@ -414,10 +417,10 @@ extension AudioStreamInfo {
         case kAudioFormatAppleLossless: "alac"
         case kAudioFormatFLAC: "flac"
         case kAudioFormatMPEG4AAC,
-             kAudioFormatMPEG4AAC_HE,
-             kAudioFormatMPEG4AAC_HE_V2,
-             kAudioFormatMPEG4AAC_LD,
-             kAudioFormatMPEG4AAC_ELD:
+            kAudioFormatMPEG4AAC_HE,
+            kAudioFormatMPEG4AAC_HE_V2,
+            kAudioFormatMPEG4AAC_LD,
+            kAudioFormatMPEG4AAC_ELD:
             "aac"
         case kAudioFormatMPEGLayer3: "mp3"
         case kAudioFormatMPEGLayer1: "mp1"

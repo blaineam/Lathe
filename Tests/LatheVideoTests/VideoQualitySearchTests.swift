@@ -56,7 +56,8 @@ struct VideoQualitySearchTests {
         let audio = try await FixtureLibrary.shared.wav(named: "search-audio.wav", seconds: 1, audio: .silence)
         await #expect(throws: LatheError.self) {
             _ = try await VideoQualitySearch().run(
-                asset: AVURLAsset(url: audio), outputExtension: "mov") { _, _, _ in }
+                asset: AVURLAsset(url: audio), outputExtension: "mov"
+            ) { _, _, _ in }
         }
     }
 }

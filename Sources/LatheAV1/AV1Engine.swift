@@ -57,9 +57,9 @@ actor AV1Engine {
     /// budget.
     static var defaultPreset: Int {
         #if os(iOS)
-        return 10
+            return 10
         #else
-        return 8
+            return 8
         #endif
     }
 
@@ -93,24 +93,33 @@ actor AV1Engine {
             natural: naturalSize, transform: transform,
             maxDisplay: CGSize(width: config.width, height: config.height))
         guard coded.width >= 16, coded.height >= 16 else {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                "a \(coded.width)×\(coded.height) picture is too small to encode")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil,
+                reason:
+                    "a \(coded.width)×\(coded.height) picture is too small to encode")
         }
 
-        let frameRate = Double(config.frameRate > 0 ? config.frameRate
-                               : (nominalRate > 0 ? nominalRate : 30))
+        let frameRate = Double(
+            config.frameRate > 0
+                ? config.frameRate
+                : (nominalRate > 0 ? nominalRate : 30))
         let expectedFrames = max(1, Int((duration * frameRate).rounded()))
 
         // MARK: Reader
         let reader = try AVAssetReader(asset: asset)
-        let pixelFormat = tenBit
+        let pixelFormat =
+            tenBit
             ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
             : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-        let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
-        ])
+        let videoOutput = AVAssetReaderTrackOutput(
+            track: videoTrack,
+            outputSettings: [
+                kCVPixelBufferPixelFormatTypeKey as String: pixelFormat
+            ])
         videoOutput.alwaysCopiesSampleData = false
-        guard reader.canAdd(videoOutput) else { throw LatheError.readFailed(path: "the source", reason: "its video could not be read") }
+        guard reader.canAdd(videoOutput) else {
+            throw LatheError.readFailed(path: "the source", reason: "its video could not be read")
+        }
         reader.add(videoOutput)
 
         // MARK: Encoder
@@ -144,8 +153,10 @@ actor AV1Engine {
             throw LatheError.readFailed(path: "the source", reason: "its video could not be read")
         }
         guard writer.startWriting() else {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                writer.error?.localizedDescription ?? "the MP4 writer did not start")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil,
+                reason:
+                    writer.error?.localizedDescription ?? "the MP4 writer did not start")
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -154,7 +165,6 @@ actor AV1Engine {
         var scaler: PixelScaler?
         var sent = 0
         var firstTime: CMTime?
-
 
         do {
             while let sample = videoOutput.copyNextSampleBuffer() {
@@ -171,7 +181,8 @@ actor AV1Engine {
                 timeline.record(index: sent, time: CMTimeSubtract(pts, origin))
 
                 if CVPixelBufferGetWidth(pixels) != coded.width
-                    || CVPixelBufferGetHeight(pixels) != coded.height {
+                    || CVPixelBufferGetHeight(pixels) != coded.height
+                {
                     if scaler == nil {
                         scaler = try PixelScaler(
                             width: coded.width, height: coded.height, format: pixelFormat)
@@ -182,16 +193,19 @@ actor AV1Engine {
                 try encoder.send(pixels, index: sent)
                 sent += 1
                 try await drain(
-                encoder, final: false, timeline: &timeline, format: formatDescription,
-                to: videoInput, writer: writer, audio: audio)
-                _ = progress.report(LatheProgress(
-                    fraction: min(0.99, Double(sent) / Double(expectedFrames)),
-                    stage: "av1", unitIndex: UInt64(sent), unitCount: UInt64(expectedFrames)))
+                    encoder, final: false, timeline: &timeline, format: formatDescription,
+                    to: videoInput, writer: writer, audio: audio)
+                _ = progress.report(
+                    LatheProgress(
+                        fraction: min(0.99, Double(sent) / Double(expectedFrames)),
+                        stage: "av1", unitIndex: UInt64(sent), unitCount: UInt64(expectedFrames)))
             }
 
             if reader.status == .failed {
-                throw LatheError.encodingFailed(stage: "av1", code: nil, reason:
-                    reader.error?.localizedDescription ?? "the source could not be read")
+                throw LatheError.encodingFailed(
+                    stage: "av1", code: nil,
+                    reason:
+                        reader.error?.localizedDescription ?? "the source could not be read")
             }
             guard sent > 0 else { throw LatheError.invalidInput(reason: "the source has no video to encode") }
 
@@ -209,8 +223,10 @@ actor AV1Engine {
 
             await writer.finishWriting()
             guard writer.status == .completed else {
-                throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                    writer.error?.localizedDescription ?? "the MP4 could not be finished")
+                throw LatheError.encodingFailed(
+                    stage: "av1", code: nil,
+                    reason:
+                        writer.error?.localizedDescription ?? "the MP4 could not be finished")
             }
         } catch {
             reader.cancelReading()
@@ -219,8 +235,9 @@ actor AV1Engine {
             throw error
         }
 
-        _ = progress.report(LatheProgress(
-            fraction: 1, stage: "av1", unitIndex: UInt64(sent), unitCount: UInt64(sent)))
+        _ = progress.report(
+            LatheProgress(
+                fraction: 1, stage: "av1", unitIndex: UInt64(sent), unitCount: UInt64(sent)))
         return Summary(
             width: coded.width, height: coded.height, frameCount: sent,
             tenBit: tenBit, hasAudio: audio != nil)
@@ -274,8 +291,10 @@ actor AV1Engine {
 
         while !input.isReadyForMoreMediaData {
             if writer.status == .failed {
-                throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                    writer.error?.localizedDescription ?? "the MP4 writer failed")
+                throw LatheError.encodingFailed(
+                    stage: "av1", code: nil,
+                    reason:
+                        writer.error?.localizedDescription ?? "the MP4 writer failed")
             }
             // The writer holds video back until the audio catches up, so
             // waiting without feeding it audio is a deadlock. Lead by a second.
@@ -287,8 +306,10 @@ actor AV1Engine {
             try await Task.sleep(for: .milliseconds(2))
         }
         guard input.append(sample) else {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                writer.error?.localizedDescription ?? "the MP4 writer refused a frame")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil,
+                reason:
+                    writer.error?.localizedDescription ?? "the MP4 writer refused a frame")
         }
         timeline.lastAppended = CMTimeAdd(timing.presentationTimeStamp, timing.duration)
     }
@@ -299,11 +320,13 @@ actor AV1Engine {
         natural: CGSize, transform: CGAffineTransform, maxDisplay: CGSize
     ) -> (width: Int, height: Int) {
         let shown = natural.applying(transform)
-        let shownWidth = abs(shown.width), shownHeight = abs(shown.height)
+        let shownWidth = abs(shown.width)
+        let shownHeight = abs(shown.height)
         var scale = 1.0
         if shownWidth > 0, shownHeight > 0, maxDisplay.width > 0, maxDisplay.height > 0 {
-            scale = min(1, Double(maxDisplay.width / shownWidth),
-                        Double(maxDisplay.height / shownHeight))
+            scale = min(
+                1, Double(maxDisplay.width / shownWidth),
+                Double(maxDisplay.height / shownHeight))
         }
         let width = Int((natural.width * scale).rounded(.down))
         let height = Int((natural.height * scale).rounded(.down))
@@ -338,8 +361,10 @@ private final class SVTSession: @unchecked Sendable {
     private var cr: UnsafeMutableRawPointer
     private var closed = false
 
-    init(width: Int, height: Int, frameRate: Double, bitrate: Int,
-         preset: Int, tenBit: Bool, color: SourceColor) throws {
+    init(
+        width: Int, height: Int, frameRate: Double, bitrate: Int,
+        preset: Int, tenBit: Bool, color: SourceColor
+    ) throws {
         self.width = width
         self.height = height
         self.tenBit = tenBit
@@ -460,7 +485,8 @@ private final class SVTSession: @unchecked Sendable {
         // EB_BUFFERFLAG_ERROR_MASK, spelled out because a macro with a line
         // continuation does not reliably import).
         if header.flags & 0xFFFF_FFF0 != 0 {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "the encoder reported an error in its output")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil, reason: "the encoder reported an error in its output")
         }
         let data: Data
         if let bytes = header.p_buffer, header.n_filled_len > 0 {
@@ -482,8 +508,8 @@ private final class SVTSession: @unchecked Sendable {
     /// most-significant-bit-aligned ones Core Video stores.
     private func copyPlanes(from pixels: CVPixelBuffer) throws {
         guard CVPixelBufferGetPlaneCount(pixels) == 2,
-              CVPixelBufferGetWidth(pixels) == width,
-              CVPixelBufferGetHeight(pixels) == height
+            CVPixelBufferGetWidth(pixels) == width,
+            CVPixelBufferGetHeight(pixels) == height
         else {
             throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "a decoded frame had an unexpected layout")
         }
@@ -491,11 +517,12 @@ private final class SVTSession: @unchecked Sendable {
         defer { CVPixelBufferUnlockBaseAddress(pixels, .readOnly) }
 
         guard let yBase = CVPixelBufferGetBaseAddressOfPlane(pixels, 0),
-              let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixels, 1)
+            let uvBase = CVPixelBufferGetBaseAddressOfPlane(pixels, 1)
         else { throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "a decoded frame had no pixels") }
         let yStride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
         let uvStride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 1)
-        let chromaWidth = width / 2, chromaHeight = height / 2
+        let chromaWidth = width / 2
+        let chromaHeight = height / 2
 
         if tenBit {
             let y = luma.assumingMemoryBound(to: UInt16.self)
@@ -510,7 +537,8 @@ private final class SVTSession: @unchecked Sendable {
             }
             for row in 0..<chromaHeight {
                 let from = uvSource + row * (uvStride / 2)
-                let toU = u + row * chromaWidth, toV = v + row * chromaWidth
+                let toU = u + row * chromaWidth
+                let toV = v + row * chromaWidth
                 for col in 0..<chromaWidth {
                     toU[col] = from[col * 2] >> 6
                     toV[col] = from[col * 2 + 1] >> 6
@@ -527,7 +555,8 @@ private final class SVTSession: @unchecked Sendable {
             }
             for row in 0..<chromaHeight {
                 let from = uvSource + row * uvStride
-                let toU = u + row * chromaWidth, toV = v + row * chromaWidth
+                let toU = u + row * chromaWidth
+                let toV = v + row * chromaWidth
                 for col in 0..<chromaWidth {
                     toU[col] = from[col * 2]
                     toV[col] = from[col * 2 + 1]
@@ -538,8 +567,10 @@ private final class SVTSession: @unchecked Sendable {
 
     private static func check(_ status: EbErrorType, _ what: String) throws {
         guard status == EB_ErrorNone else {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: 
-                "SVT-AV1 could not \(what) (0x\(String(UInt32(truncatingIfNeeded: status.rawValue), radix: 16)))")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil,
+                reason:
+                    "SVT-AV1 could not \(what) (0x\(String(UInt32(truncatingIfNeeded: status.rawValue), radix: 16)))")
         }
     }
 }
@@ -588,19 +619,22 @@ private final class PixelScaler: @unchecked Sendable {
     init(width: Int, height: Int, format: OSType) throws {
         var created: VTPixelTransferSession?
         guard VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &created) == noErr,
-              let created
+            let created
         else { throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "could not create a scaler") }
         session = created
-        VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_ScalingMode,
-                             value: kVTScalingMode_Normal)
+        VTSessionSetProperty(
+            session, key: kVTPixelTransferPropertyKey_ScalingMode,
+            value: kVTScalingMode_Normal)
 
         var madePool: CVPixelBufferPool?
-        CVPixelBufferPoolCreate(nil, nil, [
-            kCVPixelBufferPixelFormatTypeKey: format,
-            kCVPixelBufferWidthKey: width,
-            kCVPixelBufferHeightKey: height,
-            kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
-        ] as CFDictionary, &madePool)
+        CVPixelBufferPoolCreate(
+            nil, nil,
+            [
+                kCVPixelBufferPixelFormatTypeKey: format,
+                kCVPixelBufferWidthKey: width,
+                kCVPixelBufferHeightKey: height,
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            ] as CFDictionary, &madePool)
         guard let madePool else {
             throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "could not allocate scaled frames")
         }
@@ -613,7 +647,7 @@ private final class PixelScaler: @unchecked Sendable {
         var output: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
         guard let output,
-              VTPixelTransferSessionTransferImage(session, from: source, to: output) == noErr
+            VTPixelTransferSessionTransferImage(session, from: source, to: output) == noErr
         else { throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "could not scale a frame") }
         return output
     }
@@ -656,18 +690,23 @@ private final class AudioCarrier: @unchecked Sendable {
             return AudioCarrier(output: rawOutput, input: passthrough)
         }
 
-        let decoded = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-        ])
-        let channels = hint.flatMap {
-            CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame
-        } ?? 2
-        let aac = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVNumberOfChannelsKey: min(max(Int(channels), 1), 2),
-            AVSampleRateKey: 48_000,
-            AVEncoderBitRateKey: 160_000,
-        ])
+        let decoded = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM
+            ])
+        let channels =
+            hint.flatMap {
+                CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee.mChannelsPerFrame
+            } ?? 2
+        let aac = AVAssetWriterInput(
+            mediaType: .audio,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVNumberOfChannelsKey: min(max(Int(channels), 1), 2),
+                AVSampleRateKey: 48_000,
+                AVEncoderBitRateKey: 160_000,
+            ])
         aac.expectsMediaDataInRealTime = false
         guard writer.canAdd(aac), reader.canAdd(decoded) else { return nil }
         writer.add(aac)
@@ -732,55 +771,64 @@ struct SourceColor: Sendable, Equatable {
 
     init(_ format: CMFormatDescription?) {
         guard let format,
-              let ext = CMFormatDescriptionGetExtensions(format) as? [CFString: Any]
+            let ext = CMFormatDescriptionGetExtensions(format) as? [CFString: Any]
         else { return }
 
         func code(_ key: CFString, _ table: [CFString: UInt32], default fallback: UInt32) -> UInt32 {
             guard let name = ext[key] as? String else { return fallback }
             return table.first { ($0.key as String) == name }?.value ?? fallback
         }
-        primaries = code(kCMFormatDescriptionExtension_ColorPrimaries, [
-            kCVImageBufferColorPrimaries_ITU_R_2020: 9,
-            kCVImageBufferColorPrimaries_P3_D65: 12,
-            kCVImageBufferColorPrimaries_SMPTE_C: 6,
-            kCVImageBufferColorPrimaries_EBU_3213: 5,
-        ], default: 1)
-        transfer = code(kCMFormatDescriptionExtension_TransferFunction, [
-            kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ: 16,
-            kCVImageBufferTransferFunction_ITU_R_2100_HLG: 18,
-            kCVImageBufferTransferFunction_sRGB: 13,
-            kCVImageBufferTransferFunction_Linear: 8,
-            kCVImageBufferTransferFunction_ITU_R_2020: 14,
-        ], default: 1)
-        matrix = code(kCMFormatDescriptionExtension_YCbCrMatrix, [
-            kCVImageBufferYCbCrMatrix_ITU_R_2020: 9,
-            kCVImageBufferYCbCrMatrix_ITU_R_601_4: 6,
-        ], default: 1)
+        primaries = code(
+            kCMFormatDescriptionExtension_ColorPrimaries,
+            [
+                kCVImageBufferColorPrimaries_ITU_R_2020: 9,
+                kCVImageBufferColorPrimaries_P3_D65: 12,
+                kCVImageBufferColorPrimaries_SMPTE_C: 6,
+                kCVImageBufferColorPrimaries_EBU_3213: 5,
+            ], default: 1)
+        transfer = code(
+            kCMFormatDescriptionExtension_TransferFunction,
+            [
+                kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ: 16,
+                kCVImageBufferTransferFunction_ITU_R_2100_HLG: 18,
+                kCVImageBufferTransferFunction_sRGB: 13,
+                kCVImageBufferTransferFunction_Linear: 8,
+                kCVImageBufferTransferFunction_ITU_R_2020: 14,
+            ], default: 1)
+        matrix = code(
+            kCMFormatDescriptionExtension_YCbCrMatrix,
+            [
+                kCVImageBufferYCbCrMatrix_ITU_R_2020: 9,
+                kCVImageBufferYCbCrMatrix_ITU_R_601_4: 6,
+            ], default: 1)
         if let depth = ext["BitsPerComponent" as CFString] as? Int { bitsPerComponent = depth }
     }
 
     /// The same, spelled the way a Core Media format description wants it.
     var formatExtensions: [CFString: Any] {
-        let primariesName: CFString = switch primaries {
-        case 9: kCVImageBufferColorPrimaries_ITU_R_2020
-        case 12: kCVImageBufferColorPrimaries_P3_D65
-        case 6: kCVImageBufferColorPrimaries_SMPTE_C
-        case 5: kCVImageBufferColorPrimaries_EBU_3213
-        default: kCVImageBufferColorPrimaries_ITU_R_709_2
-        }
-        let transferName: CFString = switch transfer {
-        case 16: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
-        case 18: kCVImageBufferTransferFunction_ITU_R_2100_HLG
-        case 13: kCVImageBufferTransferFunction_sRGB
-        case 8: kCVImageBufferTransferFunction_Linear
-        case 14: kCVImageBufferTransferFunction_ITU_R_2020
-        default: kCVImageBufferTransferFunction_ITU_R_709_2
-        }
-        let matrixName: CFString = switch matrix {
-        case 9: kCVImageBufferYCbCrMatrix_ITU_R_2020
-        case 6: kCVImageBufferYCbCrMatrix_ITU_R_601_4
-        default: kCVImageBufferYCbCrMatrix_ITU_R_709_2
-        }
+        let primariesName: CFString =
+            switch primaries {
+            case 9: kCVImageBufferColorPrimaries_ITU_R_2020
+            case 12: kCVImageBufferColorPrimaries_P3_D65
+            case 6: kCVImageBufferColorPrimaries_SMPTE_C
+            case 5: kCVImageBufferColorPrimaries_EBU_3213
+            default: kCVImageBufferColorPrimaries_ITU_R_709_2
+            }
+        let transferName: CFString =
+            switch transfer {
+            case 16: kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ
+            case 18: kCVImageBufferTransferFunction_ITU_R_2100_HLG
+            case 13: kCVImageBufferTransferFunction_sRGB
+            case 8: kCVImageBufferTransferFunction_Linear
+            case 14: kCVImageBufferTransferFunction_ITU_R_2020
+            default: kCVImageBufferTransferFunction_ITU_R_709_2
+            }
+        let matrixName: CFString =
+            switch matrix {
+            case 9: kCVImageBufferYCbCrMatrix_ITU_R_2020
+            case 6: kCVImageBufferYCbCrMatrix_ITU_R_601_4
+            default: kCVImageBufferYCbCrMatrix_ITU_R_709_2
+            }
         return [
             kCMFormatDescriptionExtension_ColorPrimaries: primariesName,
             kCMFormatDescriptionExtension_TransferFunction: transferName,
@@ -877,7 +925,7 @@ enum AV1Bitstream {
         }
         var reader = BitReader(bytes: Array(bytes[cursor..<unit.range.upperBound]))
         guard let profile = reader.read(3) else { return nil }
-        _ = reader.read(1) // still_picture
+        _ = reader.read(1)  // still_picture
         guard let reduced = reader.read(1) else { return nil }
         if reduced == 1 {
             guard let level = reader.read(5) else { return nil }
@@ -886,16 +934,20 @@ enum AV1Bitstream {
         guard let timingPresent = reader.read(1) else { return nil }
         var decoderModelPresent: UInt32 = 0
         if timingPresent == 1 {
-            _ = reader.read(32); _ = reader.read(32)
+            _ = reader.read(32)
+            _ = reader.read(32)
             if reader.read(1) == 1 { _ = reader.uvlc() }
             decoderModelPresent = reader.read(1) ?? 0
             if decoderModelPresent == 1 {
-                _ = reader.read(5); _ = reader.read(32); _ = reader.read(5); _ = reader.read(5)
+                _ = reader.read(5)
+                _ = reader.read(32)
+                _ = reader.read(5)
+                _ = reader.read(5)
             }
         }
-        _ = reader.read(1) // initial_display_delay_present_flag
-        _ = reader.read(5) // operating_points_cnt_minus_1
-        _ = reader.read(12) // operating_point_idc[0]
+        _ = reader.read(1)  // initial_display_delay_present_flag
+        _ = reader.read(5)  // operating_points_cnt_minus_1
+        _ = reader.read(12)  // operating_point_idc[0]
         guard let level = reader.read(5) else { return nil }
         let tier = level > 7 ? (reader.read(1) ?? 0) : 0
         return SequenceInfo(profile: UInt8(profile), level: UInt8(level), tier: UInt8(tier))
@@ -903,14 +955,15 @@ enum AV1Bitstream {
 
     /// The `av1C` box body (AV1-ISOBMFF §2.3.3).
     static func configurationRecord(sequenceHeader: Data, tenBit: Bool) -> Data {
-        let info = sequenceInfo(from: sequenceHeader)
+        let info =
+            sequenceInfo(from: sequenceHeader)
             ?? SequenceInfo(profile: 0, level: 31, tier: 0)
         var record = Data()
-        record.append(0x81) // marker, version 1
+        record.append(0x81)  // marker, version 1
         record.append((info.profile << 5) | (info.level & 0x1F))
         // tier, high_bitdepth, twelve_bit, monochrome, subsampling x/y, chroma position
         record.append((info.tier << 7) | (tenBit ? 0x40 : 0) | 0x08 | 0x04)
-        record.append(0x00) // no initial presentation delay
+        record.append(0x00)  // no initial presentation delay
         // Only the sequence header travels in configOBUs.
         if let unit = obus(in: sequenceHeader).first(where: { $0.type == sequenceHeaderType }) {
             let base = sequenceHeader.startIndex
@@ -923,9 +976,10 @@ enum AV1Bitstream {
         sequenceHeader: Data, width: Int, height: Int, tenBit: Bool, color: SourceColor
     ) throws -> CMFormatDescription {
         var extensions = color.formatExtensions
-        extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] = [
-            "av1C": configurationRecord(sequenceHeader: sequenceHeader, tenBit: tenBit),
-        ] as CFDictionary
+        extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] =
+            [
+                "av1C": configurationRecord(sequenceHeader: sequenceHeader, tenBit: tenBit)
+            ] as CFDictionary
         extensions[kCMFormatDescriptionExtension_Depth] = 24
         extensions[kCMFormatDescriptionExtension_FormatName] = "AOMedia Video 1"
 
@@ -936,7 +990,8 @@ enum AV1Bitstream {
             extensions: extensions as CFDictionary,
             formatDescriptionOut: &description)
         guard status == noErr, let description else {
-            throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "could not describe the AV1 track (\(status))")
+            throw LatheError.encodingFailed(
+                stage: "av1", code: nil, reason: "could not describe the AV1 track (\(status))")
         }
         return description
     }
@@ -973,8 +1028,9 @@ enum AV1Bitstream {
             throw LatheError.encodingFailed(stage: "av1", code: nil, reason: "could not wrap a sample (\(status))")
         }
         if !isSync,
-           let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
-           CFArrayGetCount(attachments) > 0 {
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
+            CFArrayGetCount(attachments) > 0
+        {
             let dictionary = unsafeBitCast(
                 CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
             CFDictionarySetValue(
@@ -1013,4 +1069,3 @@ private struct BitReader {
         return read(leadingZeros)
     }
 }
-

@@ -43,8 +43,9 @@ struct ImageInspectorTests {
 
             #expect(info.frameDelays.count == 3)
             for (actual, expected) in zip(info.frameDelays, delays) {
-                #expect(abs(actual - expected) < 0.005,
-                        "delay \(actual) should be \(expected)")
+                #expect(
+                    abs(actual - expected) < 0.005,
+                    "delay \(actual) should be \(expected)")
             }
             let duration = try #require(info.duration)
             #expect(abs(duration - 1.0) < 0.01, "three unequal delays should sum to 1.0s")
@@ -89,8 +90,9 @@ struct ImageInspectorTests {
             #expect(abs(info.frameDelays[2] - 0.5) < 0.005)
 
             let duration = try #require(info.duration)
-            #expect(abs(duration - 0.7) < 0.01,
-                    "0 + 0 + 0.5 must be 0.1 + 0.1 + 0.5, not 0.5")
+            #expect(
+                abs(duration - 0.7) < 0.01,
+                "0 + 0 + 0.5 must be 0.1 + 0.1 + 0.5, not 0.5")
             #expect(duration > 0)
         }
     }
@@ -103,8 +105,9 @@ struct ImageInspectorTests {
         try await Fixtures.withDirectory { directory in
             let animated = try Fixtures.animatedPNG(in: directory, delays: [0.1, 0.4])
             let info = try inspector.inspect(animated)
-            print("  APNG: \(info.frameCount) frames, animated=\(info.isAnimated), "
-                  + "duration=\(info.duration.map { String(format: "%.3f", $0) } ?? "nil")")
+            print(
+                "  APNG: \(info.frameCount) frames, animated=\(info.isAnimated), "
+                    + "duration=\(info.duration.map { String(format: "%.3f", $0) } ?? "nil")")
 
             // ImageIO's APNG writer is real but has been known to vary; if it
             // produced a single frame there is nothing to assert about animation.
@@ -141,9 +144,10 @@ struct ImageInspectorTests {
                 in: directory, delays: [0.08, 0.32], loopCount: 3
             )
             let info = try inspector.inspect(url)
-            print("  animated WebP: \(info.frameCount) frames, animated=\(info.isAnimated), "
-                  + "duration=\(info.duration.map { String(format: "%.3f", $0) } ?? "nil"), "
-                  + "loop=\(info.loopCount.map(String.init) ?? "nil")")
+            print(
+                "  animated WebP: \(info.frameCount) frames, animated=\(info.isAnimated), "
+                    + "duration=\(info.duration.map { String(format: "%.3f", $0) } ?? "nil"), "
+                    + "loop=\(info.loopCount.map(String.init) ?? "nil")")
 
             #expect(info.format == .webp)
             #expect(info.frameCount == 2)
@@ -177,9 +181,10 @@ struct ImageInspectorTests {
             let requested: [TimeInterval] = [0.15, 0.35]
             let url = try Fixtures.animatedHEICS(in: directory, delays: requested)
             let info = try inspector.inspect(url)
-            print("  HEICS: \(info.frameCount) frames, animated=\(info.isAnimated), "
-                  + "requested \(requested), read back "
-                  + "\(info.frameDelays.map { String(format: "%.3f", $0) })")
+            print(
+                "  HEICS: \(info.frameCount) frames, animated=\(info.isAnimated), "
+                    + "requested \(requested), read back "
+                    + "\(info.frameDelays.map { String(format: "%.3f", $0) })")
             if abs(info.frameDelays.reduce(0, +) - requested.reduce(0, +)) > 0.02 {
                 print("  ! ImageIO's HEICS writer did not round-trip the requested delays")
             }
@@ -190,8 +195,9 @@ struct ImageInspectorTests {
             #expect(info.frameDelays.count == 2)
             let duration = try #require(info.duration)
             #expect(duration > 0)
-            #expect(abs(duration - info.frameDelays.reduce(0, +)) < 0.0001,
-                    "the duration must be the sum of the delays that were actually read")
+            #expect(
+                abs(duration - info.frameDelays.reduce(0, +)) < 0.0001,
+                "the duration must be the sum of the delays that were actually read")
         }
     }
 
@@ -229,16 +235,18 @@ struct ImageInspectorTests {
 
             #expect(info.format == .gif)
             #expect(info.frameCount == 1)
-            #expect(!info.isAnimated,
-                    "one frame is a still even when the container can hold timing")
+            #expect(
+                !info.isAnimated,
+                "one frame is a still even when the container can hold timing")
             #expect(!info.isMultiPageStill)
             #expect(info.duration == nil)
             #expect(info.frameDelays.isEmpty)
         }
     }
 
-    @Test("a plain still is one frame, not animated, no duration",
-          arguments: [ImageFormat.png, .jpeg])
+    @Test(
+        "a plain still is one frame, not animated, no duration",
+        arguments: [ImageFormat.png, .jpeg])
     func plainStills(format: ImageFormat) async throws {
         try await Fixtures.withDirectory { directory in
             let size = PixelSize(width: 24, height: 16)
@@ -311,8 +319,9 @@ struct ImageInspectorTests {
         #expect(ImageFormat.named(byTypeIdentifier: format.typeIdentifier.uppercased()) == format)
     }
 
-    @Test("an unknown type identifier names no format",
-          arguments: ["", "public.text", "com.apple.quicktime-movie", "public.jpegg"])
+    @Test(
+        "an unknown type identifier names no format",
+        arguments: ["", "public.text", "com.apple.quicktime-movie", "public.jpegg"])
     func unknownTypeIdentifier(_ identifier: String) {
         #expect(ImageFormat.named(byTypeIdentifier: identifier) == nil)
     }

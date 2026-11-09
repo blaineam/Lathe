@@ -59,7 +59,7 @@ struct PythonConcurrencyTests {
         let error = await #expect(throws: PythonError.self) {
             try await runtime.executeDetached("raise ValueError('from a worker thread')")
         }
-        guard case let .raised(exception) = error else {
+        guard case .raised(let exception) = error else {
             Issue.record("expected .raised, got \(String(describing: error))")
             return
         }
@@ -73,7 +73,7 @@ struct PythonConcurrencyTests {
         let error = await #expect(throws: PythonError.self) {
             try await runtime.importModuleDetached("a_module_that_is_not_installed_anywhere")
         }
-        guard case let .raised(exception) = error else { return }
+        guard case .raised(let exception) = error else { return }
         #expect(exception.message.contains("sys.path"))
     }
 
@@ -120,8 +120,9 @@ struct PythonConcurrencyTests {
         #expect(everythingTook >= 1.4, "the Python call did not actually take the time it slept for")
     }
 
-    @Test("many detached calls run concurrently and keep their own answers",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "many detached calls run concurrently and keep their own answers",
+        .enabled(if: SharedInterpreter.isAvailable))
     func runsConcurrently() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
 
@@ -175,7 +176,7 @@ struct PythonConcurrencyTests {
         switch result {
         case .success:
             Issue.record("the call ran to completion; the interrupt was not delivered")
-        case let .failure(error):
+        case .failure(let error):
             #expect(error is CancellationError, "expected CancellationError, got \(error)")
         }
         #expect(stoppingTook < 5, "the interrupt took \(stoppingTook)s to land")
@@ -208,8 +209,9 @@ struct PythonConcurrencyTests {
             "the cancelled call ran anyway")
     }
 
-    @Test("a KeyboardInterrupt that is not a cancellation stays a Python error",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "a KeyboardInterrupt that is not a cancellation stays a Python error",
+        .enabled(if: SharedInterpreter.isAvailable))
     func doesNotMisreportPythonsOwnInterrupt() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         // Python raising KeyboardInterrupt by itself, in a task nobody
@@ -218,7 +220,7 @@ struct PythonConcurrencyTests {
         let error = await #expect(throws: PythonError.self) {
             try await runtime.executeDetached("raise KeyboardInterrupt('not a cancellation')")
         }
-        guard case let .raised(exception) = error else {
+        guard case .raised(let exception) = error else {
             Issue.record("expected .raised, got \(String(describing: error))")
             return
         }

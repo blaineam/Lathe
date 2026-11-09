@@ -124,7 +124,7 @@ public struct SWFCapture: Sendable {
     public func header(of url: URL) throws -> SWFHeader {
         let name = url.lastPathComponent
         if let prefix = try? Self.readPrefix(of: url, byteCount: 64 * 1024),
-           let header = try? SWFReader.open(prefix, name: name, limits: limits).header
+            let header = try? SWFReader.open(prefix, name: name, limits: limits).header
         {
             return header
         }

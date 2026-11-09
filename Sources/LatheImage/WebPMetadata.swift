@@ -1,9 +1,8 @@
+import CWebP
 import CoreGraphics
 import Foundation
 import ImageIO
 import LatheCore
-
-import CWebP
 
 /// The metadata chunks of an extended WebP, built from an ImageIO properties
 /// dictionary.
@@ -69,9 +68,11 @@ struct WebPMetadataChunks: Sendable, Equatable {
             )
         }
         let buffer = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            buffer as CFMutableData, "public.jpeg" as CFString, 1, nil
-        ) else {
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                buffer as CFMutableData, "public.jpeg" as CFString, 1, nil
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "metadata", code: nil,
                 reason: "ImageIO would not open a JPEG destination to serialise WebP metadata"
@@ -115,16 +116,21 @@ struct WebPMetadataChunks: Sendable, Equatable {
         // EXIF and TIFF are special: ImageIO reports both for nearly every file,
         // PNGs included, holding nothing but facts about the pixels — which the
         // encoder states anyway — and the orientation already checked above.
-        return hasContent(properties[kCGImagePropertyExifDictionary], ignoring: [
-            kCGImagePropertyExifPixelXDimension,
-            kCGImagePropertyExifPixelYDimension,
-            kCGImagePropertyExifColorSpace,
-        ]) || hasContent(properties[kCGImagePropertyTIFFDictionary], ignoring: [
-            kCGImagePropertyTIFFOrientation,
-            kCGImagePropertyTIFFXResolution,
-            kCGImagePropertyTIFFYResolution,
-            kCGImagePropertyTIFFResolutionUnit,
-        ])
+        return hasContent(
+            properties[kCGImagePropertyExifDictionary],
+            ignoring: [
+                kCGImagePropertyExifPixelXDimension,
+                kCGImagePropertyExifPixelYDimension,
+                kCGImagePropertyExifColorSpace,
+            ])
+            || hasContent(
+                properties[kCGImagePropertyTIFFDictionary],
+                ignoring: [
+                    kCGImagePropertyTIFFOrientation,
+                    kCGImagePropertyTIFFXResolution,
+                    kCGImagePropertyTIFFYResolution,
+                    kCGImagePropertyTIFFResolutionUnit,
+                ])
     }
 
     private static func hasContent(_ dictionary: Any?, ignoring structural: [CFString]) -> Bool {
@@ -206,8 +212,8 @@ struct WebPMetadataChunks: Sendable, Equatable {
         }
 
         guard let ifd0 = read(4, 4),
-              let exifPointer = entries(ofIFDAt: ifd0).first(where: { read($0, 2) == 0x8769 }),
-              let exifIFD = read(exifPointer + 8, 4)
+            let exifPointer = entries(ofIFDAt: ifd0).first(where: { read($0, 2) == 0x8769 }),
+            let exifIFD = read(exifPointer + 8, 4)
         else { return }
 
         for entry in entries(ofIFDAt: exifIFD) {
@@ -222,7 +228,7 @@ struct WebPMetadataChunks: Sendable, Equatable {
             case 3 where value <= Int(UInt16.max):  // SHORT, left-justified in the field
                 write(value, at: entry + 8, 2)
                 write(0, at: entry + 10, 2)
-            case 4:                                 // LONG
+            case 4:  // LONG
                 write(value, at: entry + 8, 4)
             default:
                 continue

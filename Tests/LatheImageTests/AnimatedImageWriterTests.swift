@@ -44,8 +44,9 @@ struct AnimatedImageWriterTests {
     /// through a second copy of the key table is deliberate — it is the same
     /// table, so a writer that put the delay in the wrong dictionary would be
     /// caught here as "not animated" rather than silently agreeing with itself.
-    @Test("a run of stills becomes an animation that plays, in order",
-          arguments: AnimatedImageWriterTests.writableFormats)
+    @Test(
+        "a run of stills becomes an animation that plays, in order",
+        arguments: AnimatedImageWriterTests.writableFormats)
     func roundTrip(_ format: ImageFormat) throws {
         let directory = try temporaryDirectory("roundtrip-\(format.rawValue)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -81,8 +82,9 @@ struct AnimatedImageWriterTests {
         for (index, image) in decoded.enumerated() {
             let expected = Double(FrameFixtures.gray(index, of: 6))
             let measured = try FrameFixtures.centreGray(of: image)
-            #expect(abs(measured - expected) < 0.05,
-                    "frame \(index + 1) reads \(measured), expected \(expected)")
+            #expect(
+                abs(measured - expected) < 0.05,
+                "frame \(index + 1) reads \(measured), expected \(expected)")
         }
     }
 
@@ -230,8 +232,9 @@ struct AnimatedImageWriterTests {
         #expect(throws: LatheError.self) {
             try writer.write(FrameSequence([]), to: output, format: .gif)
         }
-        #expect(!FileManager.default.fileExists(atPath: output.path),
-                "a refusal must not leave a file behind")
+        #expect(
+            !FileManager.default.fileExists(atPath: output.path),
+            "a refusal must not leave a file behind")
     }
 
     /// One frame is legal. It produces a container holding a single image, which
@@ -261,11 +264,13 @@ struct AnimatedImageWriterTests {
         let directory = try temporaryDirectory("mismatch")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 80, height: 60),
-            CGSize(width: 40, height: 40),
-            CGSize(width: 200, height: 50),
-        ])
+        try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 80, height: 60),
+                CGSize(width: 40, height: 40),
+                CGSize(width: 200, height: 50),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
         let output = directory.appendingPathComponent("out.gif")
 
@@ -273,8 +278,9 @@ struct AnimatedImageWriterTests {
         #expect(result.pixelSize == PixelSize(width: 80, height: 60))
 
         for image in try FrameFixtures.decodeFrames(of: output) {
-            #expect(image.width == 80 && image.height == 60,
-                    "every frame must be the canvas size, or the animation jumps")
+            #expect(
+                image.width == 80 && image.height == 60,
+                "every frame must be the canvas size, or the animation jumps")
         }
     }
 
@@ -285,11 +291,13 @@ struct AnimatedImageWriterTests {
         let directory = try temporaryDirectory("uniform")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 80, height: 60),
-            CGSize(width: 80, height: 60),
-            CGSize(width: 40, height: 40),
-        ])
+        try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 80, height: 60),
+                CGSize(width: 80, height: 60),
+                CGSize(width: 40, height: 40),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
 
         #expect(throws: LatheError.self) {
@@ -324,8 +332,9 @@ struct AnimatedImageWriterTests {
     /// interesting one: `isAnimatable` admits it, and ImageIO exposes no timing
     /// dictionary for it, so a "success" would be a burst rather than an
     /// animation.
-    @Test("a format with no per-frame timing is refused, animatable or not",
-          arguments: [ImageFormat.jpeg, .heic, .tiff, .avif, .jp2])
+    @Test(
+        "a format with no per-frame timing is refused, animatable or not",
+        arguments: [ImageFormat.jpeg, .heic, .tiff, .avif, .jp2])
     func formatsWithoutTiming(_ format: ImageFormat) throws {
         let directory = try temporaryDirectory("timing-\(format.rawValue)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -364,8 +373,9 @@ struct AnimatedImageWriterTests {
     }
 
     /// A negative loop count is not "forever" in any container; `0` is.
-    @Test("a negative loop count is refused, in every format",
-          arguments: AnimatedImageWriterTests.writableFormats)
+    @Test(
+        "a negative loop count is refused, in every format",
+        arguments: AnimatedImageWriterTests.writableFormats)
     func negativeLoopCount(_ format: ImageFormat) throws {
         let directory = try temporaryDirectory("negative-loop-\(format.rawValue)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -416,8 +426,9 @@ struct AnimatedImageWriterTests {
             )
         }
         let frames = try FrameSequence.contentsOfDirectory(directory)
-        #expect(frames.frames.map(\.lastPathComponent)
-            == (1...12).map { "frame-\($0).png" })
+        #expect(
+            frames.frames.map(\.lastPathComponent)
+                == (1...12).map { "frame-\($0).png" })
     }
 
     /// Junk beside the frames is skipped rather than refused. A `.DS_Store` next
@@ -453,7 +464,8 @@ struct AnimatedImageWriterTests {
         #expect(throws: LatheError.self) {
             try writer.write(frames, to: output, format: .gif, progress: handle)
         }
-        #expect(try Data(contentsOf: output) == Data("previous".utf8),
-                "a cancelled write must not touch what was already there")
+        #expect(
+            try Data(contentsOf: output) == Data("previous".utf8),
+            "a cancelled write must not touch what was already there")
     }
 }

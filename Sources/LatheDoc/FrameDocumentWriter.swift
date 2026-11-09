@@ -45,7 +45,7 @@ public enum PDFPageSizing: Sendable, Equatable {
             let box = CGRect(x: 0, y: 0, width: Double(pixels.width), height: Double(pixels.height))
             return (box, box)
 
-        case let .dotsPerInch(dpi):
+        case .dotsPerInch(let dpi):
             guard dpi > 0, dpi.isFinite else {
                 throw LatheError.invalidConfiguration(
                     reason: "a page resolution must be positive and finite, got \(dpi) DPI"
@@ -58,7 +58,7 @@ public enum PDFPageSizing: Sendable, Equatable {
             )
             return (box, box)
 
-        case let .fixed(width, height):
+        case .fixed(let width, let height):
             guard width > 0, height > 0, width.isFinite, height.isFinite else {
                 throw LatheError.invalidConfiguration(
                     reason: "a fixed page must have a positive size, got \(width)x\(height) points"
@@ -177,11 +177,11 @@ public struct FrameDocumentWriter: Sendable {
             to: destination, pathExtension: "pdf", stage: "pdf"
         ) { scratch in
             guard let consumer = CGDataConsumer(url: scratch as CFURL),
-                  // `mediaBox: nil` — the default page box is never used, because
-                  // every page below names its own. A document whose pages are
-                  // different sizes is ordinary for scans, and a single media box
-                  // here would crop all of them to the first one's shape.
-                  let context = CGContext(consumer: consumer, mediaBox: nil, nil)
+                // `mediaBox: nil` — the default page box is never used, because
+                // every page below names its own. A document whose pages are
+                // different sizes is ordinary for scans, and a single media box
+                // here would crop all of them to the first one's shape.
+                let context = CGContext(consumer: consumer, mediaBox: nil, nil)
             else {
                 throw LatheError.writeFailed(
                     path: destination.lastPathComponent,
@@ -208,11 +208,14 @@ public struct FrameDocumentWriter: Sendable {
                 context.draw(image, in: content)
                 context.endPDFPage()
 
-                guard progress.report(LatheProgress(
-                    fraction: Double(index + 1) / Double(urls.count),
-                    stage: "pages",
-                    unitIndex: UInt64(index + 1),
-                    unitCount: UInt64(urls.count))) else {
+                guard
+                    progress.report(
+                        LatheProgress(
+                            fraction: Double(index + 1) / Double(urls.count),
+                            stage: "pages",
+                            unitIndex: UInt64(index + 1),
+                            unitCount: UInt64(urls.count)))
+                else {
                     throw LatheError.cancelled(atUnit: UInt64(index + 1))
                 }
             }
@@ -286,7 +289,7 @@ public struct FrameDocumentWriter: Sendable {
             // decline to show is a failure that only appears in somebody else's
             // app, so it is caught here instead.
             guard let format = ImageFormat.named(byFilenameExtension: url.pathExtension),
-                  format != .pdf
+                format != .pdf
             else {
                 throw LatheError.invalidInput(
                     reason: "\(url.lastPathComponent) is not an image a comic reader shows; a "
@@ -303,17 +306,21 @@ public struct FrameDocumentWriter: Sendable {
                 )
             }
 
-            members.append(ZIPWriter.Member.stored(
-                name: String(format: "page-%0\(width)d", index + 1)
-                    + "." + url.pathExtension.lowercased(),
-                data: data
-            ))
+            members.append(
+                ZIPWriter.Member.stored(
+                    name: String(format: "page-%0\(width)d", index + 1)
+                        + "." + url.pathExtension.lowercased(),
+                    data: data
+                ))
 
-            guard progress.report(LatheProgress(
-                fraction: Double(index + 1) / Double(urls.count),
-                stage: "pages",
-                unitIndex: UInt64(index + 1),
-                unitCount: UInt64(urls.count))) else {
+            guard
+                progress.report(
+                    LatheProgress(
+                        fraction: Double(index + 1) / Double(urls.count),
+                        stage: "pages",
+                        unitIndex: UInt64(index + 1),
+                        unitCount: UInt64(urls.count)))
+            else {
                 throw LatheError.cancelled(atUnit: UInt64(index + 1))
             }
         }

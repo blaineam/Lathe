@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields are named for the CPython C API symbols they hold.
+
 import Foundation
 
 /// The entire C surface this package uses, resolved by `dlsym` rather than by
@@ -55,8 +58,7 @@ struct PythonSymbols: @unchecked Sendable {
     // MARK: Execution
 
     let PyRun_SimpleString: @convention(c) (UnsafePointer<CChar>) -> Int32
-    let PyRun_String:
-        @convention(c) (UnsafePointer<CChar>, Int32, PyObjectRef, PyObjectRef) -> PyObjectRef?
+    let PyRun_String: @convention(c) (UnsafePointer<CChar>, Int32, PyObjectRef, PyObjectRef) -> PyObjectRef?
 
     // MARK: Objects
 

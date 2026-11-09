@@ -79,9 +79,11 @@ struct HandoffTests {
             try? FileManager.default.removeItem(at: second.deletingLastPathComponent())
         }
         #expect(first != second)
-        #expect(try Handoff.decode(try Data(contentsOf: first)).files.first?.lastPathComponent
+        #expect(
+            try Handoff.decode(try Data(contentsOf: first)).files.first?.lastPathComponent
                 == "one.mp4")
-        #expect(try Handoff.decode(try Data(contentsOf: second)).files.first?.lastPathComponent
+        #expect(
+            try Handoff.decode(try Data(contentsOf: second)).files.first?.lastPathComponent
                 == "two.mp4")
     }
 

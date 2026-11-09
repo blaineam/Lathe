@@ -133,7 +133,7 @@ enum AudioMetadata {
             kept = source
         case .stripAll:
             kept = []
-        case let .strip(classes):
+        case .strip(let classes):
             kept = source.filter { item in
                 guard let kind = metadataClass(of: item) else {
                     // Unclassified items survive a *targeted* strip, exactly as
@@ -143,7 +143,7 @@ enum AudioMetadata {
                 }
                 return !classes.contains(kind)
             }
-        case let .custom(allowList):
+        case .custom(let allowList):
             kept = source.filter { item in
                 guard let key = normalisedKey(for: item) else { return false }
                 return allowList.contains(key)
@@ -214,11 +214,20 @@ enum AudioMetadata {
         let name = significantPart(of: key)
         if name.contains("location") || name.contains("gps") || name.contains("xyz") { return .gps }
         if name.contains("covr") || name.contains("apic") || name.contains("artwork")
-            || name.contains("picture") { return .thumbnails }
+            || name.contains("picture")
+        {
+            return .thumbnails
+        }
         if name.contains("encoder") || name.contains("software") || name.contains("too")
-            || name.contains("tsse") || name.contains("tenc") { return .software }
+            || name.contains("tsse") || name.contains("tenc")
+        {
+            return .software
+        }
         if name.contains("date") || name.contains("year") || name.contains("day")
-            || name.contains("tdrc") || name.contains("tyer") { return .timestamps }
+            || name.contains("tdrc") || name.contains("tyer")
+        {
+            return .timestamps
+        }
         if name.contains("make") || name.contains("model") || name.contains("device") {
             return .deviceIdentity
         }

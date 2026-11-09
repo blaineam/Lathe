@@ -316,7 +316,8 @@ public struct PythonLayout: Sendable, Equatable {
                 let versions = framework.appendingPathComponent("Versions", isDirectory: true)
                 guard let entries = try? fileManager.contentsOfDirectory(at: versions, includingPropertiesForKeys: nil)
                 else { continue }
-                found += entries
+                found +=
+                    entries
                     .filter { $0.lastPathComponent != "Current" }
                     .sorted { $0.lastPathComponent > $1.lastPathComponent }
             }

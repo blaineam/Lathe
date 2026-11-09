@@ -29,9 +29,9 @@ public enum FixtureError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case let .writerUnavailable(detail): "no media writer available: \(detail)"
-        case let .writeFailed(detail): "fixture could not be written: \(detail)"
-        case let .unsupported(detail): "fixture is unsupported here: \(detail)"
+        case .writerUnavailable(let detail): "no media writer available: \(detail)"
+        case .writeFailed(let detail): "fixture could not be written: \(detail)"
+        case .unsupported(let detail): "fixture is unsupported here: \(detail)"
         }
     }
 }
@@ -80,8 +80,9 @@ public actor FixtureLibrary {
 
     private init() {
         root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lathe-fixtures-\(ProcessInfo.processInfo.processIdentifier)",
-                                    isDirectory: true)
+            .appendingPathComponent(
+                "lathe-fixtures-\(ProcessInfo.processInfo.processIdentifier)",
+                isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
@@ -337,23 +338,23 @@ extension FixtureLibrary {
         case .none, .silence:
             break
 
-        case let .tone(hertz, amplitude):
+        case .tone(let hertz, let amplitude):
             for index in 0..<count {
                 values[index] = amplitude * Float(sin(2 * .pi * hertz * Double(index) / sampleRate))
             }
 
-        case let .sparseTone(hertz, amplitude, onsetSeconds, lengthSeconds):
+        case .sparseTone(let hertz, let amplitude, let onsetSeconds, let lengthSeconds):
             let start = max(0, min(count, Int((onsetSeconds * sampleRate).rounded())))
             let end = max(start, min(count, start + Int((lengthSeconds * sampleRate).rounded())))
             for index in start..<end {
                 values[index] = amplitude * Float(sin(2 * .pi * hertz * Double(index) / sampleRate))
             }
 
-        case let .click(amplitude, atSeconds):
+        case .click(let amplitude, let atSeconds):
             let index = max(0, min(count - 1, Int((atSeconds * sampleRate).rounded())))
             values[index] = amplitude
 
-        case let .noise(amplitude):
+        case .noise(let amplitude):
             // xorshift64 seeded from the sample index: identical on every
             // machine and every run, so a size assertion is reproducible.
             var state: UInt64 = 0x2545_F491_4F6C_DD1D
@@ -427,12 +428,14 @@ extension FixtureLibrary {
         }
 
         let mono = samples(for: audio, seconds: seconds, sampleRate: sampleRate)
-        guard !mono.isEmpty else { return }   // header only: a zero-duration asset
+        guard !mono.isEmpty else { return }  // header only: a zero-duration asset
 
-        guard let buffer = AVAudioPCMBuffer(
-            pcmFormat: file.processingFormat,
-            frameCapacity: AVAudioFrameCount(mono.count)
-        ), let channelData = buffer.floatChannelData else {
+        guard
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: AVAudioFrameCount(mono.count)
+            ), let channelData = buffer.floatChannelData
+        else {
             throw FixtureError.writeFailed("could not allocate a PCM buffer")
         }
         buffer.frameLength = AVAudioFrameCount(mono.count)
@@ -458,14 +461,15 @@ extension FixtureLibrary {
     /// which is a bug worth not writing into a fixture.
     public static func channelLayout(for channels: Int) -> AudioChannelLayout {
         var layout = AudioChannelLayout()
-        layout.mChannelLayoutTag = switch channels {
-        case 1: kAudioChannelLayoutTag_Mono
-        case 2: kAudioChannelLayoutTag_Stereo
-        case 4: kAudioChannelLayoutTag_Quadraphonic
-        case 6: kAudioChannelLayoutTag_MPEG_5_1_A
-        case 8: kAudioChannelLayoutTag_MPEG_7_1_A
-        default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
-        }
+        layout.mChannelLayoutTag =
+            switch channels {
+            case 1: kAudioChannelLayoutTag_Mono
+            case 2: kAudioChannelLayoutTag_Stereo
+            case 4: kAudioChannelLayoutTag_Quadraphonic
+            case 6: kAudioChannelLayoutTag_MPEG_5_1_A
+            case 8: kAudioChannelLayoutTag_MPEG_7_1_A
+            default: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels)
+            }
         return layout
     }
 }
@@ -520,9 +524,11 @@ extension FixtureLibrary {
     /// The same PNG, in memory. Cover art does not go in a file of its own.
     public static func pngData(size: PixelSize) throws -> Data {
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data as CFMutableData, "public.png" as CFString, 1, nil
-        ) else {
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                data as CFMutableData, "public.png" as CFString, 1, nil
+            )
+        else {
             throw FixtureError.writeFailed("could not build a PNG destination")
         }
         CGImageDestinationAddImage(destination, try makeImage(size: size), nil)
@@ -536,23 +542,23 @@ extension FixtureLibrary {
         let bytesPerRow = size.width * 4
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * size.height)
         for index in stride(from: 0, to: pixels.count, by: 4) {
-            pixels[index] = 255      // B
+            pixels[index] = 255  // B
             pixels[index + 1] = 128  // G
-            pixels[index + 2] = 64   // R
+            pixels[index + 2] = 64  // R
             pixels[index + 3] = 255  // A
         }
         guard let provider = CGDataProvider(data: Data(pixels) as CFData),
-              let image = CGImage(
-                  width: size.width, height: size.height,
-                  bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
-                  space: CGColorSpaceCreateDeviceRGB(),
-                  bitmapInfo: CGBitmapInfo(
-                      rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue
-                          | CGBitmapInfo.byteOrder32Little.rawValue
-                  ),
-                  provider: provider, decode: nil, shouldInterpolate: false,
-                  intent: .defaultIntent
-              )
+            let image = CGImage(
+                width: size.width, height: size.height,
+                bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(
+                    rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue
+                        | CGBitmapInfo.byteOrder32Little.rawValue
+                ),
+                provider: provider, decode: nil, shouldInterpolate: false,
+                intent: .defaultIntent
+            )
         else {
             throw FixtureError.writeFailed("could not build a CGImage")
         }
@@ -560,9 +566,11 @@ extension FixtureLibrary {
     }
 
     static func writePNG(to url: URL, size: PixelSize) throws {
-        guard let destination = CGImageDestinationCreateWithURL(
-            url as CFURL, "public.png" as CFString, 1, nil
-        ) else {
+        guard
+            let destination = CGImageDestinationCreateWithURL(
+                url as CFURL, "public.png" as CFString, 1, nil
+            )
+        else {
             throw FixtureError.writeFailed("could not build a PNG destination")
         }
         CGImageDestinationAddImage(destination, try makeImage(size: size), nil)

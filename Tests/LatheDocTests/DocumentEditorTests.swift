@@ -3,11 +3,11 @@ import LatheCore
 import LatheFixtures
 import Testing
 
-#if canImport(PDFKit)
-import PDFKit
-#endif
-
 @testable import LatheDoc
+
+#if canImport(PDFKit)
+    import PDFKit
+#endif
 
 /// Rearranging pages, and the ways a rearrangement silently does the wrong
 /// thing: losing a page, re-encoding one, or appearing to have worked because
@@ -33,9 +33,10 @@ struct DocumentEditorTests {
         for index in 0..<pageCount {
             let png = try DocumentFixtures.solidPNG(gray: CGFloat(index) / CGFloat(pageCount + 1))
             pages.append(png)
-            entries.append(DocumentFixtures.ArchiveEntry(
-                name: String(format: "p%03d.png", index), data: png
-            ))
+            entries.append(
+                DocumentFixtures.ArchiveEntry(
+                    name: String(format: "p%03d.png", index), data: png
+                ))
         }
         let url = try DocumentFixtures.write(
             DocumentFixtures.zipArchive(entries + extras),
@@ -55,16 +56,16 @@ struct DocumentEditorTests {
     }
 
     #if canImport(PDFKit)
-    /// The text of each page, which for a labelled fixture names the page.
-    private func pdfLabels(of url: URL) throws -> [String] {
-        guard let document = PDFDocument(url: url) else {
-            Issue.record("could not open \(url.lastPathComponent)")
-            return []
+        /// The text of each page, which for a labelled fixture names the page.
+        private func pdfLabels(of url: URL) throws -> [String] {
+            guard let document = PDFDocument(url: url) else {
+                Issue.record("could not open \(url.lastPathComponent)")
+                return []
+            }
+            return (0..<document.pageCount).map { index in
+                (document.page(at: index)?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
-        return (0..<document.pageCount).map { index in
-            (document.page(at: index)?.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
     #endif
 
     // MARK: - The headline: a reorder a reader actually sees
@@ -210,9 +211,10 @@ struct DocumentEditorTests {
         }
         let archiveOrder = ["p002.png", "p000.png", "p001.png"]
         let source = try DocumentFixtures.write(
-            DocumentFixtures.zipArchive(archiveOrder.map {
-                DocumentFixtures.ArchiveEntry(name: $0, data: byName[$0]!)
-            }),
+            DocumentFixtures.zipArchive(
+                archiveOrder.map {
+                    DocumentFixtures.ArchiveEntry(name: $0, data: byName[$0]!)
+                }),
             to: directory.appendingPathComponent("in.cbz")
         )
         greys.removeAll()
@@ -300,7 +302,7 @@ struct DocumentEditorTests {
         #expect(result.kind == .pdf)
         #expect(result.pageCount == 4)
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: output) == ["PAGE-4", "PAGE-1", "PAGE-3", "PAGE-2"])
+            #expect(try pdfLabels(of: output) == ["PAGE-4", "PAGE-1", "PAGE-3", "PAGE-2"])
         #endif
     }
 
@@ -319,7 +321,7 @@ struct DocumentEditorTests {
         #expect(result.pageCount == 3)
         #expect(try inspector.pageCount(of: output) == 3)
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: output) == ["PAGE-1", "PAGE-3", "PAGE-5"])
+            #expect(try pdfLabels(of: output) == ["PAGE-1", "PAGE-3", "PAGE-5"])
         #endif
     }
 
@@ -342,7 +344,7 @@ struct DocumentEditorTests {
         #expect(result.pageCount == 5)
         #expect(result.sourceCount == 2, "the same document used twice is one source")
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: output) == ["A-1", "A-2", "B-1", "A-1", "A-2"])
+            #expect(try pdfLabels(of: output) == ["A-1", "A-2", "B-1", "A-1", "A-2"])
         #endif
     }
 
@@ -364,7 +366,7 @@ struct DocumentEditorTests {
         try editor.assemble(pages + pages, into: output)
 
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: output) == ["PAGE-1", "PAGE-2", "PAGE-1", "PAGE-2"])
+            #expect(try pdfLabels(of: output) == ["PAGE-1", "PAGE-2", "PAGE-1", "PAGE-2"])
         #endif
         // And the source is untouched.
         #expect(try inspector.pageCount(of: source) == 2)
@@ -387,13 +389,13 @@ struct DocumentEditorTests {
         let middle = directory.appendingPathComponent("middle.pdf")
         try editor.insert(inserted, at: 1, into: target, writingTo: middle)
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: middle) == ["T-1", "I-1", "T-2"])
+            #expect(try pdfLabels(of: middle) == ["T-1", "I-1", "T-2"])
         #endif
 
         let end = directory.appendingPathComponent("end.pdf")
         try editor.insert(inserted, at: 2, into: target, writingTo: end)
         #if canImport(PDFKit)
-        #expect(try pdfLabels(of: end) == ["T-1", "T-2", "I-1"])
+            #expect(try pdfLabels(of: end) == ["T-1", "T-2", "I-1"])
         #endif
     }
 
@@ -410,10 +412,10 @@ struct DocumentEditorTests {
         let output = directory.appendingPathComponent("out.cbz")
 
         #expect(throws: LatheError.self) {
-            try editor.reorderPages(of: source, to: [0, 1, 2], writingTo: output)      // drops one
+            try editor.reorderPages(of: source, to: [0, 1, 2], writingTo: output)  // drops one
         }
         #expect(throws: LatheError.self) {
-            try editor.reorderPages(of: source, to: [0, 0, 1, 2], writingTo: output)   // repeats one
+            try editor.reorderPages(of: source, to: [0, 0, 1, 2], writingTo: output)  // repeats one
         }
         #expect(!FileManager.default.fileExists(atPath: output.path))
     }
@@ -465,10 +467,11 @@ struct DocumentEditorTests {
         let output = directory.appendingPathComponent("out.pdf")
 
         #expect(throws: LatheError.self) {
-            try editor.assemble([
-                PageReference(source: pdf, index: 0),
-                PageReference(source: comic, index: 0),
-            ], into: output)
+            try editor.assemble(
+                [
+                    PageReference(source: pdf, index: 0),
+                    PageReference(source: comic, index: 0),
+                ], into: output)
         }
     }
 

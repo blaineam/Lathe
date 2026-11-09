@@ -28,12 +28,14 @@ struct ResizeTargetTests {
 
     /// The trap this type exists to close: a target larger than the source must
     /// never enlarge it.
-    @Test("nothing ever upsamples", arguments: [
-        ResizeTarget.fit(PixelSize(width: 9000, height: 9000)),
-        ResizeTarget.longestSide(9000),
-        ResizeTarget.scale(4),
-        ResizeTarget.maxPixels(Int.max),
-    ])
+    @Test(
+        "nothing ever upsamples",
+        arguments: [
+            ResizeTarget.fit(PixelSize(width: 9000, height: 9000)),
+            ResizeTarget.longestSide(9000),
+            ResizeTarget.scale(4),
+            ResizeTarget.maxPixels(Int.max),
+        ])
     func neverUpsamples(target: ResizeTarget) {
         let result = target.resolve(from: square)
         #expect(result.width <= square.width)
@@ -60,24 +62,29 @@ struct ResizeTargetTests {
     /// The cap is honoured exactly, except where honouring it would require a
     /// dimension below one pixel — the one documented escape, and the reason an
     /// 8000x17 banner is in the fixture list.
-    @Test("maxPixels is never exceeded, at any cap", arguments: [
-        1, 2, 999, 1_000, 65_536, 1_000_000, 4_000_000, 12_000_000,
-    ])
+    @Test(
+        "maxPixels is never exceeded, at any cap",
+        arguments: [
+            1, 2, 999, 1_000, 65_536, 1_000_000, 4_000_000, 12_000_000,
+        ])
     func maxPixelsNeverExceeded(cap: Int) {
         for source in [landscape, square, PixelSize(width: 8000, height: 17)] {
             let result = ResizeTarget.maxPixels(cap).resolve(from: source)
             let hitTheOnePixelFloor = min(result.width, result.height) == 1
-            #expect(result.pixelCount <= cap || result == source || hitTheOnePixelFloor,
-                    "cap \(cap) from \(source) gave \(result)")
+            #expect(
+                result.pixelCount <= cap || result == source || hitTheOnePixelFloor,
+                "cap \(cap) from \(source) gave \(result)")
             #expect(result.width >= 1 && result.height >= 1)
         }
     }
 
-    @Test("degenerate inputs are returned unchanged rather than crashing", arguments: [
-        PixelSize(width: 0, height: 0),
-        PixelSize(width: 0, height: 100),
-        PixelSize(width: -5, height: 10),
-    ])
+    @Test(
+        "degenerate inputs are returned unchanged rather than crashing",
+        arguments: [
+            PixelSize(width: 0, height: 0),
+            PixelSize(width: 0, height: 100),
+            PixelSize(width: -5, height: 10),
+        ])
     func degenerateInputs(size: PixelSize) {
         #expect(ResizeTarget.longestSide(100).resolve(from: size) == size)
         #expect(ResizeTarget.fit(PixelSize(width: 10, height: 10)).resolve(from: size) == size)

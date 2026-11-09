@@ -72,7 +72,8 @@ public struct FrameSequence: Sendable, Equatable {
             )
         }
 
-        let images = entries
+        let images =
+            entries
             .filter { ImageFormat.named(byFilenameExtension: $0.pathExtension) != nil }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
 
@@ -152,9 +153,10 @@ public enum FrameReader {
     /// - Throws: ``LatheError/invalidInput(reason:)`` if the file is not an
     ///   image, or does not say how big it is.
     public static func pixelSize(of url: URL) throws -> PixelSize {
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
-        ), CGImageSourceGetCount(source) > 0,
+        guard
+            let source = CGImageSourceCreateWithURL(
+                url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
+            ), CGImageSourceGetCount(source) > 0,
             let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         else {
             throw LatheError.invalidInput(
@@ -162,8 +164,8 @@ public enum FrameReader {
             )
         }
         guard let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
-              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
-              width > 0, height > 0
+            let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+            width > 0, height > 0
         else {
             throw LatheError.invalidInput(
                 reason: "\(url.lastPathComponent) does not report a pixel size"
@@ -178,9 +180,11 @@ public enum FrameReader {
     ///   opened, ``LatheError/invalidInput(reason:)`` if it is not an image.
     public static func decode(_ url: URL) throws -> CGImage {
         try ImageEncoder.requireReadableFile(at: url)
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
-        ), CGImageSourceGetCount(source) > 0 else {
+        guard
+            let source = CGImageSourceCreateWithURL(
+                url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
+            ), CGImageSourceGetCount(source) > 0
+        else {
             throw LatheError.invalidInput(
                 reason: "\(url.lastPathComponent) is not an image ImageIO can read"
             )
@@ -189,9 +193,11 @@ public enum FrameReader {
         // picture, and handing this an animated GIF composes its first frame,
         // which is the only reading of "this file is a frame" that is not a
         // guess about what the caller meant by the other 47.
-        guard let image = CGImageSourceCreateImageAtIndex(
-            source, 0, [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else {
+        guard
+            let image = CGImageSourceCreateImageAtIndex(
+                source, 0, [kCGImageSourceShouldCache: false] as CFDictionary
+            )
+        else {
             throw LatheError.readFailed(
                 path: url.lastPathComponent, reason: "ImageIO decoded no image from it"
             )
@@ -211,7 +217,7 @@ public enum FrameReader {
         }
 
         switch canvas {
-        case let .fixed(size):
+        case .fixed(let size):
             guard !size.isEmpty else {
                 throw LatheError.invalidConfiguration(
                     reason: "a fixed canvas must have a positive size, got \(size)"
@@ -248,8 +254,9 @@ public enum FrameReader {
         guard !image.isEmpty, !canvas.isEmpty else {
             return CGRect(x: 0, y: 0, width: canvas.width, height: canvas.height)
         }
-        let scale = min(Double(canvas.width) / Double(image.width),
-                        Double(canvas.height) / Double(image.height))
+        let scale = min(
+            Double(canvas.width) / Double(image.width),
+            Double(canvas.height) / Double(image.height))
         let width = (Double(image.width) * scale).rounded()
         let height = (Double(image.height) * scale).rounded()
         return CGRect(
@@ -274,16 +281,18 @@ public enum FrameReader {
     public static func compose(_ image: CGImage, onto canvas: PixelSize) throws -> CGImage {
         guard image.width != canvas.width || image.height != canvas.height else { return image }
 
-        guard let context = CGContext(
-            data: nil,
-            width: canvas.width,
-            height: canvas.height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,           // let Core Graphics choose its own alignment
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: nil,
+                width: canvas.width,
+                height: canvas.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,  // let Core Graphics choose its own alignment
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "canvas", code: nil,
                 reason: "could not create a \(canvas) drawing context"

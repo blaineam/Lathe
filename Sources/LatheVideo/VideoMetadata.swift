@@ -36,7 +36,7 @@ enum VideoMetadata {
             kept = source
         case .stripAll:
             kept = []
-        case let .strip(classes):
+        case .strip(let classes):
             kept = source.filter { item in
                 guard let key = normalisedKey(for: item), let kind = metadataClass(of: key) else {
                     // Unclassified items survive a *targeted* strip. `.strip([.gps])`
@@ -46,7 +46,7 @@ enum VideoMetadata {
                 }
                 return !classes.contains(kind)
             }
-        case let .custom(allowList):
+        case .custom(let allowList):
             kept = source.filter { item in
                 guard let key = normalisedKey(for: item) else { return false }
                 return allowList.contains(key)
@@ -117,7 +117,10 @@ enum VideoMetadata {
         if name.contains("location") || name.contains("gps") { return .gps }
         if name.contains("date") || name.contains("time") { return .timestamps }
         if name.contains("make") || name.contains("model") || name.contains("camera")
-            || name.contains("device") { return .deviceIdentity }
+            || name.contains("device")
+        {
+            return .deviceIdentity
+        }
         if name.contains("software") || name.contains("encoder") { return .software }
         if name.contains("thumbnail") || name.contains("artwork") { return .thumbnails }
         return nil

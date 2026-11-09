@@ -23,12 +23,16 @@ struct MP3EncoderTests {
     /// **The headline: the output is an MP3 the system can play.**
     @Test("an encoded file decodes back as MP3, at the right duration")
     func encodesADecodableFile() async throws {
-        guard let source = await fixture("mp3-source.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-source.wav", seconds: 3,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-source.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-source.wav", seconds: 3,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-out.mp3")
 
         let result = try await encoder.encode(source: source, to: destination)
@@ -36,8 +40,9 @@ struct MP3EncoderTests {
         #expect(result.sampleRate == 44_100)
         #expect(result.channels == 2)
         #expect(result.outputByteCount > 0)
-        #expect(result.encoderVersion.contains("3.100"),
-                "encoder version was \"\(result.encoderVersion)\"")
+        #expect(
+            result.encoderVersion.contains("3.100"),
+            "encoder version was \"\(result.encoderVersion)\"")
 
         // The independent check: Apple decodes it.
         let asset = AVURLAsset(url: destination)
@@ -48,9 +53,11 @@ struct MP3EncoderTests {
 
         // And it really is MPEG audio rather than something else in a .mp3.
         if let format = try await tracks.first?.load(.formatDescriptions).first,
-           let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format) {
-            #expect(basic.pointee.mFormatID == kAudioFormatMPEGLayer3,
-                    "the output is not MPEG Layer 3")
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+        {
+            #expect(
+                basic.pointee.mFormatID == kAudioFormatMPEGLayer3,
+                "the output is not MPEG Layer 3")
             #expect(basic.pointee.mSampleRate == 44_100)
         }
     }
@@ -59,12 +66,16 @@ struct MP3EncoderTests {
     /// its WAV source would pass a decode check and be useless.
     @Test("the output is far smaller than the uncompressed source")
     func compressesSubstantially() async throws {
-        guard let source = await fixture("mp3-size.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-size.wav", seconds: 4,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-size.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-size.wav", seconds: 4,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-size-out.mp3")
 
         let result = try await encoder.encode(source: source, to: destination)
@@ -77,18 +88,23 @@ struct MP3EncoderTests {
     /// players, which looks like a broken file rather than a missing header.
     @Test("the VBR header is written, so the duration is right")
     func writesTheVBRHeader() async throws {
-        guard let source = await fixture("mp3-vbr.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-vbr.wav", seconds: 3,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-vbr.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-vbr.wav", seconds: 3,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-vbr-out.mp3")
         try await encoder.encode(source: source, to: destination)
 
         // "Xing" or "Info" appears in the first frame of a tagged file.
         let head = try Data(contentsOf: destination).prefix(2_048)
-        let hasTag = head.range(of: Data("Xing".utf8)) != nil
+        let hasTag =
+            head.range(of: Data("Xing".utf8)) != nil
             || head.range(of: Data("Info".utf8)) != nil
         #expect(hasTag, "no Xing/Info header — a VBR file without one seeks and reports wrongly")
     }
@@ -97,12 +113,16 @@ struct MP3EncoderTests {
 
     @Test("a mono request produces one channel")
     func monoProducesOneChannel() async throws {
-        guard let source = await fixture("mp3-mono.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-mono.wav", seconds: 2,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-mono.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-mono.wav", seconds: 2,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-mono-out.mp3")
 
         let result = try await encoder.encode(source: source, to: destination, mode: .mono)
@@ -110,8 +130,9 @@ struct MP3EncoderTests {
 
         let asset = AVURLAsset(url: destination)
         if let track = try await asset.loadTracks(withMediaType: .audio).first,
-           let format = try await track.load(.formatDescriptions).first,
-           let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format) {
+            let format = try await track.load(.formatDescriptions).first,
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+        {
             #expect(basic.pointee.mChannelsPerFrame == 1)
         }
     }
@@ -121,12 +142,16 @@ struct MP3EncoderTests {
     /// through it runs off the end of the array.
     @Test("a mono source encodes without reading past its samples")
     func monoSourceUsesTheMonoEntryPoint() async throws {
-        guard let source = await fixture("mp3-mono-src.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-mono-src.wav", seconds: 2,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 1
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-mono-src.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-mono-src.wav", seconds: 2,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 1
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-mono-src-out.mp3")
 
         let result = try await encoder.encode(source: source, to: destination)
@@ -140,19 +165,24 @@ struct MP3EncoderTests {
     /// Higher quality must produce a bigger file, or the knob is not connected.
     @Test("asking for more quality produces a larger file")
     func qualityChangesTheSize() async throws {
-        guard let source = await fixture("mp3-quality.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-quality.wav", seconds: 4,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-quality.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-quality.wav", seconds: 4,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
 
         let low = await scratch("mp3-q-low.mp3")
         let high = await scratch("mp3-q-high.mp3")
         let lowResult = try await encoder.encode(source: source, to: low, quality: .quality(0.1))
         let highResult = try await encoder.encode(source: source, to: high, quality: .quality(0.95))
 
-        let note = "quality 0.95 gave \(highResult.outputByteCount) bytes and 0.1 gave "
+        let note =
+            "quality 0.95 gave \(highResult.outputByteCount) bytes and 0.1 gave "
             + "\(lowResult.outputByteCount) — the knob is inverted or disconnected"
         #expect(highResult.outputByteCount > lowResult.outputByteCount, "\(note)")
     }
@@ -175,12 +205,16 @@ struct MP3EncoderTests {
     /// avoid.
     @Test("a lossless request is refused rather than silently encoded")
     func losslessIsRefused() async throws {
-        guard let source = await fixture("mp3-lossless.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-lossless.wav", seconds: 1,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-lossless.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-lossless.wav", seconds: 1,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("mp3-lossless-out.mp3")
 
         await #expect(throws: LatheError.self) {
@@ -228,12 +262,16 @@ struct MP3EncoderTests {
 
     @Test("an encode cannot overwrite the file it is reading")
     func inPlaceIsRefused() async throws {
-        guard let source = await fixture("mp3-inplace.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "mp3-inplace.wav", seconds: 1,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "mp3-inplace.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "mp3-inplace.wav", seconds: 1,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
 
         await #expect(throws: LatheError.self) {
             try await encoder.encode(source: source, to: source)

@@ -47,15 +47,16 @@ extension ImageEncoder {
             let candidate = directory.appendingPathComponent(
                 ".lathe-\(UUID().uuidString).\(format.preferredFilenameExtension)")
             scratch.append(candidate)
-            let result = try encode(ImageEncodeRequest(
-                source: source, destination: candidate, format: format,
-                quality: .quality(quality), resize: resize, metadata: metadata,
-                forcePreserve: forcePreserve, orientation: orientation))
+            let result = try encode(
+                ImageEncodeRequest(
+                    source: source, destination: candidate, format: format,
+                    quality: .quality(quality), resize: resize, metadata: metadata,
+                    forcePreserve: forcePreserve, orientation: orientation))
             return ((candidate, result), try reference.similarity(ofImageAt: candidate))
         }
 
         guard let (chosen, result) = outcome.output, let quality = outcome.value,
-              let similarity = outcome.similarity
+            let similarity = outcome.similarity
         else { return nil }
 
         do {

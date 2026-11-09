@@ -73,7 +73,7 @@ struct SWFMalformedInputTests {
             _ = try capture.run(data, name: "old.swf", writingTo: nil)
             Issue.record("expected LZMA to be refused")
         } catch let error as LatheError {
-            guard case let .decodeUnavailable(format) = error else {
+            guard case .decodeUnavailable(let format) = error else {
                 Issue.record("expected decodeUnavailable, got \(error)")
                 return
             }

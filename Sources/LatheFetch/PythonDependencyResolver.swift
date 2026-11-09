@@ -77,7 +77,9 @@ public struct PythonDependencyPlan: Sendable, Equatable {
             }
         }
         for satisfied in alreadySatisfied {
-            lines.append("  · \(satisfied.name) \(satisfied.version) is already installed and satisfies \(satisfied.constraints.isEmpty ? "the requirement" : satisfied.constraints)")
+            lines.append(
+                "  · \(satisfied.name) \(satisfied.version) is already installed and satisfies \(satisfied.constraints.isEmpty ? "the requirement" : satisfied.constraints)"
+            )
         }
         for exclusion in excluded {
             lines.append("  · not installing \(exclusion.requirement) (\(exclusion.declaredBy)): \(exclusion.reason)")
@@ -272,8 +274,11 @@ public struct PythonDependencyResolver: Sendable {
             // When upgrading the index is asked first. Its failure to answer
             // propagates: "could not check" must not read as "up to date".
             var isOutdated = false
-            if upgradesInstalled, chosen[name] == nil, let state = installed[name], merged.isSatisfied(by: state.version) {
-                let available = try await releases(of: requirement.name, keyedBy: name, from: source, cache: &releaseCache)
+            if upgradesInstalled, chosen[name] == nil, let state = installed[name],
+                merged.isSatisfied(by: state.version)
+            {
+                let available = try await releases(
+                    of: requirement.name, keyedBy: name, from: source, cache: &releaseCache)
                 isOutdated = isUpgrade(
                     try? pick(from: available, satisfying: merged, package: requirement.name, requiredBy: work.chain),
                     over: state.version, constraints: merged)

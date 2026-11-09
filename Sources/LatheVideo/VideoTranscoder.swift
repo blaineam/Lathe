@@ -333,16 +333,18 @@ public struct VideoTranscoder: Sendable {
 
         guard reader.startReading() else {
             throw LatheError.wrapping(
-                reader.error ?? LatheError.encodingFailed(
-                    stage: "read", code: nil, reason: "the reader refused to start"
-                )
+                reader.error
+                    ?? LatheError.encodingFailed(
+                        stage: "read", code: nil, reason: "the reader refused to start"
+                    )
             )
         }
         guard writer.startWriting() else {
             throw LatheError.wrapping(
-                writer.error ?? LatheError.writeFailed(
-                    path: request.destination.lastPathComponent, reason: "the writer refused to start"
-                )
+                writer.error
+                    ?? LatheError.writeFailed(
+                        path: request.destination.lastPathComponent, reason: "the writer refused to start"
+                    )
             )
         }
         writer.startSession(atSourceTime: sessionStart)
@@ -365,7 +367,8 @@ public struct VideoTranscoder: Sendable {
         let estimatedFrames = UInt64(
             max(0, (assetDuration.seconds * Double(nominalFrameRate)).rounded())
         )
-        let fallbackFrameDuration = nominalFrameRate > 0
+        let fallbackFrameDuration =
+            nominalFrameRate > 0
             ? CMTime(seconds: 1 / Double(nominalFrameRate), preferredTimescale: 600)
             : CMTime(value: 1, timescale: 30)
 
@@ -376,8 +379,9 @@ public struct VideoTranscoder: Sendable {
                 guard videoInput.append(encoded) else {
                     throw Self.failure(of: writer, stage: "mux", what: "an encoded video frame")
                 }
-                state.observe(end: CMSampleBufferGetOutputPresentationTimeStamp(encoded)
-                    + CMSampleBufferGetDuration(encoded))
+                state.observe(
+                    end: CMSampleBufferGetOutputPresentationTimeStamp(encoded)
+                        + CMSampleBufferGetDuration(encoded))
                 return true
             }
             if let recorded = compressor.queue.recordedFailure { throw recorded }
@@ -396,12 +400,13 @@ public struct VideoTranscoder: Sendable {
             let duration = CMSampleBufferGetDuration(sample)
             let elapsed = (presentation - sessionStart).seconds
             let total = assetDuration.seconds
-            try progress.checkpoint(LatheProgress(
-                fraction: total > 0 ? elapsed / total : nil,
-                stage: "encode",
-                unitIndex: state.frameCount,
-                unitCount: estimatedFrames
-            ))
+            try progress.checkpoint(
+                LatheProgress(
+                    fraction: total > 0 ? elapsed / total : nil,
+                    stage: "encode",
+                    unitIndex: state.frameCount,
+                    unitCount: estimatedFrames
+                ))
 
             try compressor.encode(
                 try scaler?.scaled(image) ?? image,
@@ -419,8 +424,9 @@ public struct VideoTranscoder: Sendable {
                 guard audio.input.append(sample) else {
                     throw Self.failure(of: writer, stage: "mux", what: "an audio sample")
                 }
-                state.observe(end: CMSampleBufferGetOutputPresentationTimeStamp(sample)
-                    + CMSampleBufferGetDuration(sample))
+                state.observe(
+                    end: CMSampleBufferGetOutputPresentationTimeStamp(sample)
+                        + CMSampleBufferGetDuration(sample))
                 // Audio reports no progress — the video pump owns the fraction —
                 // but it must still stop when the job is cancelled.
                 try progress.checkCancellation()
@@ -435,9 +441,11 @@ public struct VideoTranscoder: Sendable {
         }
 
         if reader.status == .failed {
-            throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
-                stage: "read", code: nil, reason: "the reader failed without an error"
-            ))
+            throw LatheError.wrapping(
+                reader.error
+                    ?? LatheError.encodingFailed(
+                        stage: "read", code: nil, reason: "the reader failed without an error"
+                    ))
         }
 
         if let end = state.endTime, end > sessionStart {
@@ -474,7 +482,8 @@ public struct VideoTranscoder: Sendable {
             )
         }
 
-        let writtenDuration = (state.endTime.map { ($0 - sessionStart).seconds })
+        let writtenDuration =
+            (state.endTime.map { ($0 - sessionStart).seconds })
             ?? assetDuration.seconds
         let inputByteCount = MediaProbe.byteCount(of: request.source) ?? 0
         if outputByteCount > inputByteCount, inputByteCount > 0 {
@@ -492,11 +501,12 @@ public struct VideoTranscoder: Sendable {
 
         // The terminal tick. A UI that never sees unitIndex == unitCount looks
         // stuck at 97% forever; `ProgressHandle` never throttles this one away.
-        progress.report(LatheProgress(
-            fraction: 1, stage: "encode",
-            unitIndex: max(state.frameCount, estimatedFrames),
-            unitCount: max(state.frameCount, estimatedFrames)
-        ))
+        progress.report(
+            LatheProgress(
+                fraction: 1, stage: "encode",
+                unitIndex: max(state.frameCount, estimatedFrames),
+                unitCount: max(state.frameCount, estimatedFrames)
+            ))
 
         return VideoTranscodeResult(
             output: request.destination,
@@ -635,20 +645,23 @@ public struct VideoTranscoder: Sendable {
     static func decodePixelFormat(for format: CMFormatDescription?, codec: VideoCodec) -> OSType {
         if codec.needsAlpha { return kCVPixelFormatType_32BGRA }
 
-        let transfer = format.flatMap {
-            CMFormatDescriptionGetExtension(
-                $0, extensionKey: kCMFormatDescriptionExtension_TransferFunction
-            )
-        } as? String
-        let isHighDynamicRange = transfer == (kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String)
+        let transfer =
+            format.flatMap {
+                CMFormatDescriptionGetExtension(
+                    $0, extensionKey: kCMFormatDescriptionExtension_TransferFunction
+                )
+            } as? String
+        let isHighDynamicRange =
+            transfer == (kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String)
             || transfer == (kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String)
         if isHighDynamicRange { return kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange }
 
-        let isFullRange = (format.flatMap {
-            CMFormatDescriptionGetExtension(
-                $0, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo
-            )
-        } as? NSNumber)?.boolValue ?? false
+        let isFullRange =
+            (format.flatMap {
+                CMFormatDescriptionGetExtension(
+                    $0, extensionKey: kCMFormatDescriptionExtension_FullRangeVideo
+                )
+            } as? NSNumber)?.boolValue ?? false
         return isFullRange
             ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
             : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
@@ -828,7 +841,10 @@ private final class WriterInputPump: @unchecked Sendable {
     /// `markAsFinished()`, and resuming twice traps.
     private func settle(_ error: (any Error)?) {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

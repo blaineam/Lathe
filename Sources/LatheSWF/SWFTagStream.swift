@@ -62,8 +62,9 @@ enum SWFTagStream {
         visit: (SWFTagRecord) throws -> Void
     ) throws {
         var budget = limits.maximumTagCount
-        try walk(&reader, limits: limits, name: name, depth: 0, spritePath: [], budget: &budget,
-                 visit: visit)
+        try walk(
+            &reader, limits: limits, name: name, depth: 0, spritePath: [], budget: &budget,
+            visit: visit)
     }
 
     private static func walk(

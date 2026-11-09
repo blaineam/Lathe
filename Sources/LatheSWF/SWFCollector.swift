@@ -210,9 +210,10 @@ final class SWFCollector {
         // way to carry the transparency and dropping it would produce an image
         // that looks entirely correct and is entirely wrong.
         if payload == .jpeg, !alphaData.isEmpty,
-           let composed = SWFImageDecoder.composingAlpha(
-            jpeg: imageData, alphaZlib: alphaData, limits: limits, name: name
-           ) {
+            let composed = SWFImageDecoder.composingAlpha(
+                jpeg: imageData, alphaZlib: alphaData, limits: limits, name: name
+            )
+        {
             let size = SWFImageDecoder.pixelSize(of: composed)
             try emitImage(
                 composed, characterID: characterID, record: record, extension: "png",

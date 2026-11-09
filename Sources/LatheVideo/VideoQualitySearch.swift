@@ -69,22 +69,26 @@ public struct VideoQualitySearch: Sendable, Equatable {
         // The clips, and the reference frames from each, prepared once.
         var clips: [(url: URL, times: [CMTime], frames: [CGImage])] = []
         for (index, range) in Self.sampleRanges(
-            duration: duration, count: sampleCount, seconds: sampleSeconds).enumerated() {
+            duration: duration, count: sampleCount, seconds: sampleSeconds
+        ).enumerated() {
             let url = workspace.appendingPathComponent("clip-\(index).mov")
             try await Self.cut(asset, range: range, to: url)
             let clipDuration = try await AVURLAsset(url: url).load(.duration).seconds
             let times = (0..<framesPerSample).map { frame in
-                CMTime(seconds: clipDuration * (Double(frame) + 0.5) / Double(framesPerSample),
-                       preferredTimescale: 600)
+                CMTime(
+                    seconds: clipDuration * (Double(frame) + 0.5) / Double(framesPerSample),
+                    preferredTimescale: 600)
             }
             let frames = try await Self.frames(of: AVURLAsset(url: url), at: times)
             clips.append((url, times, frames))
         }
 
-        let outcome = try await search.run(progress: progress) { value -> (output: Double, similarity: VisualSimilarity) in
+        let outcome = try await search.run(progress: progress) {
+            value -> (output: Double, similarity: VisualSimilarity) in
             var verdict: VisualSimilarity?
             for (index, clip) in clips.enumerated() {
-                let output = workspace.appendingPathComponent("encoded-\(index)-\(UUID().uuidString).\(outputExtension)")
+                let output = workspace.appendingPathComponent(
+                    "encoded-\(index)-\(UUID().uuidString).\(outputExtension)")
                 defer { try? FileManager.default.removeItem(at: output) }
                 try await encodeSample(clip.url, value, output)
                 let encoded = try await Self.frames(of: AVURLAsset(url: output), at: clip.times)

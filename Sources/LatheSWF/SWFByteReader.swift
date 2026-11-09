@@ -186,7 +186,10 @@ struct SWFByteReader {
 
     /// A signed bit field, sign-extended from its own width.
     mutating func signedBits(_ bitCount: Int) throws -> Int32 {
-        guard bitCount > 0 else { _ = try unsignedBits(bitCount); return 0 }
+        guard bitCount > 0 else {
+            _ = try unsignedBits(bitCount)
+            return 0
+        }
         let raw = try unsignedBits(bitCount)
         guard bitCount < 32 else { return Int32(bitPattern: raw) }
         let signBit = UInt32(1) << (bitCount - 1)

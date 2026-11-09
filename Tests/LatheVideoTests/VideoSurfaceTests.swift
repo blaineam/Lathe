@@ -69,14 +69,16 @@ struct VideoSurfaceTests {
         #expect(VTKey.averageBitRate == kVTCompressionPropertyKey_AverageBitRate as String)
         #expect(VTKey.allowFrameReordering == kVTCompressionPropertyKey_AllowFrameReordering as String)
         #expect(VTKey.realTime == kVTCompressionPropertyKey_RealTime as String)
-        #expect(VTKey.maximizePowerEfficiency
-            == kVTCompressionPropertyKey_MaximizePowerEfficiency as String)
+        #expect(
+            VTKey.maximizePowerEfficiency
+                == kVTCompressionPropertyKey_MaximizePowerEfficiency as String)
         #expect(VTKey.expectedFrameRate == kVTCompressionPropertyKey_ExpectedFrameRate as String)
         #expect(VTKey.colorPrimaries == kVTCompressionPropertyKey_ColorPrimaries as String)
         #expect(VTKey.transferFunction == kVTCompressionPropertyKey_TransferFunction as String)
         #expect(VTKey.yCbCrMatrix == kVTCompressionPropertyKey_YCbCrMatrix as String)
-        #expect(VTKey.preserveDynamicHDRMetadata
-            == kVTCompressionPropertyKey_PreserveDynamicHDRMetadata as String)
+        #expect(
+            VTKey.preserveDynamicHDRMetadata
+                == kVTCompressionPropertyKey_PreserveDynamicHDRMetadata as String)
 
         // Available since macOS 10.9 but only iOS 17.4, which is ABOVE this
         // package's floor — so referencing the constant unguarded fails the iOS
@@ -85,8 +87,9 @@ struct VideoSurfaceTests {
         // test is the one place a constant has to be named, and it pays the
         // availability cost the source avoids.
         if #available(macOS 10.9, iOS 17.4, *) {
-            #expect(VTKey.usingHardwareAcceleratedVideoEncoder
-                == kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder as String)
+            #expect(
+                VTKey.usingHardwareAcceleratedVideoEncoder
+                    == kVTCompressionPropertyKey_UsingHardwareAcceleratedVideoEncoder as String)
         }
 
         // `ConstantQualityFactor` is NOT pinned against its SDK constant, and
@@ -116,7 +119,8 @@ struct VideoSurfaceTests {
         let bigger = VideoCompressor.derivedBitrate(for: 0.2, codec: .hevc, size: large, frameRate: 30)
         #expect(low < high)
         #expect(low < bigger)
-        #expect(VideoCompressor.derivedBitrate(for: 0.5, codec: .h264, size: small, frameRate: 30)
-            > VideoCompressor.derivedBitrate(for: 0.5, codec: .hevc, size: small, frameRate: 30))
+        #expect(
+            VideoCompressor.derivedBitrate(for: 0.5, codec: .h264, size: small, frameRate: 30)
+                > VideoCompressor.derivedBitrate(for: 0.5, codec: .hevc, size: small, frameRate: 30))
     }
 }

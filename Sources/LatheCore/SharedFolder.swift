@@ -152,7 +152,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         // is looking for, and asking FileManager keeps us honest about a
         // container laid out differently than we assumed.
         if !identifier.isEmpty,
-           home.path.hasSuffix("/Library/Containers/\(identifier)/Data")
+            home.path.hasSuffix("/Library/Containers/\(identifier)/Data")
         {
             let support = try FileManager.default.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
@@ -271,7 +271,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         // after it was chosen and the publisher has no way to notice.
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
-              isDirectory.boolValue
+            isDirectory.boolValue
         else { return nil }
         return folder
     }
@@ -279,7 +279,7 @@ public struct SharedFolder: Codable, Sendable, Equatable {
     /// Reads back what *this* application published, or nil.
     public static func publishedByThisApplication() -> SharedFolder? {
         guard let url = try? selfPublicationURL(),
-              let data = try? Data(contentsOf: url)
+            let data = try? Data(contentsOf: url)
         else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -291,7 +291,6 @@ public struct SharedFolder: Codable, Sendable, Equatable {
         try? FileManager.default.removeItem(at: publicationURL(forBundleIdentifier: identifier))
     }
 }
-
 
 public enum SharedFolderError: Error, CustomStringConvertible {
     /// This application is not a member of the group it tried to publish into.

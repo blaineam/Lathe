@@ -63,8 +63,9 @@ struct FrameExtractorTests {
         #expect(Self.pixelSize(ofImageAt: output) == Self.size)
     }
 
-    @Test("the output format follows the destination's extension",
-          arguments: ["jpg", "png", "tiff"])
+    @Test(
+        "the output format follows the destination's extension",
+        arguments: ["jpg", "png", "tiff"])
     func formatFollowsExtension(_ fileExtension: String) async throws {
         let format = try #require(ImageFormat.named(byFilenameExtension: fileExtension))
         guard EncodeSupport.shared.canEncode(format) else {
@@ -82,8 +83,9 @@ struct FrameExtractorTests {
         // Read the type back from the file's own bytes, not from its name.
         let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
         let written = try #require(CGImageSourceGetType(source) as String?)
-        #expect(format.allTypeIdentifiers.contains { $0.caseInsensitiveCompare(written) == .orderedSame },
-                "wrote \(written), expected one of \(format.allTypeIdentifiers)")
+        #expect(
+            format.allTypeIdentifiers.contains { $0.caseInsensitiveCompare(written) == .orderedSame },
+            "wrote \(written), expected one of \(format.allTypeIdentifiers)")
     }
 
     /// The failure this guards against is a **0-byte file**: ImageIO returns a
@@ -102,8 +104,9 @@ struct FrameExtractorTests {
             .sorted { $0.rawValue < $1.rawValue }
             .first
         guard let unwritable else {
-            print("  ! this system writes every format Lathe knows; "
-                  + "the thumbnail refusal path is not exercised here")
+            print(
+                "  ! this system writes every format Lathe knows; "
+                    + "the thumbnail refusal path is not exercised here")
             return
         }
         guard let movie = await splitMovie() else { return }
@@ -117,14 +120,15 @@ struct FrameExtractorTests {
             _ = try await extractor.thumbnail(from: movie, to: output, atSeconds: 1, maxWidth: 64)
             Issue.record("expected a refusal for \(unwritable.description)")
         } catch let error as LatheError {
-            guard case let .encodeUnavailable(format) = error else {
+            guard case .encodeUnavailable(let format) = error else {
                 Issue.record("expected .encodeUnavailable, got \(error)")
                 return
             }
             #expect(format == unwritable.description)
         }
-        #expect(!FileManager.default.fileExists(atPath: output.path),
-                "a refused encode must not leave a file behind")
+        #expect(
+            !FileManager.default.fileExists(atPath: output.path),
+            "a refused encode must not leave a file behind")
     }
 
     @Test("an unrecognised extension is a configuration error, not a codec error")
@@ -148,12 +152,16 @@ struct FrameExtractorTests {
 
     @Test("a file with no video track cannot produce a thumbnail")
     func noVideoTrack() async throws {
-        guard let wav = await fixture("frames-audio-only.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "frames-audio-only.wav", seconds: 1,
-                audio: .tone(hertz: 440, amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "frames-audio-only.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "frames-audio-only.wav", seconds: 1,
+                        audio: .tone(hertz: 440, amplitude: 0.3)
+                    )
+                })
+        else { return }
         let output = await FixtureLibrary.shared.scratchURL(named: "thumb-no-video.png")
 
         await #expect(throws: LatheError.self) {
@@ -176,13 +184,15 @@ struct FrameExtractorTests {
     /// The padding assertion. A `vImage_Buffer`'s `rowBytes` is padded for
     /// alignment far more often than not, so an extractor that returns
     /// `rowBytes × height` bytes looks right until something checks the count.
-    @Test("the grayscale buffer is exactly size × size bytes",
-          arguments: [8, 9, 16, 31, 32, 33, 64])
+    @Test(
+        "the grayscale buffer is exactly size × size bytes",
+        arguments: [8, 9, 16, 31, 32, 33, 64])
     func grayscaleLengthIsExact(_ side: Int) async throws {
         guard let movie = await splitMovie() else { return }
         let data = try await extractor.grayscaleFrame(from: movie, atSeconds: 1, size: side)
-        #expect(data.count == side * side,
-                "\(side)x\(side) produced \(data.count) bytes, expected \(side * side)")
+        #expect(
+            data.count == side * side,
+            "\(side)x\(side) produced \(data.count) bytes, expected \(side * side)")
     }
 
     @Test("the grayscale frame carries the source's structure, not a constant")
@@ -196,7 +206,9 @@ struct FrameExtractorTests {
         // The fixture is black on the left, white on the right. Sampling the
         // outer quarters avoids the soft edge H.264's chroma subsampling leaves
         // down the middle.
-        var leftTotal = 0, rightTotal = 0, samples = 0
+        var leftTotal = 0
+        var rightTotal = 0
+        var samples = 0
         for row in 0..<side {
             for column in 0..<(side / 4) {
                 leftTotal += Int(bytes[row * side + column])
@@ -218,9 +230,10 @@ struct FrameExtractorTests {
     func grayscaleSquashesToSquare() async throws {
         guard let movie = await splitMovie() else { return }
         let side = 16
-        let bytes = [UInt8](try await extractor.grayscaleFrame(
-            from: movie, atSeconds: 1, size: side
-        ))
+        let bytes = [UInt8](
+            try await extractor.grayscaleFrame(
+                from: movie, atSeconds: 1, size: side
+            ))
 
         // Cropping a 4:3 frame to a square would cut the sides off and lose one
         // of the two halves; squashing keeps both. Column 0 must still be dark
@@ -276,9 +289,9 @@ struct FrameExtractorTests {
 
     private static func pixelSize(ofImageAt url: URL) -> PixelSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
         return PixelSize(width: width, height: height)
     }

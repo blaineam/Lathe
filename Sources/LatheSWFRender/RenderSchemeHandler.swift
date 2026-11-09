@@ -129,9 +129,10 @@ final class RenderSchemeHandler: NSObject, WKURLSchemeHandler {
                 // every render, under the same URL.
                 "Cache-Control": "no-store",
             ]
-        ) ?? URLResponse(
-            url: url, mimeType: mimeType, expectedContentLength: length, textEncodingName: nil
         )
+            ?? URLResponse(
+                url: url, mimeType: mimeType, expectedContentLength: length, textEncodingName: nil
+            )
     }
 
     /// The MIME types this host serves, stated rather than inferred.

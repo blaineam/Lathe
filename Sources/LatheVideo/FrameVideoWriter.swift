@@ -201,9 +201,11 @@ public struct FrameVideoWriter: Sendable {
             )
         }
 
-        guard let settings = Self.applicableSettings(
-            for: writer, codec: codec, size: size, quality: quality, frameRate: frameRate
-        ) else {
+        guard
+            let settings = Self.applicableSettings(
+                for: writer, codec: codec, size: size, quality: quality, frameRate: frameRate
+            )
+        else {
             throw LatheError.encodeUnavailable(
                 format: "\(codec.rawValue) at \(size.width)×\(size.height) in \(destination.pathExtension)"
             )
@@ -235,9 +237,11 @@ public struct FrameVideoWriter: Sendable {
         )
 
         guard writer.startWriting() else {
-            throw LatheError.wrapping(writer.error ?? LatheError.encodingFailed(
-                stage: "encode", code: nil, reason: "the writer refused to start"
-            ))
+            throw LatheError.wrapping(
+                writer.error
+                    ?? LatheError.encodingFailed(
+                        stage: "encode", code: nil, reason: "the writer refused to start"
+                    ))
         }
         writer.startSession(atSourceTime: .zero)
 
@@ -294,20 +298,27 @@ public struct FrameVideoWriter: Sendable {
                     transparentBackground: codec.needsAlpha
                 )
 
-                guard adaptor.append(
-                    buffer, withPresentationTime: CMTimeMultiply(frameDuration, multiplier: Int32(index))
-                ) else {
-                    throw LatheError.wrapping(writer.error ?? LatheError.encodingFailed(
-                        stage: "encode", code: nil,
-                        reason: "frame \(index + 1) was refused by the encoder"
-                    ))
+                guard
+                    adaptor.append(
+                        buffer, withPresentationTime: CMTimeMultiply(frameDuration, multiplier: Int32(index))
+                    )
+                else {
+                    throw LatheError.wrapping(
+                        writer.error
+                            ?? LatheError.encodingFailed(
+                                stage: "encode", code: nil,
+                                reason: "frame \(index + 1) was refused by the encoder"
+                            ))
                 }
 
-                guard progress.report(LatheProgress(
-                    fraction: Double(index + 1) / Double(urls.count),
-                    stage: "frames",
-                    unitIndex: UInt64(index + 1),
-                    unitCount: UInt64(urls.count))) else {
+                guard
+                    progress.report(
+                        LatheProgress(
+                            fraction: Double(index + 1) / Double(urls.count),
+                            stage: "frames",
+                            unitIndex: UInt64(index + 1),
+                            unitCount: UInt64(urls.count)))
+                else {
                     throw LatheError.cancelled(atUnit: UInt64(index + 1))
                 }
             }
@@ -334,10 +345,12 @@ public struct FrameVideoWriter: Sendable {
         try await Self.finish(writer, within: stallTimeout * 4)
 
         guard writer.status == .completed else {
-            throw LatheError.wrapping(writer.error ?? LatheError.encodingFailed(
-                stage: "encode", code: nil,
-                reason: "the writer finished in state \(writer.status.rawValue)"
-            ))
+            throw LatheError.wrapping(
+                writer.error
+                    ?? LatheError.encodingFailed(
+                        stage: "encode", code: nil,
+                        reason: "the writer finished in state \(writer.status.rawValue)"
+                    ))
         }
 
         // Measured from the file rather than computed from the loop: the
@@ -385,13 +398,17 @@ public struct FrameVideoWriter: Sendable {
     ) -> [String: Any]? {
         var targets = [quality]
         switch quality {
-        case let .constantQualityFactor(value):
+        case .constantQualityFactor(let value):
             targets.append(.quality(value))
-            targets.append(.averageBitrate(VideoCompressor.derivedBitrate(
-                for: value, codec: codec, size: size, frameRate: frameRate)))
-        case let .quality(value):
-            targets.append(.averageBitrate(VideoCompressor.derivedBitrate(
-                for: value, codec: codec, size: size, frameRate: frameRate)))
+            targets.append(
+                .averageBitrate(
+                    VideoCompressor.derivedBitrate(
+                        for: value, codec: codec, size: size, frameRate: frameRate)))
+        case .quality(let value):
+            targets.append(
+                .averageBitrate(
+                    VideoCompressor.derivedBitrate(
+                        for: value, codec: codec, size: size, frameRate: frameRate)))
         default:
             break
         }
@@ -426,17 +443,17 @@ public struct FrameVideoWriter: Sendable {
         var compression: [String: Any] = [
             // A hint the encoder uses for rate control and GOP placement. It is
             // not what sets the frame rate — the presentation timestamps are.
-            VTKey.expectedFrameRate: frameRate,
+            VTKey.expectedFrameRate: frameRate
         ]
         switch quality {
-        case let .quality(value):
+        case .quality(let value):
             compression[VTKey.quality] = min(max(value, 0), 1)
-        case let .constantQualityFactor(value):
+        case .constantQualityFactor(let value):
             compression[VTKey.constantQualityFactor] = min(max(value, 0), 1)
-        case let .averageBitrate(bits):
+        case .averageBitrate(let bits):
             compression[AVVideoAverageBitRateKey] = bits
         case .lossless:
-            break   // refused before reaching here
+            break  // refused before reaching here
         }
         if codec.needsAlpha {
             // Without this the alpha plane is encoded but nothing records how it
@@ -479,19 +496,21 @@ public struct FrameVideoWriter: Sendable {
         CVPixelBufferLockBaseAddress(buffer, [])
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
 
-        guard let context = CGContext(
-            data: CVPixelBufferGetBaseAddress(buffer),
-            width: size.width,
-            height: size.height,
-            bitsPerComponent: 8,
-            // The pool's own stride, not a computed one. A pooled buffer is
-            // padded to the encoder's alignment and assuming `width * 4` writes
-            // a sheared image on every size that is not already aligned.
-            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: CVPixelBufferGetBaseAddress(buffer),
+                width: size.width,
+                height: size.height,
+                bitsPerComponent: 8,
+                // The pool's own stride, not a computed one. A pooled buffer is
+                // padded to the encoder's alignment and assuming `width * 4` writes
+                // a sheared image on every size that is not already aligned.
+                bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "encode", code: nil, reason: "no drawing context over a \(size) pixel buffer"
             )
@@ -508,9 +527,11 @@ public struct FrameVideoWriter: Sendable {
             context.fill(canvas)
         }
         context.interpolationQuality = .high
-        context.draw(image, in: FrameReader.fittedRect(
-            for: PixelSize(width: image.width, height: image.height), in: size
-        ))
+        context.draw(
+            image,
+            in: FrameReader.fittedRect(
+                for: PixelSize(width: image.width, height: image.height), in: size
+            ))
 
         return buffer
     }

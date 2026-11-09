@@ -116,7 +116,8 @@ struct PDFTextLayerTests {
             let source = try #require(PDFDocument(url: input))
             let sourcePage = try #require(source.page(at: 0))
             let sourceBox = sourcePage.bounds(for: .mediaBox)
-            let expected = rotation % 180 == 0
+            let expected =
+                rotation % 180 == 0
                 ? sourceBox.size
                 : CGSize(width: sourceBox.height, height: sourceBox.width)
             #expect(abs(box.width - expected.width) < 1)
@@ -360,7 +361,8 @@ struct PDFTextLayerTests {
         _ result: PDFTextLayerResult, _ body: () throws -> Void
     ) throws {
         guard result.textRunCount > 0 || result.pagesRecognized == 0 else {
-            let message = "Vision recognised nothing on this machine "
+            let message =
+                "Vision recognised nothing on this machine "
                 + "(revision \(result.recognitionRevision)); the OCR assertions cannot run here"
             Issue.record(Comment(rawValue: message))
             return
@@ -444,19 +446,22 @@ struct PDFTextLayerTests {
         guard let page = document.page(at: index) else { return nil }
 
         let box = page.bounds(for: .mediaBox)
-        let displayed = (page.rotation / 90) % 2 == 1
+        let displayed =
+            (page.rotation / 90) % 2 == 1
             ? CGSize(width: box.height, height: box.width)
             : box.size
         let width = max(1, Int((displayed.width * scale).rounded()))
         let height = max(1, Int((displayed.height * scale).rounded()))
 
-        guard let context = CGContext(
-            data: nil, width: width, height: height,
-            bitsPerComponent: 8, bytesPerRow: width * 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else { return nil }
+        guard
+            let context = CGContext(
+                data: nil, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else { return nil }
 
         context.setFillColor(gray: 1, alpha: 1)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
@@ -468,7 +473,10 @@ struct PDFTextLayerTests {
         guard let base = context.data else { return nil }
         let bytes = base.assumingMemoryBound(to: UInt8.self)
         var dark = 0
-        var minX = width, minY = height, maxX = -1, maxY = -1
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
 
         for row in 0..<height {
             for column in 0..<width {
@@ -477,8 +485,10 @@ struct PDFTextLayerTests {
                 let luminance = Int(bytes[pixel]) + Int(bytes[pixel + 1]) + Int(bytes[pixel + 2])
                 guard luminance < 3 * 128 else { continue }
                 dark += 1
-                minX = min(minX, column); maxX = max(maxX, column)
-                minY = min(minY, row); maxY = max(maxY, row)
+                minX = min(minX, column)
+                maxX = max(maxX, column)
+                minY = min(minY, row)
+                maxY = max(maxY, row)
             }
         }
 
@@ -509,7 +519,7 @@ struct PDFTextLayerTests {
     private func contentStream(ofPage index: Int, in url: URL) throws -> Data? {
         let document = try #require(CGPDFDocument(url as CFURL))
         guard let page = document.page(at: index + 1),
-              let dictionary = page.dictionary
+            let dictionary = page.dictionary
         else { return nil }
 
         var stream: CGPDFStreamRef?

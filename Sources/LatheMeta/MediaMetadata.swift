@@ -280,8 +280,9 @@ public enum ArtworkFormat: String, Sendable, Equatable, CaseIterable {
     /// really JPEG must round-trip as JPEG.
     public init?(sniffing data: Data) {
         if data.count >= 3, data[data.startIndex] == 0xFF,
-           data[data.index(data.startIndex, offsetBy: 1)] == 0xD8,
-           data[data.index(data.startIndex, offsetBy: 2)] == 0xFF {
+            data[data.index(data.startIndex, offsetBy: 1)] == 0xD8,
+            data[data.index(data.startIndex, offsetBy: 2)] == 0xFF
+        {
             self = .jpeg
             return
         }

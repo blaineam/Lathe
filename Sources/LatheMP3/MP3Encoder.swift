@@ -97,15 +97,17 @@ public struct MP3Encoder: Sendable {
         let rate = Self.supportedSampleRate(nearest: sourceRate)
 
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: false,
-            AVSampleRateKey: rate,
-            AVNumberOfChannelsKey: channels,
-        ])
+        let output = AVAssetReaderTrackOutput(
+            track: track,
+            outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsBigEndianKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+                AVSampleRateKey: rate,
+                AVNumberOfChannelsKey: channels,
+            ])
         guard reader.canAdd(output) else {
             throw LatheError.decodeUnavailable(format: source.pathExtension)
         }
@@ -120,17 +122,20 @@ public struct MP3Encoder: Sendable {
         let outputBytes = try MP3Files.writingAtomically(
             to: destination, stage: "mp3-encode"
         ) { scratch in
-            guard let handle = FileManager.default.createFile(atPath: scratch.path, contents: nil)
-                ? try? FileHandle(forWritingTo: scratch) : nil
+            guard
+                let handle = FileManager.default.createFile(atPath: scratch.path, contents: nil)
+                    ? try? FileHandle(forWritingTo: scratch) : nil
             else {
                 throw LatheError.writeFailed(path: scratch.lastPathComponent, reason: "could not open")
             }
             defer { try? handle.close() }
 
             guard reader.startReading() else {
-                throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
-                    stage: "decode", code: nil, reason: "the reader refused to start"
-                ))
+                throw LatheError.wrapping(
+                    reader.error
+                        ?? LatheError.encodingFailed(
+                            stage: "decode", code: nil, reason: "the reader refused to start"
+                        ))
             }
 
             var encodedSeconds: Double = 0
@@ -145,16 +150,19 @@ public struct MP3Encoder: Sendable {
 
                 encodedSeconds += Double(frames) / Double(rate)
                 if duration > 0 {
-                    try progress.checkpoint(LatheProgress(
-                        fraction: min(1, encodedSeconds / duration), stage: "encode"
-                    ))
+                    try progress.checkpoint(
+                        LatheProgress(
+                            fraction: min(1, encodedSeconds / duration), stage: "encode"
+                        ))
                 }
             }
 
             if reader.status == .failed {
-                throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
-                    stage: "decode", code: nil, reason: "the reader failed"
-                ))
+                throw LatheError.wrapping(
+                    reader.error
+                        ?? LatheError.encodingFailed(
+                            stage: "decode", code: nil, reason: "the reader failed"
+                        ))
             }
 
             // The final frame, then the Xing/LAME header. The header has to be
@@ -187,7 +195,7 @@ public struct MP3Encoder: Sendable {
 
     private static func sampleRate(of track: AVAssetTrack) async throws -> Int {
         guard let format = try await track.load(.formatDescriptions).first,
-              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
         else { return 44_100 }
         let rate = Int(basic.pointee.mSampleRate)
         return rate > 0 ? rate : 44_100
@@ -195,7 +203,7 @@ public struct MP3Encoder: Sendable {
 
     private static func channelCount(of track: AVAssetTrack) async throws -> Int {
         guard let format = try await track.load(.formatDescriptions).first,
-              let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
+            let basic = CMAudioFormatDescriptionGetStreamBasicDescription(format)
         else { return 2 }
         return max(1, Int(basic.pointee.mChannelsPerFrame))
     }
@@ -221,10 +229,12 @@ public struct MP3Encoder: Sendable {
         guard let block = CMSampleBufferGetDataBuffer(buffer) else { return nil }
         var length = 0
         var pointer: UnsafeMutablePointer<CChar>?
-        guard CMBlockBufferGetDataPointer(
-            block, atOffset: 0, lengthAtOffsetOut: nil,
-            totalLengthOut: &length, dataPointerOut: &pointer
-        ) == noErr, let pointer, length > 0 else { return nil }
+        guard
+            CMBlockBufferGetDataPointer(
+                block, atOffset: 0, lengthAtOffsetOut: nil,
+                totalLengthOut: &length, dataPointerOut: &pointer
+            ) == noErr, let pointer, length > 0
+        else { return nil }
 
         let count = length / MemoryLayout<Int16>.size
         return UnsafeRawPointer(pointer).withMemoryRebound(to: Int16.self, capacity: count) {

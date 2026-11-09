@@ -19,7 +19,7 @@ struct FormatSelectionTests {
         let listing = try MediaFixtures.listing(MediaFixtures.youTubeAdaptive)
         let selection = try FormatSelector.select(from: listing, policy: .best)
 
-        guard case let .pair(video, audio) = selection else {
+        guard case .pair(let video, let audio) = selection else {
             Issue.record("expected a pair, got \(selection.summary)")
             return
         }
@@ -41,7 +41,7 @@ struct FormatSelectionTests {
         let error = #expect(throws: MediaFetchError.self) {
             try FormatSelector.select(from: listing, policy: .preMuxedOnly)
         }
-        guard case let .noUsableFormat(reason) = error else {
+        guard case .noUsableFormat(let reason) = error else {
             Issue.record("expected noUsableFormat, got \(String(describing: error))")
             return
         }
@@ -61,7 +61,7 @@ struct FormatSelectionTests {
         // 1080p pre-muxed file beating a pair that could only reach 360p. One
         // request, no muxer.
         let capped = try FormatSelector.select(from: listing, policy: .upTo(height: 1080))
-        guard case let .single(format) = capped else {
+        guard case .single(let format) = capped else {
             Issue.record("expected a single format, got \(capped.summary)")
             return
         }
@@ -80,7 +80,7 @@ struct FormatSelectionTests {
         let error = #expect(throws: MediaFetchError.self) {
             try FormatSelector.select(from: listing, policy: .best)
         }
-        guard case let .noUsableFormat(reason) = error else {
+        guard case .noUsableFormat(let reason) = error else {
             Issue.record("expected noUsableFormat, got \(String(describing: error))")
             return
         }
@@ -111,7 +111,7 @@ struct FormatSelectionTests {
     func audioOnly() throws {
         let listing = try MediaFixtures.listing(MediaFixtures.youTubeAdaptive)
         let selection = try FormatSelector.select(from: listing, policy: .audio)
-        guard case let .single(format) = selection else {
+        guard case .single(let format) = selection else {
             Issue.record("audio should never mux")
             return
         }
@@ -125,7 +125,7 @@ struct FormatSelectionTests {
         var policy = FormatPolicy()
         policy.intent = .videoOnly
         let selection = try FormatSelector.select(from: listing, policy: policy)
-        guard case let .single(format) = selection else {
+        guard case .single(let format) = selection else {
             Issue.record("video-only should never mux")
             return
         }
@@ -160,7 +160,7 @@ struct FormatSelectionTests {
         let error = #expect(throws: MediaFetchError.self) {
             try FormatSelector.select(from: listing, policy: .best)
         }
-        guard case let .noUsableFormat(reason) = error else {
+        guard case .noUsableFormat(let reason) = error else {
             Issue.record("expected noUsableFormat, got \(String(describing: error))")
             return
         }
@@ -181,7 +181,7 @@ struct FormatSelectionTests {
         let error = #expect(throws: MediaFetchError.self) {
             try FormatSelector.select(from: listing, policy: .upTo(height: 1))
         }
-        guard case let .noUsableFormat(reason) = error else {
+        guard case .noUsableFormat(let reason) = error else {
             Issue.record("expected noUsableFormat, got \(String(describing: error))")
             return
         }

@@ -9,10 +9,11 @@ import Testing
 struct FrameDetailTests {
 
     private func png(_ directory: URL, _ name: String, square: CGRect?) throws -> URL {
-        let context = try #require(CGContext(
-            data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let context = try #require(
+            CGContext(
+                data: nil, width: 100, height: 100, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(CGColor(gray: 0.1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
         if let square {

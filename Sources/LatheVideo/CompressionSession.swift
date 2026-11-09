@@ -135,7 +135,7 @@ final class VideoCompressor: @unchecked Sendable {
         // older OS quietly does what it would have done anyway; the header
         // documents hardware as the default there in any case.
         let specification: [CFString: Any] = [
-            "EnableHardwareAcceleratedVideoEncoder" as CFString: true,
+            "EnableHardwareAcceleratedVideoEncoder" as CFString: true
         ]
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
@@ -175,7 +175,8 @@ final class VideoCompressor: @unchecked Sendable {
             (bFrames.allowsFrameReordering ? kCFBooleanTrue : kCFBooleanFalse) as CFBoolean,
             on: created
         )
-        frameReordering = Self.copyBool(VTKey.allowFrameReordering, from: created)
+        frameReordering =
+            Self.copyBool(VTKey.allowFrameReordering, from: created)
             ?? bFrames.allowsFrameReordering
 
         if codec == .hevcWithAlpha, supported.contains(VTKey.alphaChannelMode) {
@@ -234,9 +235,10 @@ final class VideoCompressor: @unchecked Sendable {
             infoFlagsOut: nil
         ) { status, flags, sample in
             guard status == noErr else {
-                queue.fail(LatheError.encodingFailed(
-                    stage: "encode", code: status, reason: "VideoToolbox could not encode a frame"
-                ))
+                queue.fail(
+                    LatheError.encodingFailed(
+                        stage: "encode", code: status, reason: "VideoToolbox could not encode a frame"
+                    ))
                 return
             }
             // A dropped frame is not an error — the encoder is allowed to decide
@@ -298,10 +300,11 @@ final class VideoCompressor: @unchecked Sendable {
                 reason: "QualityTarget.lossless cannot be honoured by a video encoder"
             )
 
-        case let .quality(value):
+        case .quality(let value):
             let clamped = min(max(value, 0), 1)
             if supported.contains(VTKey.quality),
-               set(VTKey.quality, clamped as CFNumber, on: session) {
+                set(VTKey.quality, clamped as CFNumber, on: session)
+            {
                 return .constantQuality(clamped)
             }
             // The documented fallback. `Quality` has existed since macOS 10.8 and
@@ -324,10 +327,11 @@ final class VideoCompressor: @unchecked Sendable {
             )
             return .averageBitrate(bitrate)
 
-        case let .constantQualityFactor(value):
+        case .constantQualityFactor(let value):
             let clamped = min(max(value, 0), 1)
             if supported.contains(VTKey.constantQualityFactor),
-               set(VTKey.constantQualityFactor, clamped as CFNumber, on: session) {
+                set(VTKey.constantQualityFactor, clamped as CFNumber, on: session)
+            {
                 return .constantQualityFactor(clamped)
             }
             // The documented fallback for an OS older than the key: the same
@@ -338,7 +342,8 @@ final class VideoCompressor: @unchecked Sendable {
             // request degrades instead of inverting. The result says which one
             // ran.
             if supported.contains(VTKey.quality),
-               set(VTKey.quality, clamped as CFNumber, on: session) {
+                set(VTKey.quality, clamped as CFNumber, on: session)
+            {
                 return .constantQuality(clamped)
             }
             let bitrate = derivedBitrate(for: clamped, codec: codec, size: size, frameRate: frameRate)
@@ -350,7 +355,7 @@ final class VideoCompressor: @unchecked Sendable {
             }
             return .averageBitrate(bitrate)
 
-        case let .averageBitrate(bitsPerSecond):
+        case .averageBitrate(let bitsPerSecond):
             guard bitsPerSecond > 0 else {
                 throw LatheError.invalidConfiguration(
                     reason: "an average bitrate must be positive, got \(bitsPerSecond)"
@@ -427,7 +432,7 @@ final class VideoCompressor: @unchecked Sendable {
         ]
         for (extensionKey, propertyKey) in pairs {
             guard supported.contains(propertyKey),
-                  let value = CMFormatDescriptionGetExtension(format, extensionKey: extensionKey)
+                let value = CMFormatDescriptionGetExtension(format, extensionKey: extensionKey)
             else { continue }
             set(propertyKey, value, on: session)
         }
@@ -501,8 +506,9 @@ final class PixelScaler {
     /// Returns `buffer` at exactly the target size, scaling only when it is not
     /// already that size.
     func scaled(_ buffer: CVPixelBuffer) throws -> CVPixelBuffer {
-        guard CVPixelBufferGetWidth(buffer) != target.width
-            || CVPixelBufferGetHeight(buffer) != target.height
+        guard
+            CVPixelBufferGetWidth(buffer) != target.width
+                || CVPixelBufferGetHeight(buffer) != target.height
         else { return buffer }
 
         let format = CVPixelBufferGetPixelFormatType(buffer)
@@ -510,7 +516,7 @@ final class PixelScaler {
 
         var destination: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &destination) == kCVReturnSuccess,
-              let destination
+            let destination
         else {
             throw LatheError.encodingFailed(
                 stage: "scale", code: nil, reason: "could not take a \(target) pixel buffer from the pool"
@@ -542,9 +548,11 @@ final class PixelScaler {
             kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
         ]
         var created: CVPixelBufferPool?
-        guard CVPixelBufferPoolCreate(
-            kCFAllocatorDefault, nil, attributes as CFDictionary, &created
-        ) == kCVReturnSuccess, let created else {
+        guard
+            CVPixelBufferPoolCreate(
+                kCFAllocatorDefault, nil, attributes as CFDictionary, &created
+            ) == kCVReturnSuccess, let created
+        else {
             throw LatheError.encodingFailed(
                 stage: "scale", code: nil, reason: "could not create a \(target) pixel buffer pool"
             )

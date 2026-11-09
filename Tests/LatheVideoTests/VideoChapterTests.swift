@@ -23,12 +23,16 @@ struct VideoChapterTests {
     /// **The headline: a chaptered film keeps its chapters through a transcode.**
     @Test("chapters survive a video transcode, on the video track")
     func chaptersSurvive() async throws {
-        guard let source = await fixture("vchap-source.mov", {
-            try await FixtureLibrary.shared.movie(
-                named: "vchap-source.mov", size: Self.size, frameRate: 24,
-                seconds: Self.seconds, audio: .none
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "vchap-source.mov",
+                {
+                    try await FixtureLibrary.shared.movie(
+                        named: "vchap-source.mov", size: Self.size, frameRate: 24,
+                        seconds: Self.seconds, audio: .none
+                    )
+                })
+        else { return }
 
         let chaptered = await scratch("vchap-in.mov")
         let expected: [Chapter] = [
@@ -51,26 +55,33 @@ struct VideoChapterTests {
             source: chaptered, to: destination, codec: .hevc, quality: .quality(0.5)
         )
         let why = result.chapterLossReason ?? "no reason given"
-        #expect(result.preservedChapterCount == 3,
-                "preserved \(result.preservedChapterCount) of 3 — \(why)")
+        #expect(
+            result.preservedChapterCount == 3,
+            "preserved \(result.preservedChapterCount) of 3 — \(why)")
         #expect(result.droppedChapterCount == 0)
 
         let after = await ChapterTrack.read(from: AVURLAsset(url: destination))
-        #expect(after.map(\.title) == ["Cold Open", "Acte Deux", "Credits"],
-                "titles came back as \(after.map(\.title))")
+        #expect(
+            after.map(\.title) == ["Cold Open", "Acte Deux", "Credits"],
+            "titles came back as \(after.map(\.title))")
         for (got, want) in zip(after, expected) {
-            #expect(abs(got.startSeconds - want.startSeconds) < 0.2,
-                    "\"\(want.title)\" starts at \(got.startSeconds), expected \(want.startSeconds)")
+            #expect(
+                abs(got.startSeconds - want.startSeconds) < 0.2,
+                "\"\(want.title)\" starts at \(got.startSeconds), expected \(want.startSeconds)")
         }
     }
 
     @Test("a film with no chapters gains none")
     func unchapteredIsUnaffected() async throws {
-        guard let source = await fixture("vchap-none.mov", {
-            try await FixtureLibrary.shared.movie(
-                named: "vchap-none.mov", size: Self.size, frameRate: 24, seconds: 1, audio: .none
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "vchap-none.mov",
+                {
+                    try await FixtureLibrary.shared.movie(
+                        named: "vchap-none.mov", size: Self.size, frameRate: 24, seconds: 1, audio: .none
+                    )
+                })
+        else { return }
         let destination = await scratch("vchap-none-out.mov")
 
         let result = try await transcoder.transcode(

@@ -202,9 +202,11 @@ public struct ImageInspector: Sendable {
     public func inspect(_ url: URL) throws -> ImageFrameInfo {
         try ImageEncoder.requireReadableFile(at: url)
 
-        guard let source = CGImageSourceCreateWithURL(
-            url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else {
+        guard
+            let source = CGImageSourceCreateWithURL(
+                url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary
+            )
+        else {
             throw LatheError.invalidInput(
                 reason: "\(url.lastPathComponent) is not an image ImageIO can read"
             )
@@ -259,16 +261,20 @@ public struct ImageInspector: Sendable {
     // MARK: - Reading properties
 
     private static func containerProperties(of source: CGImageSource) -> [CFString: Any] {
-        guard let raw = CGImageSourceCopyProperties(
-            source, [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else { return [:] }
+        guard
+            let raw = CGImageSourceCopyProperties(
+                source, [kCGImageSourceShouldCache: false] as CFDictionary
+            )
+        else { return [:] }
         return (raw as NSDictionary) as? [CFString: Any] ?? [:]
     }
 
     private static func frameProperties(of source: CGImageSource, at index: Int) -> [CFString: Any] {
-        guard let raw = CGImageSourceCopyPropertiesAtIndex(
-            source, index, [kCGImageSourceShouldCache: false] as CFDictionary
-        ) else { return [:] }
+        guard
+            let raw = CGImageSourceCopyPropertiesAtIndex(
+                source, index, [kCGImageSourceShouldCache: false] as CFDictionary
+            )
+        else { return [:] }
         return (raw as NSDictionary) as? [CFString: Any] ?? [:]
     }
 
@@ -309,8 +315,8 @@ public struct ImageInspector: Sendable {
     ) throws -> PixelSize {
         for keys in canvasKeys {
             guard let dictionary = containerProperties[keys.container] as? [CFString: Any],
-                  let width = (dictionary[keys.width] as? NSNumber)?.intValue,
-                  let height = (dictionary[keys.height] as? NSNumber)?.intValue
+                let width = (dictionary[keys.width] as? NSNumber)?.intValue,
+                let height = (dictionary[keys.height] as? NSNumber)?.intValue
             else { continue }
             let size = PixelSize(width: width, height: height)
             if !size.isEmpty { return size }

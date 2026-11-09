@@ -48,7 +48,7 @@ struct RenderWebViewTests {
     @Test("WebKit on this system compiles and runs a WebAssembly module")
     func webAssemblyRuns() async throws {
         let result = await WebAssemblySupport.probe()
-        if case let .unavailable(reason) = result {
+        if case .unavailable(let reason) = result {
             Issue.record("WebAssembly is unavailable here: \(reason)")
         }
         #expect(result.isAvailable)
@@ -217,7 +217,7 @@ struct RenderWebViewTests {
             _ = try await renderer.render(file, to: swf.appendingPathComponent("frames"))
             Issue.record("expected a refusal")
         } catch let error as LatheError {
-            guard case let .unsupportedOnThisPlatform(feature) = error else {
+            guard case .unsupportedOnThisPlatform(let feature) = error else {
                 Issue.record("expected unsupportedOnThisPlatform, got \(error)")
                 return
             }

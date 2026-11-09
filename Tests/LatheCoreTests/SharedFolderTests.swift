@@ -149,7 +149,6 @@ struct SharedFolderTests {
         #expect(read.chosenBy == "Sami")
     }
 
-
     // MARK: - App groups
 
     /// **On iOS a path is not enough.** Neither side is unsandboxed and no app

@@ -1,5 +1,5 @@
-import AudioToolbox
 import AVFoundation
+import AudioToolbox
 import CoreMedia
 import Foundation
 import LatheCore
@@ -57,7 +57,7 @@ public enum AudioEncodeSupport {
         formatID: AudioFormatID,
         channels: Int
     ) -> Data? {
-        guard channels > 2 else { return nil }   // Mono and stereo need no layout.
+        guard channels > 2 else { return nil }  // Mono and stereo need no layout.
         let available = availableChannelLayoutTags(formatID: formatID, channels: channels)
         guard !available.isEmpty else { return nil }
 
@@ -67,9 +67,11 @@ public enum AudioEncodeSupport {
         // The encoder's own first choice for this channel count. For AAC at six
         // channels that is the AAC 5.1 arrangement, which is what an MPEG-4
         // file should hold anyway.
-        guard let fallback = available.first(where: {
-            AudioChannelLayoutTag_GetNumberOfChannels($0) == UInt32(channels)
-        }) else { return nil }
+        guard
+            let fallback = available.first(where: {
+                AudioChannelLayoutTag_GetNumberOfChannels($0) == UInt32(channels)
+            })
+        else { return nil }
         return layoutData(tag: fallback)
     }
 
@@ -83,18 +85,22 @@ public enum AudioEncodeSupport {
         asbd.mChannelsPerFrame = UInt32(max(1, channels))
 
         var size: UInt32 = 0
-        guard AudioFormatGetPropertyInfo(
-            kAudioFormatProperty_AvailableEncodeChannelLayoutTags,
-            UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &asbd, &size
-        ) == noErr, size > 0 else { return [] }
+        guard
+            AudioFormatGetPropertyInfo(
+                kAudioFormatProperty_AvailableEncodeChannelLayoutTags,
+                UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &asbd, &size
+            ) == noErr, size > 0
+        else { return [] }
 
         var tags = [AudioChannelLayoutTag](
             repeating: 0, count: Int(size) / MemoryLayout<AudioChannelLayoutTag>.size
         )
-        guard AudioFormatGetProperty(
-            kAudioFormatProperty_AvailableEncodeChannelLayoutTags,
-            UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &asbd, &size, &tags
-        ) == noErr else { return [] }
+        guard
+            AudioFormatGetProperty(
+                kAudioFormatProperty_AvailableEncodeChannelLayoutTags,
+                UInt32(MemoryLayout<AudioStreamBasicDescription>.size), &asbd, &size, &tags
+            ) == noErr
+        else { return [] }
         return tags
     }
 
@@ -115,7 +121,8 @@ public enum AudioEncodeSupport {
             )
         }
         if declared != kAudioChannelLayoutTag_UseChannelDescriptions,
-           declared != kAudioChannelLayoutTag_UseChannelBitmap {
+            declared != kAudioChannelLayoutTag_UseChannelBitmap
+        {
             return declared
         }
 
@@ -163,18 +170,22 @@ public enum AudioEncodeSupport {
     static func availableSampleRates(formatID: AudioFormatID) -> [AudioValueRange] {
         var identifier = formatID
         var size: UInt32 = 0
-        guard AudioFormatGetPropertyInfo(
-            kAudioFormatProperty_AvailableEncodeSampleRates,
-            UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size
-        ) == noErr, size > 0 else { return [] }
+        guard
+            AudioFormatGetPropertyInfo(
+                kAudioFormatProperty_AvailableEncodeSampleRates,
+                UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size
+            ) == noErr, size > 0
+        else { return [] }
 
         var ranges = [AudioValueRange](
             repeating: AudioValueRange(), count: Int(size) / MemoryLayout<AudioValueRange>.size
         )
-        guard AudioFormatGetProperty(
-            kAudioFormatProperty_AvailableEncodeSampleRates,
-            UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size, &ranges
-        ) == noErr else { return [] }
+        guard
+            AudioFormatGetProperty(
+                kAudioFormatProperty_AvailableEncodeSampleRates,
+                UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size, &ranges
+            ) == noErr
+        else { return [] }
         // A zero-width range at 0 is how some formats say "anything".
         return ranges.filter { $0.mMaximum > 0 }
     }
@@ -204,18 +215,22 @@ public enum AudioEncodeSupport {
     static func availableBitrates(formatID: AudioFormatID) -> [AudioValueRange] {
         var identifier = formatID
         var size: UInt32 = 0
-        guard AudioFormatGetPropertyInfo(
-            kAudioFormatProperty_AvailableEncodeBitRates,
-            UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size
-        ) == noErr, size > 0 else { return [] }
+        guard
+            AudioFormatGetPropertyInfo(
+                kAudioFormatProperty_AvailableEncodeBitRates,
+                UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size
+            ) == noErr, size > 0
+        else { return [] }
 
         var ranges = [AudioValueRange](
             repeating: AudioValueRange(), count: Int(size) / MemoryLayout<AudioValueRange>.size
         )
-        guard AudioFormatGetProperty(
-            kAudioFormatProperty_AvailableEncodeBitRates,
-            UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size, &ranges
-        ) == noErr else { return [] }
+        guard
+            AudioFormatGetProperty(
+                kAudioFormatProperty_AvailableEncodeBitRates,
+                UInt32(MemoryLayout<AudioFormatID>.size), &identifier, &size, &ranges
+            ) == noErr
+        else { return [] }
         return ranges.filter { $0.mMaximum > 0 }
     }
 
@@ -231,14 +246,16 @@ public enum AudioEncodeSupport {
         for codec in AudioCodec.allCases {
             let formatID = codec.formatID
             let rates = availableSampleRates(formatID: formatID)
-                .map { $0.mMinimum == $0.mMaximum
-                    ? "\(Int($0.mMinimum))"
-                    : "\(Int($0.mMinimum))–\(Int($0.mMaximum))"
+                .map {
+                    $0.mMinimum == $0.mMaximum
+                        ? "\(Int($0.mMinimum))"
+                        : "\(Int($0.mMinimum))–\(Int($0.mMaximum))"
                 }
                 .joined(separator: ", ")
             let surround = availableChannelLayoutTags(formatID: formatID, channels: 6).count
-            lines.append("  \(codec.codecName): rates [\(rates.isEmpty ? "unrestricted" : rates)], "
-                + "\(surround) accepted 5.1 layout(s)")
+            lines.append(
+                "  \(codec.codecName): rates [\(rates.isEmpty ? "unrestricted" : rates)], "
+                    + "\(surround) accepted 5.1 layout(s)")
         }
         return lines.joined(separator: "\n")
     }

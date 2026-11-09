@@ -130,7 +130,8 @@ struct FFProbeJSONTests {
         let compact = try info.ffprobeJSONString(prettyPrinted: false)
         #expect(pretty.contains("\n"))
         #expect(!compact.contains("\n"))
-        #expect(try JSONDecoder().decode(FFProbeReport.self, from: Data(pretty.utf8))
+        #expect(
+            try JSONDecoder().decode(FFProbeReport.self, from: Data(pretty.utf8))
                 == JSONDecoder().decode(FFProbeReport.self, from: Data(compact.utf8)))
     }
 
@@ -149,17 +150,23 @@ struct FFProbeJSONTests {
 
     // MARK: - Formatting details
 
-    @Test("seconds are formatted the way ffprobe formats them",
-          arguments: [(0.0, "0.000000"), (2.0, "2.000000"), (1.5, "1.500000"),
-                      (0.041667, "0.041667"), (3600.25, "3600.250000")])
+    @Test(
+        "seconds are formatted the way ffprobe formats them",
+        arguments: [
+            (0.0, "0.000000"), (2.0, "2.000000"), (1.5, "1.500000"),
+            (0.041667, "0.041667"), (3600.25, "3600.250000"),
+        ])
     func secondsFormatting(_ input: Double, _ expected: String) {
         #expect(MediaInfo.ffprobeSeconds(input) == expected)
     }
 
-    @Test("frame rates come out as rationals",
-          arguments: [(24.0, "24/1"), (30.0, "30/1"), (60.0, "60/1"),
-                      (29.97003, "30000/1001"), (23.976025, "24000/1001"),
-                      (59.940060, "60000/1001")])
+    @Test(
+        "frame rates come out as rationals",
+        arguments: [
+            (24.0, "24/1"), (30.0, "30/1"), (60.0, "60/1"),
+            (29.97003, "30000/1001"), (23.976025, "24000/1001"),
+            (59.940060, "60000/1001"),
+        ])
     func frameRateRationals(_ input: Double, _ expected: String) {
         #expect(MediaInfo.rationalFrameRate(input) == expected)
     }

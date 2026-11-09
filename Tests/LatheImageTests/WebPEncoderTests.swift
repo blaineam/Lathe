@@ -42,8 +42,9 @@ struct WebPEncoderTests {
             #expect(!result.wasLosslessRewrite)
             #expect(result.outputByteCount == Fixtures.byteCount(of: destination))
 
-            let decoded = try #require(Fixtures.decode(destination),
-                                       "ImageIO could not decode the WebP we wrote")
+            let decoded = try #require(
+                Fixtures.decode(destination),
+                "ImageIO could not decode the WebP we wrote")
             #expect(decoded.width == size.width)
             #expect(decoded.height == size.height)
             #expect(Fixtures.strayFiles(in: directory).isEmpty)
@@ -57,12 +58,14 @@ struct WebPEncoderTests {
     /// that says which coder produced it — `VP8 ` lossy, `VP8L` lossless, `VP8X`
     /// extended. Checking the size field too means a truncated file fails here
     /// rather than somewhere downstream.
-    @Test("the bytes are a RIFF/WEBP container",
-          arguments: [(QualityTarget.quality(0.7), "VP8 "), (.lossless, "VP8L")])
+    @Test(
+        "the bytes are a RIFF/WEBP container",
+        arguments: [(QualityTarget.quality(0.7), "VP8 "), (.lossless, "VP8L")])
     func magicBytes(quality: QualityTarget, expectedChunk: String) async throws {
         try await Fixtures.withDirectory { directory in
-            let source = try Fixtures.plainImage(in: directory,
-                                                 size: PixelSize(width: 48, height: 32))
+            let source = try Fixtures.plainImage(
+                in: directory,
+                size: PixelSize(width: 48, height: 32))
             let destination = directory.appendingPathComponent("magic.webp")
             _ = try await encoder.encode(
                 source: source, to: destination,
@@ -73,13 +76,15 @@ struct WebPEncoderTests {
             #expect(data.count >= 16)
             #expect(Fixtures.fourCC(data, at: 0) == "RIFF")
             #expect(Fixtures.fourCC(data, at: 8) == "WEBP")
-            #expect(Fixtures.fourCC(data, at: 12) == expectedChunk,
-                    "expected the \(expectedChunk) coder for \(quality)")
+            #expect(
+                Fixtures.fourCC(data, at: 12) == expectedChunk,
+                "expected the \(expectedChunk) coder for \(quality)")
 
             // The RIFF size covers everything after the first eight bytes.
             let declared = Int(Fixtures.littleEndianUInt32(data, at: 4))
-            #expect(declared == data.count - 8,
-                    "RIFF size \(declared) does not match a \(data.count)-byte file")
+            #expect(
+                declared == data.count - 8,
+                "RIFF size \(declared) does not match a \(data.count)-byte file")
         }
     }
 
@@ -94,8 +99,9 @@ struct WebPEncoderTests {
         try await Fixtures.withDirectory { directory in
             // A photographic-ish gradient: a flat image compresses to nearly
             // nothing at every setting and would make this test pass by accident.
-            let source = try Fixtures.plainImage(in: directory,
-                                                 size: PixelSize(width: 256, height: 192))
+            let source = try Fixtures.plainImage(
+                in: directory,
+                size: PixelSize(width: 256, height: 192))
 
             var sizes: [(Double, UInt64)] = []
             for quality in [0.1, 0.5, 0.95] {
@@ -106,8 +112,9 @@ struct WebPEncoderTests {
                 )
                 sizes.append((quality, result.outputByteCount))
             }
-            print("  WebP lossy sizes: "
-                  + sizes.map { "q\(Int($0.0 * 100))=\($0.1)B" }.joined(separator: ", "))
+            print(
+                "  WebP lossy sizes: "
+                    + sizes.map { "q\(Int($0.0 * 100))=\($0.1)B" }.joined(separator: ", "))
 
             #expect(sizes[0].1 < sizes[1].1, "q10 should be smaller than q50")
             #expect(sizes[1].1 < sizes[2].1, "q50 should be smaller than q95")
@@ -178,24 +185,29 @@ struct WebPEncoderTests {
                     source: source, to: directory.appendingPathComponent("\(name)-ll.webp"),
                     format: .webp, quality: .lossless, resize: nil, metadata: .preserveAll
                 )
-                print("  \(name): lossy=\(lossy.outputByteCount)B "
-                      + "lossless=\(lossless.outputByteCount)B")
+                print(
+                    "  \(name): lossy=\(lossy.outputByteCount)B "
+                        + "lossless=\(lossless.outputByteCount)B")
                 return (lossy.outputByteCount, lossless.outputByteCount)
             }
 
             print("")
             let (gradientLossy, gradientLossless) =
-                try await sizes(of: try Fixtures.plainImage(in: directory, size: size),
-                                named: "gradient")
+                try await sizes(
+                    of: try Fixtures.plainImage(in: directory, size: size),
+                    named: "gradient")
             let (noiseLossy, noiseLossless) =
-                try await sizes(of: try Fixtures.noiseImage(in: directory, size: size),
-                                named: "noise   ")
+                try await sizes(
+                    of: try Fixtures.noiseImage(in: directory, size: size),
+                    named: "noise   ")
             print("")
 
-            #expect(noiseLossless > noiseLossy,
-                    "lossless must cost bytes on incompressible content")
-            #expect(gradientLossless < gradientLossy,
-                    "VP8L should win outright on a smooth synthetic gradient")
+            #expect(
+                noiseLossless > noiseLossy,
+                "lossless must cost bytes on incompressible content")
+            #expect(
+                gradientLossless < gradientLossy,
+                "VP8L should win outright on a smooth synthetic gradient")
         }
     }
 
@@ -203,11 +215,14 @@ struct WebPEncoderTests {
 
     /// The downscale-only rule is `ImageEncoder`'s, not ImageIO's, so it has to
     /// keep holding on a path that never touches ImageIO's encoder.
-    @Test("WebP never enlarges either",
-          arguments: [ResizeTarget.longestSide(4000),
-                      .fit(PixelSize(width: 4000, height: 4000)),
-                      .scale(8),
-                      .maxPixels(50_000_000)])
+    @Test(
+        "WebP never enlarges either",
+        arguments: [
+            ResizeTarget.longestSide(4000),
+            .fit(PixelSize(width: 4000, height: 4000)),
+            .scale(8),
+            .maxPixels(50_000_000),
+        ])
     func neverEnlarges(target: ResizeTarget) async throws {
         try await Fixtures.withDirectory { directory in
             let size = PixelSize(width: 40, height: 30)
@@ -227,8 +242,9 @@ struct WebPEncoderTests {
     @Test("a WebP downscale downscales, and keeps the aspect ratio")
     func downscales() async throws {
         try await Fixtures.withDirectory { directory in
-            let source = try Fixtures.plainImage(in: directory,
-                                                 size: PixelSize(width: 200, height: 100))
+            let source = try Fixtures.plainImage(
+                in: directory,
+                size: PixelSize(width: 200, height: 100))
             let destination = directory.appendingPathComponent("small.webp")
 
             let result = try await encoder.encode(
@@ -264,7 +280,7 @@ struct WebPEncoderTests {
                 )
                 Issue.record("expected a refusal for \(tooWide)")
             } catch let error as LatheError {
-                guard case let .invalidConfiguration(reason) = error else {
+                guard case .invalidConfiguration(let reason) = error else {
                     Issue.record("expected .invalidConfiguration, got \(error)")
                     return
                 }
@@ -272,10 +288,12 @@ struct WebPEncoderTests {
                 #expect(reason.contains("\(WebPEncoder.maximumDimension)"))
             }
 
-            #expect(!FileManager.default.fileExists(atPath: destination.path),
-                    "a failed encode must not leave a 0-byte file")
-            #expect(Fixtures.strayFiles(in: directory).isEmpty,
-                    "a failed encode must not leave a temporary behind")
+            #expect(
+                !FileManager.default.fileExists(atPath: destination.path),
+                "a failed encode must not leave a 0-byte file")
+            #expect(
+                Fixtures.strayFiles(in: directory).isEmpty,
+                "a failed encode must not leave a temporary behind")
         }
     }
 
@@ -301,8 +319,9 @@ struct WebPEncoderTests {
                 format: .webp, quality: .quality(0.8), resize: nil, metadata: .preserveAll
             )
 
-            #expect(try Data(contentsOf: destination) == originalBytes,
-                    "the previous file must be byte-identical after a failed overwrite")
+            #expect(
+                try Data(contentsOf: destination) == originalBytes,
+                "the previous file must be byte-identical after a failed overwrite")
         }
     }
 
@@ -321,8 +340,9 @@ struct WebPEncoderTests {
             let stored = Fixtures.quadrantSize
             let destination = directory.appendingPathComponent("tagged.webp")
 
-            #expect(ImageFormat.webp.canStoreOrientationTag,
-                    "the orientation probe should find WebP's EXIF chunk round-trips")
+            #expect(
+                ImageFormat.webp.canStoreOrientationTag,
+                "the orientation probe should find WebP's EXIF chunk round-trips")
 
             let result = try await encoder.encode(
                 source: source, to: destination,
@@ -385,7 +405,8 @@ struct WebPEncoderTests {
 
             let out = Fixtures.properties(of: destination)
             #expect(Fixtures.gpsLatitude(out) != nil)
-            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+            #expect(
+                Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
                     == Fixtures.dateTimeOriginal)
             #expect(Fixtures.exif(out, kCGImagePropertyExifLensModel) as? String == "50mm f/1.8")
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
@@ -393,9 +414,11 @@ struct WebPEncoderTests {
 
             // The EXIF block was serialised on a 1x1 carrier; the dimensions it
             // states must be the real image's, not the carrier's.
-            #expect((Fixtures.exif(out, kCGImagePropertyExifPixelXDimension) as? NSNumber)?.intValue
+            #expect(
+                (Fixtures.exif(out, kCGImagePropertyExifPixelXDimension) as? NSNumber)?.intValue
                     == result.pixelSize.width)
-            #expect((Fixtures.exif(out, kCGImagePropertyExifPixelYDimension) as? NSNumber)?.intValue
+            #expect(
+                (Fixtures.exif(out, kCGImagePropertyExifPixelYDimension) as? NSNumber)?.intValue
                     == result.pixelSize.height)
 
             // Still the right picture, and still lossy.
@@ -423,7 +446,8 @@ struct WebPEncoderTests {
 
             let out = Fixtures.properties(of: destination)
             #expect(out[kCGImagePropertyGPSDictionary] == nil)
-            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+            #expect(
+                Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
                     == Fixtures.dateTimeOriginal)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
 
@@ -464,12 +488,14 @@ struct WebPEncoderTests {
                 source: source, to: kept,
                 format: .webp, quality: .lossless, resize: nil, metadata: .preserveAll
             )
-            let keptXMP = try #require(Fixtures.chunk("XMP ", in: try Data(contentsOf: kept)),
-                                       "IPTC should have produced an XMP chunk")
+            let keptXMP = try #require(
+                Fixtures.chunk("XMP ", in: try Data(contentsOf: kept)),
+                "IPTC should have produced an XMP chunk")
             #expect(Fixtures.containsASCII(keptXMP, "Lathe Street Town"))
             #expect(Fixtures.containsASCII(keptXMP, "fixture-keyword"))
-            #expect(CGImageMetadataCreateFromXMPData(keptXMP as CFData) != nil,
-                    "the XMP chunk must be a packet ImageIO can parse")
+            #expect(
+                CGImageMetadataCreateFromXMPData(keptXMP as CFData) != nil,
+                "the XMP chunk must be a packet ImageIO can parse")
 
             let stripped = directory.appendingPathComponent("stripped.webp")
             _ = try await encoder.encode(
@@ -477,20 +503,23 @@ struct WebPEncoderTests {
                 format: .webp, quality: .lossless, resize: nil, metadata: .stripLocation
             )
             let bytes = try Data(contentsOf: stripped)
-            #expect(!Fixtures.containsASCII(bytes, "Lathe Street Town"),
-                    "the place name must not survive anywhere in the file")
+            #expect(
+                !Fixtures.containsASCII(bytes, "Lathe Street Town"),
+                "the place name must not survive anywhere in the file")
             let strippedXMP = try #require(Fixtures.chunk("XMP ", in: bytes))
-            #expect(Fixtures.containsASCII(strippedXMP, "fixture-keyword"),
-                    "non-location IPTC must survive")
+            #expect(
+                Fixtures.containsASCII(strippedXMP, "fixture-keyword"),
+                "non-location IPTC must survive")
         }
     }
 
     private static func iptcSource(in directory: URL) throws -> URL {
-        let context = try #require(CGContext(
-            data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ))
+        let context = try #require(
+            CGContext(
+                data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            ))
         context.setFillColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1)
         context.fill(CGRect(x: 0, y: 0, width: 16, height: 16))
         let image = try #require(context.makeImage())
@@ -498,12 +527,14 @@ struct WebPEncoderTests {
         let destination = try #require(
             CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)
         )
-        CGImageDestinationAddImage(destination, image, [
-            kCGImagePropertyIPTCDictionary: [
-                kCGImagePropertyIPTCCity: "Lathe Street Town",
-                kCGImagePropertyIPTCKeywords: ["fixture-keyword"],
-            ] as [CFString: Any],
-        ] as CFDictionary)
+        CGImageDestinationAddImage(
+            destination, image,
+            [
+                kCGImagePropertyIPTCDictionary: [
+                    kCGImagePropertyIPTCCity: "Lathe Street Town",
+                    kCGImagePropertyIPTCKeywords: ["fixture-keyword"],
+                ] as [CFString: Any]
+            ] as CFDictionary)
         #expect(CGImageDestinationFinalize(destination))
         return url
     }
@@ -529,16 +560,18 @@ struct WebPEncoderTests {
             #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) == nil)
             #expect(Fixtures.exif(out, kCGImagePropertyExifLensModel) == nil)
             let maker = out[kCGImagePropertyMakerAppleDictionary] as? [CFString: Any]
-            #expect(maker?["17" as CFString] as? String == Fixtures.contentIdentifier,
-                    "the force-preserved content identifier is the floor, and must survive")
+            #expect(
+                maker?["17" as CFString] as? String == Fixtures.contentIdentifier,
+                "the force-preserved content identifier is the floor, and must survive")
             #expect(maker?["14" as CFString] == nil)
         }
     }
 
     /// An upright image with nothing to say gets a *simple* WebP: no `VP8X`,
     /// no chunks — the shape it had before the muxer existed.
-    @Test("an image with no metadata writes a simple WebP, not an extended one",
-          arguments: [MetadataPolicy.preserveAll, .stripAll])
+    @Test(
+        "an image with no metadata writes a simple WebP, not an extended one",
+        arguments: [MetadataPolicy.preserveAll, .stripAll])
     func noMetadataMeansSimpleFile(_ policy: MetadataPolicy) async throws {
         try await Fixtures.withDirectory { directory in
             let source = try Fixtures.quadrantImage(in: directory, format: .png, orientation: .up)
@@ -559,9 +592,9 @@ struct WebPEncoderTests {
         let cases: [Data] = [
             Data(),
             Data([0xFF, 0xD8]),
-            Data([0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xFF, 0x45]),        // length past the end
-            Data([0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x01]),              // length below 2
-            Data([0xFF, 0xD8, 0x00, 0x00, 0x00, 0x00]),              // not a marker
+            Data([0xFF, 0xD8, 0xFF, 0xE1, 0xFF, 0xFF, 0x45]),  // length past the end
+            Data([0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x01]),  // length below 2
+            Data([0xFF, 0xD8, 0x00, 0x00, 0x00, 0x00]),  // not a marker
             Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),  // a PNG
         ]
         for bytes in cases {
@@ -579,18 +612,32 @@ struct WebPEncoderTests {
     /// The dimension patch rewrites exactly the two values, in either byte
     /// order and either integer width, and leaves a block it does not
     /// understand alone.
-    @Test("the EXIF dimension patch rewrites the two values and nothing else",
-          arguments: [true, false])
+    @Test(
+        "the EXIF dimension patch rewrites the two values and nothing else",
+        arguments: [true, false])
     func exifDimensionPatch(bigEndian: Bool) {
         // Header, IFD0 with one entry (ExifIFD pointer), then the Exif IFD with
         // PixelXDimension as SHORT and PixelYDimension as LONG.
         var b = TIFFBuilder(bigEndian: bigEndian)
         b.bytes += bigEndian ? [0x4D, 0x4D] : [0x49, 0x49]
-        b.u16(42); b.u32(8)
-        b.u16(1); b.u16(0x8769); b.u16(4); b.u32(1); b.u32(26); b.u32(0)  // IFD0, ends at 26
+        b.u16(42)
+        b.u32(8)
+        b.u16(1)
+        b.u16(0x8769)
+        b.u16(4)
+        b.u32(1)
+        b.u32(26)
+        b.u32(0)  // IFD0, ends at 26
         b.u16(2)
-        b.u16(0xA002); b.u16(3); b.u32(1); b.u16(1); b.u16(0)
-        b.u16(0xA003); b.u16(4); b.u32(1); b.u32(1)
+        b.u16(0xA002)
+        b.u16(3)
+        b.u32(1)
+        b.u16(1)
+        b.u16(0)
+        b.u16(0xA003)
+        b.u16(4)
+        b.u32(1)
+        b.u32(1)
         b.u32(0)
         var exif = Data(b.bytes)
         let original = exif

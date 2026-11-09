@@ -252,7 +252,8 @@ struct PythonRequirementTests {
 
     @Test("a requirement's four parts come apart")
     func parsesFully() throws {
-        let requirement = try PythonRequirement(parsing: #"requests[socks,use_chardet]>=2.28,<3 ; python_version >= "3.8""#)
+        let requirement = try PythonRequirement(
+            parsing: #"requests[socks,use_chardet]>=2.28,<3 ; python_version >= "3.8""#)
         #expect(requirement.name == "requests")
         #expect(requirement.canonicalName == "requests")
         #expect(requirement.extras == ["socks", "use-chardet"])  // PEP 685 canonicalisation
@@ -281,7 +282,7 @@ struct PythonRequirementTests {
         let error = #expect(throws: PythonPackageError.self) {
             try PythonRequirement(parsing: "thing @ https://example.invalid/thing-1.0.whl")
         }
-        guard case let .unsupportedRequirement(_, reason)? = error else {
+        guard case .unsupportedRequirement(_, let reason)? = error else {
             Issue.record("expected unsupportedRequirement, got \(String(describing: error))")
             return
         }
@@ -323,8 +324,10 @@ struct PythonRequirementTests {
 
     @Test("boolean structure, including parentheses and precedence")
     func evaluatesBooleans() throws {
-        #expect(try PythonMarker.parse(#"sys_platform == "ios" and platform_machine == "arm64""#).evaluate(in: python313))
-        #expect(try PythonMarker.parse(#"sys_platform == "win32" or platform_machine == "arm64""#).evaluate(in: python313))
+        #expect(
+            try PythonMarker.parse(#"sys_platform == "ios" and platform_machine == "arm64""#).evaluate(in: python313))
+        #expect(
+            try PythonMarker.parse(#"sys_platform == "win32" or platform_machine == "arm64""#).evaluate(in: python313))
         #expect(
             try PythonMarker.parse(#"(sys_platform == "win32" or sys_platform == "ios") and python_version > "3.9""#)
                 .evaluate(in: python313))
@@ -415,7 +418,7 @@ struct PythonPackageMetadataTests {
                 Requires-Dist: requests >>> 2.0
                 """)
         }
-        guard case let .metadataUnreadable(package, _)? = error else {
+        guard case .metadataUnreadable(let package, _)? = error else {
             Issue.record("expected metadataUnreadable, got \(String(describing: error))")
             return
         }
@@ -455,12 +458,21 @@ struct DependencyResolutionTests {
     /// inside both ranges.
     private var diamond: FixtureSource {
         FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["left", "right"]))],
-            "left": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "left", version: "1.0", requires: ["shared>=1.2"]))],
-            "right": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "right", version: "1.0", requires: ["shared<1.9"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["left", "right"]))
+            ],
+            "left": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "left", version: "1.0", requires: ["shared>=1.2"]))
+            ],
+            "right": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "right", version: "1.0", requires: ["shared<1.9"]))
+            ],
             "shared": [
                 "1.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.0")),
                 "1.5": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.5")),
@@ -500,16 +512,19 @@ struct DependencyResolutionTests {
     /// that belong to extras.
     private var withExtras: FixtureSource {
         FixtureSource(catalogue: [
-            "requests": ["2.31.0": .init(metadata: FixtureSource.metadataText(
-                name: "requests",
-                version: "2.31.0",
-                requires: [
-                    "urllib3>=1.21.1,<3",
-                    "certifi>=2017.4.17",
-                    #"PySocks>=1.5.6,!=1.5.7 ; extra == "socks""#,
-                    #"chardet>=3.0.2,<6 ; extra == "use_chardet_on_py3""#,
-                ],
-                extras: ["socks", "use_chardet_on_py3"]))],
+            "requests": [
+                "2.31.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "requests",
+                        version: "2.31.0",
+                        requires: [
+                            "urllib3>=1.21.1,<3",
+                            "certifi>=2017.4.17",
+                            #"PySocks>=1.5.6,!=1.5.7 ; extra == "socks""#,
+                            #"chardet>=3.0.2,<6 ; extra == "use_chardet_on_py3""#,
+                        ],
+                        extras: ["socks", "use_chardet_on_py3"]))
+            ],
             "urllib3": ["2.2.1": .init(metadata: FixtureSource.metadataText(name: "urllib3", version: "2.2.1"))],
             "certifi": ["2024.2.2": .init(metadata: FixtureSource.metadataText(name: "certifi", version: "2024.2.2"))],
             "PySocks": ["1.7.1": .init(metadata: FixtureSource.metadataText(name: "PySocks", version: "1.7.1"))],
@@ -550,15 +565,20 @@ struct DependencyResolutionTests {
 
     private var markerGated: FixtureSource {
         FixtureSource(catalogue: [
-            "modern": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "modern",
-                version: "1.0",
-                requires: [
-                    "always-needed",
-                    #"tomli>=1.1.0 ; python_version < "3.11""#,
-                    #"pywin32 ; sys_platform == "win32""#,
-                ]))],
-            "always-needed": ["1.0": .init(metadata: FixtureSource.metadataText(name: "always-needed", version: "1.0"))],
+            "modern": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "modern",
+                        version: "1.0",
+                        requires: [
+                            "always-needed",
+                            #"tomli>=1.1.0 ; python_version < "3.11""#,
+                            #"pywin32 ; sys_platform == "win32""#,
+                        ]))
+            ],
+            "always-needed": [
+                "1.0": .init(metadata: FixtureSource.metadataText(name: "always-needed", version: "1.0"))
+            ],
             "tomli": ["2.0.1": .init(metadata: FixtureSource.metadataText(name: "tomli", version: "2.0.1"))],
             "pywin32": ["306": .init(metadata: FixtureSource.metadataText(name: "pywin32", version: "306"))],
         ])
@@ -586,12 +606,21 @@ struct DependencyResolutionTests {
     @Test("an unsatisfiable constraint fails by name, and installs nothing")
     func failsLoudlyOnConflict() async throws {
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["left", "right"]))],
-            "left": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "left", version: "1.0", requires: ["shared>=2.0"]))],
-            "right": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "right", version: "1.0", requires: ["shared<2.0"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["left", "right"]))
+            ],
+            "left": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "left", version: "1.0", requires: ["shared>=2.0"]))
+            ],
+            "right": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "right", version: "1.0", requires: ["shared<2.0"]))
+            ],
             "shared": [
                 "1.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.0")),
                 "2.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "2.0")),
@@ -601,7 +630,7 @@ struct DependencyResolutionTests {
         let error = await #expect(throws: PythonPackageError.self) {
             try await resolver().resolve(try requirement("app"), using: source)
         }
-        guard case let .noSatisfyingVersion(package, constraints, requiredBy, available)? = error else {
+        guard case .noSatisfyingVersion(let package, let constraints, let requiredBy, let available)? = error else {
             Issue.record("expected noSatisfyingVersion, got \(String(describing: error))")
             return
         }
@@ -618,20 +647,28 @@ struct DependencyResolutionTests {
     @Test("a compiled dependency is named, along with the path that reached it")
     func namesTheCompiledDependency() async throws {
         let source = FixtureSource(catalogue: [
-            "gallery-dl": ["1.26.0": .init(metadata: FixtureSource.metadataText(
-                name: "gallery-dl", version: "1.26.0", requires: ["requests>=2.11.0"]))],
-            "requests": ["2.31.0": .init(metadata: FixtureSource.metadataText(
-                name: "requests", version: "2.31.0", requires: ["speedy-parser>=1.0"]))],
-            "speedy-parser": ["1.0": .init(
-                metadata: FixtureSource.metadataText(name: "speedy-parser", version: "1.0"),
-                isPure: false,
-                files: ["speedy_parser-1.0-cp313-cp313-macosx_11_0_arm64.whl", "speedy_parser-1.0.tar.gz"])],
+            "gallery-dl": [
+                "1.26.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "gallery-dl", version: "1.26.0", requires: ["requests>=2.11.0"]))
+            ],
+            "requests": [
+                "2.31.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "requests", version: "2.31.0", requires: ["speedy-parser>=1.0"]))
+            ],
+            "speedy-parser": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(name: "speedy-parser", version: "1.0"),
+                    isPure: false,
+                    files: ["speedy_parser-1.0-cp313-cp313-macosx_11_0_arm64.whl", "speedy_parser-1.0.tar.gz"])
+            ],
         ])
 
         let error = await #expect(throws: PythonPackageError.self) {
             try await resolver().resolve(try requirement("gallery-dl"), using: source)
         }
-        guard case let .dependencyNotPurePython(package, _, requiredBy, candidates)? = error else {
+        guard case .dependencyNotPurePython(let package, _, let requiredBy, let candidates)? = error else {
             Issue.record("expected dependencyNotPurePython, got \(String(describing: error))")
             return
         }
@@ -649,8 +686,11 @@ struct DependencyResolutionTests {
     @Test("a package with an older pure release falls back to it rather than failing")
     func walksBackToAPureRelease() async throws {
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["mixed"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["mixed"]))
+            ],
             "mixed": [
                 "1.0": .init(metadata: FixtureSource.metadataText(name: "mixed", version: "1.0")),
                 "2.0": .init(metadata: FixtureSource.metadataText(name: "mixed", version: "2.0"), isPure: false),
@@ -668,10 +708,16 @@ struct DependencyResolutionTests {
         // Real metadata contains these, usually through an extra that depends
         // on the package declaring it.
         let source = FixtureSource(catalogue: [
-            "ouroboros": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "ouroboros", version: "1.0", requires: ["tail>=1.0"]))],
-            "tail": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "tail", version: "1.0", requires: ["ouroboros>=1.0"]))],
+            "ouroboros": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "ouroboros", version: "1.0", requires: ["tail>=1.0"]))
+            ],
+            "tail": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "tail", version: "1.0", requires: ["ouroboros>=1.0"]))
+            ],
         ])
 
         let plan = try await resolver().resolve(try requirement("ouroboros"), using: source)
@@ -682,9 +728,12 @@ struct DependencyResolutionTests {
     @Test("a package that depends on itself terminates too")
     func terminatesOnSelfReference() async throws {
         let source = FixtureSource(catalogue: [
-            "self-referential": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "self-referential", version: "1.0",
-                requires: ["self-referential>=1.0", "leaf"]))],
+            "self-referential": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "self-referential", version: "1.0",
+                        requires: ["self-referential>=1.0", "leaf"]))
+            ],
             "leaf": ["1.0": .init(metadata: FixtureSource.metadataText(name: "leaf", version: "1.0"))],
         ])
         let plan = try await resolver().resolve(try requirement("self-referential"), using: source)
@@ -712,8 +761,11 @@ struct DependencyResolutionTests {
     @Test("an installed package at a version that does not satisfy the graph is replaced")
     func upgradesUnsatisfyingInstall() async throws {
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["shared>=1.5"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["shared>=1.5"]))
+            ],
             "shared": [
                 "1.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.0")),
                 "1.5": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.5")),
@@ -733,10 +785,16 @@ struct DependencyResolutionTests {
         // "urllib3 is already here" is only a safe answer if what urllib3 needs
         // is accounted for as well.
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["middle"]))],
-            "middle": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "middle", version: "1.0", requires: ["deep"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["middle"]))
+            ],
+            "middle": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "middle", version: "1.0", requires: ["deep"]))
+            ],
             "deep": ["1.0": .init(metadata: FixtureSource.metadataText(name: "deep", version: "1.0"))],
         ])
         let installed: [String: PythonDependencyResolver.InstalledState] = [
@@ -754,9 +812,10 @@ struct DependencyResolutionTests {
 
     private func tool(_ versions: String...) -> FixtureSource {
         FixtureSource(catalogue: [
-            "tool": Dictionary(uniqueKeysWithValues: versions.map {
-                ($0, FixtureSource.Entry(metadata: FixtureSource.metadataText(name: "tool", version: $0)))
-            })
+            "tool": Dictionary(
+                uniqueKeysWithValues: versions.map {
+                    ($0, FixtureSource.Entry(metadata: FixtureSource.metadataText(name: "tool", version: $0)))
+                })
         ])
     }
 
@@ -826,8 +885,11 @@ struct DependencyResolutionTests {
     @Test("upgrading reaches dependencies, not only what was named")
     func upgradeWalksTheGraph() async throws {
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["shared"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["shared"]))
+            ],
             "shared": [
                 "1.0": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.0")),
                 "1.5": .init(metadata: FixtureSource.metadataText(name: "shared", version: "1.5")),
@@ -867,8 +929,11 @@ struct DependencyResolutionTests {
     @Test("one package spelled four ways is one node in the graph")
     func canonicalisesNamesAcrossTheGraph() async throws {
         let source = FixtureSource(catalogue: [
-            "app": ["1.0": .init(metadata: FixtureSource.metadataText(
-                name: "app", version: "1.0", requires: ["Charset_Normalizer>=2", "charset-normalizer<4"]))],
+            "app": [
+                "1.0": .init(
+                    metadata: FixtureSource.metadataText(
+                        name: "app", version: "1.0", requires: ["Charset_Normalizer>=2", "charset-normalizer<4"]))
+            ],
             "charset-normalizer": [
                 "3.3.2": .init(metadata: FixtureSource.metadataText(name: "charset-normalizer", version: "3.3.2"))
             ],

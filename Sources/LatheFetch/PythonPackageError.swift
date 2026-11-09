@@ -109,16 +109,16 @@ public enum PythonPackageError: Error, Sendable, Equatable {
 extension PythonPackageError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case let .malformedWheelName(name, reason):
+        case .malformedWheelName(let name, let reason):
             "\(name) is not a valid wheel filename: \(reason)"
-        case let .malformedArchive(reason):
+        case .malformedArchive(let reason):
             "The wheel is not a readable archive: \(reason)"
-        case let .digestMismatch(expected, actual):
+        case .digestMismatch(let expected, let actual):
             "Hash mismatch. The index published sha256:\(expected) and the bytes hash to "
                 + "sha256:\(actual). Nothing was installed."
-        case let .digestMissing(filename):
+        case .digestMissing(let filename):
             "\(filename) is published without a sha256 hash, so it cannot be verified. Refusing to install it."
-        case let .notPurePython(package, filename, members):
+        case .notPurePython(let package, let filename, let members):
             """
             \(package) cannot be installed: \(filename) contains compiled extension modules, \
             and this installer only handles pure-Python wheels.
@@ -130,35 +130,35 @@ extension PythonPackageError: LocalizedError {
             Compiled members: \(members.prefix(8).joined(separator: ", "))\
             \(members.count > 8 ? " (and \(members.count - 8) more)" : "")
             """
-        case let .noPureWheelAvailable(package, version, candidates):
+        case .noPureWheelAvailable(let package, let version, let candidates):
             "\(package) \(version) publishes no pure-Python wheel. Available files: "
                 + (candidates.isEmpty ? "none" : candidates.joined(separator: ", "))
-        case let .notFoundInIndex(package, version):
+        case .notFoundInIndex(let package, let version):
             version.map { "\(package) \($0) is not in the index." } ?? "\(package) is not in the index."
-        case let .indexUnreadable(package, reason):
+        case .indexUnreadable(let package, let reason):
             "The index response for \(package) could not be read: \(reason)"
-        case let .transportFailed(reason):
+        case .transportFailed(let reason):
             "The download failed: \(reason)"
-        case let .unsafeArchiveMember(name):
+        case .unsafeArchiveMember(let name):
             "The wheel contains a member that would be written outside the install directory: \(name)"
-        case let .notInstalled(package):
+        case .notInstalled(let package):
             "\(package) is not installed."
-        case let .storeUnwritable(path, reason):
+        case .storeUnwritable(let path, let reason):
             "The package directory \(path) is not usable: \(reason)"
-        case let .malformedRequirement(text, reason):
+        case .malformedRequirement(let text, let reason):
             "\(text) is not a usable requirement: \(reason)"
-        case let .unsupportedRequirement(text, reason):
+        case .unsupportedRequirement(let text, let reason):
             "\(text) cannot be installed: \(reason)"
-        case let .metadataUnreadable(package, reason):
+        case .metadataUnreadable(let package, let reason):
             "\(package)'s metadata could not be read: \(reason)"
-        case let .noSatisfyingVersion(package, constraints, requiredBy, available):
+        case .noSatisfyingVersion(let package, let constraints, let requiredBy, let available):
             """
             No version of \(package) satisfies \(constraints)\(Self.via(requiredBy)).
 
             The index has: \(available.isEmpty ? "no versions at all" : available.joined(separator: ", "))\
             \(available.count >= 10 ? " (and older)" : "")
             """
-        case let .dependencyNotPurePython(package, version, requiredBy, candidates):
+        case .dependencyNotPurePython(let package, let version, let requiredBy, let candidates):
             """
             \(package) \(version) publishes no pure-Python wheel\(Self.via(requiredBy)), so the install \
             cannot proceed.
@@ -171,7 +171,7 @@ extension PythonPackageError: LocalizedError {
             \(package) \(version) publishes: \(candidates.prefix(6).joined(separator: ", "))\
             \(candidates.count > 6 ? " (and \(candidates.count - 6) more)" : "")
             """
-        case let .resolutionDidNotConverge(package):
+        case .resolutionDidNotConverge(let package):
             "Resolution did not settle while working on \(package). The dependency metadata cannot be "
                 + "satisfied by narrowing alone — two packages are most likely constraining each other."
         }

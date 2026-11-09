@@ -2,10 +2,10 @@ import Foundation
 import WebKit
 
 #if canImport(AppKit)
-import AppKit
+    import AppKit
 #endif
 #if canImport(UIKit)
-import UIKit
+    import UIKit
 #endif
 
 /// Puts the render host's WebView into a real window, positioned where nobody
@@ -53,9 +53,9 @@ final class RenderHostWindow {
     private static let offscreenOrigin = CGPoint(x: -30_000, y: -30_000)
 
     #if canImport(AppKit)
-    private var window: NSWindow?
+        private var window: NSWindow?
     #elseif canImport(UIKit)
-    private var window: UIWindow?
+        private var window: UIWindow?
     #endif
 
     /// Attaches the view, returning whether a window was actually obtained.
@@ -64,54 +64,55 @@ final class RenderHostWindow {
         let frame = CGRect(origin: Self.offscreenOrigin, size: size)
 
         #if canImport(AppKit)
-        let window = NSWindow(
-            contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        // Without this, closing or releasing the window while the WebView is
-        // still finishing a navigation is a use-after-free rather than an error.
-        window.isReleasedWhenClosed = false
-        window.isExcludedFromWindowsMenu = true
-        window.contentView?.addSubview(webView)
-        webView.frame = CGRect(origin: .zero, size: size)
-        // `orderBack` rather than `makeKeyAndOrderFront`: the window must be
-        // composited, and must never steal focus from the application that
-        // happens to be hosting this render.
-        window.orderBack(nil)
-        self.window = window
-        return true
+            let window = NSWindow(
+                contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false
+            )
+            // Without this, closing or releasing the window while the WebView is
+            // still finishing a navigation is a use-after-free rather than an error.
+            window.isReleasedWhenClosed = false
+            window.isExcludedFromWindowsMenu = true
+            window.contentView?.addSubview(webView)
+            webView.frame = CGRect(origin: .zero, size: size)
+            // `orderBack` rather than `makeKeyAndOrderFront`: the window must be
+            // composited, and must never steal focus from the application that
+            // happens to be hosting this render.
+            window.orderBack(nil)
+            self.window = window
+            return true
 
         #elseif canImport(UIKit)
-        let scene = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }
-            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        guard let scene else { return false }
+            let scene =
+                UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive }
+                ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            guard let scene else { return false }
 
-        let window = UIWindow(windowScene: scene)
-        window.frame = frame
-        // Below every ordinary window, so that even if the geometry were wrong
-        // this could not appear over the host application's interface.
-        window.windowLevel = .normal - 1
-        window.rootViewController = UIViewController()
-        window.rootViewController?.view.addSubview(webView)
-        webView.frame = CGRect(origin: .zero, size: size)
-        window.isHidden = false
-        self.window = window
-        return true
+            let window = UIWindow(windowScene: scene)
+            window.frame = frame
+            // Below every ordinary window, so that even if the geometry were wrong
+            // this could not appear over the host application's interface.
+            window.windowLevel = .normal - 1
+            window.rootViewController = UIViewController()
+            window.rootViewController?.view.addSubview(webView)
+            webView.frame = CGRect(origin: .zero, size: size)
+            window.isHidden = false
+            self.window = window
+            return true
 
         #else
-        return false
+            return false
         #endif
     }
 
     func detach(_ webView: WKWebView) {
         webView.removeFromSuperview()
         #if canImport(AppKit)
-        window?.orderOut(nil)
-        window?.contentView = nil
+            window?.orderOut(nil)
+            window?.contentView = nil
         #elseif canImport(UIKit)
-        window?.isHidden = true
-        window?.rootViewController = nil
+            window?.isHidden = true
+            window?.rootViewController = nil
         #endif
         window = nil
     }

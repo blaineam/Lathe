@@ -5,11 +5,11 @@ import LatheCore
 import LatheFixtures
 import Testing
 
-#if canImport(PDFKit)
-import PDFKit
-#endif
-
 @testable import LatheMeta
+
+#if canImport(PDFKit)
+    import PDFKit
+#endif
 
 /// Reading and writing metadata, and the two ways a metadata tool quietly
 /// destroys things: re-encoding what it was only supposed to describe, and
@@ -55,9 +55,13 @@ struct MetadataRoundTripTests {
     /// across untouched.
     @Test("editing an M4A's metadata leaves its samples identical")
     func containerSamplesAreNotReencoded() async throws {
-        guard let source = await fixture("meta-source.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "meta-source.m4a", seconds: 2)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-source.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "meta-source.m4a", seconds: 2)
+                })
+        else { return }
         let output = await scratch("meta-source-out.m4a")
 
         var meta = try await reader.read(source)
@@ -79,9 +83,13 @@ struct MetadataRoundTripTests {
     /// not having been written at all.
     @Test("the media kind survives, so a player files the result correctly")
     func mediaKindRoundTrips() async throws {
-        guard let source = await fixture("meta-kind.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "meta-kind.m4a", seconds: 1)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-kind.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "meta-kind.m4a", seconds: 1)
+                })
+        else { return }
 
         for kind in [MediaKind.movie, .tvShow, .audiobook, .musicVideo] {
             let output = await scratch("meta-kind-\(kind.rawValue).m4a")
@@ -99,9 +107,13 @@ struct MetadataRoundTripTests {
     /// are exactly the ones a naive implementation drops.
     @Test("series, season and episode survive a write")
     func showInfoRoundTrips() async throws {
-        guard let source = await fixture("meta-show.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "meta-show.m4a", seconds: 1)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-show.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "meta-show.m4a", seconds: 1)
+                })
+        else { return }
         let output = await scratch("meta-show-out.m4a")
 
         var meta = MediaMetadata()
@@ -133,9 +145,13 @@ struct MetadataRoundTripTests {
     /// the track number simply not being there.
     @Test("track and disc numbers survive, packed the way the atom wants them")
     func trackNumbersRoundTrip() async throws {
-        guard let source = await fixture("meta-track.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "meta-track.m4a", seconds: 1)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-track.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "meta-track.m4a", seconds: 1)
+                })
+        else { return }
         let output = await scratch("meta-track-out.m4a")
 
         var meta = MediaMetadata()
@@ -161,9 +177,13 @@ struct MetadataRoundTripTests {
     /// cannot infer.
     @Test("cover art survives a write, byte for byte")
     func artworkRoundTrips() async throws {
-        guard let source = await fixture("meta-art.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "meta-art.m4a", seconds: 1)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-art.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "meta-art.m4a", seconds: 1)
+                })
+        else { return }
         let output = await scratch("meta-art-out.m4a")
 
         let png = try DocumentFixtures.solidPNG(gray: 0.25)
@@ -234,8 +254,8 @@ struct MetadataRoundTripTests {
         )
 
         for location in [
-            Location(latitude: -33.8688, longitude: 151.2093),       // south, east
-            Location(latitude: 51.5072, longitude: -0.1276),         // north, west
+            Location(latitude: -33.8688, longitude: 151.2093),  // south, east
+            Location(latitude: 51.5072, longitude: -0.1276),  // north, west
             Location(latitude: -34.6037, longitude: -58.3816, altitude: 25),
             Location(latitude: 47.6062, longitude: -122.3321, altitude: -12),
         ] {
@@ -246,14 +266,17 @@ struct MetadataRoundTripTests {
 
             let read = try await reader.read(output)
             let got = try #require(read.location)
-            #expect(abs(got.latitude - location.latitude) < 0.0001,
-                    "latitude \(location.latitude) came back as \(got.latitude)")
-            #expect(abs(got.longitude - location.longitude) < 0.0001,
-                    "longitude \(location.longitude) came back as \(got.longitude)")
+            #expect(
+                abs(got.latitude - location.latitude) < 0.0001,
+                "latitude \(location.latitude) came back as \(got.latitude)")
+            #expect(
+                abs(got.longitude - location.longitude) < 0.0001,
+                "longitude \(location.longitude) came back as \(got.longitude)")
             if let expected = location.altitude {
                 let altitude = try #require(got.altitude)
-                #expect(abs(altitude - expected) < 0.5,
-                        "altitude \(expected) came back as \(altitude)")
+                #expect(
+                    abs(altitude - expected) < 0.5,
+                    "altitude \(expected) came back as \(altitude)")
             }
         }
     }
@@ -294,12 +317,16 @@ struct MetadataRoundTripTests {
     /// would be silent.
     @Test("clearing a container field removes it rather than merging over it")
     func containerClearingRemovesFields() async throws {
-        guard let source = await fixture("meta-clear.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "meta-clear.m4a", seconds: 1,
-                title: "Original Title", artist: "Original Artist", album: "Original Album"
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "meta-clear.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "meta-clear.m4a", seconds: 1,
+                        title: "Original Title", artist: "Original Artist", album: "Original Album"
+                    )
+                })
+        else { return }
 
         // The fixture really does carry the values being cleared, or this test
         // would pass against a file that never had them.
@@ -341,10 +368,10 @@ struct MetadataRoundTripTests {
         #expect(read.creators.first == "An Author")
 
         #if canImport(PDFKit)
-        let document = try #require(PDFDocument(url: output))
-        #expect(document.pageCount == 3)
-        #expect(document.page(at: 0)?.string?.contains("PAGE-1") == true)
-        #expect(document.page(at: 2)?.string?.contains("PAGE-3") == true)
+            let document = try #require(PDFDocument(url: output))
+            #expect(document.pageCount == 3)
+            #expect(document.page(at: 0)?.string?.contains("PAGE-1") == true)
+            #expect(document.page(at: 2)?.string?.contains("PAGE-3") == true)
         #endif
     }
 
@@ -473,12 +500,15 @@ struct MetadataRoundTripTests {
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             var length = 0
             var pointer: UnsafeMutablePointer<CChar>?
-            guard CMBlockBufferGetDataPointer(
-                block, atOffset: 0, lengthAtOffsetOut: nil,
-                totalLengthOut: &length, dataPointerOut: &pointer
-            ) == noErr, let pointer else { continue }
-            collected.append(UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self),
-                             count: length)
+            guard
+                CMBlockBufferGetDataPointer(
+                    block, atOffset: 0, lengthAtOffsetOut: nil,
+                    totalLengthOut: &length, dataPointerOut: &pointer
+                ) == noErr, let pointer
+            else { continue }
+            collected.append(
+                UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self),
+                count: length)
         }
         return collected
     }

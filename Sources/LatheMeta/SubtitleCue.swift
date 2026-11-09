@@ -116,14 +116,19 @@ public enum SubtitleFormat: String, Sendable, Equatable, CaseIterable {
         var head = contents.prefix(512)
         if head.starts(with: [0xEF, 0xBB, 0xBF]) { head = head.dropFirst(3) }
         let text = String(decoding: head, as: UTF8.self)
-        if text.hasPrefix("WEBVTT") { self = .webVTT }
-        else if text.contains("[Script Info]") { self = .substationAlpha }
-        else if text.contains("-->") { self = .subRip }
-        else { self = .unknown }
+        if text.hasPrefix("WEBVTT") {
+            self = .webVTT
+        } else if text.contains("[Script Info]") {
+            self = .substationAlpha
+        } else if text.contains("-->") {
+            self = .subRip
+        } else {
+            self = .unknown
+        }
     }
 }
 
-public extension Array where Element == SubtitleCue {
+extension Array where Element == SubtitleCue {
 
     /// The cues as a player can show them: one at a time, in order, with no
     /// overlaps.
@@ -138,7 +143,7 @@ public extension Array where Element == SubtitleCue {
     /// produces a track whose later cue silently replaces the earlier. So the
     /// timeline is cut at every boundary and each piece shows every cue active
     /// during it, earliest first, one per line.
-    func flattenedForTimedText() -> [SubtitleCue] {
+    public func flattenedForTimedText() -> [SubtitleCue] {
         let valid = filter {
             $0.startSeconds.isFinite && $0.endSeconds.isFinite
                 && $0.startSeconds >= 0 && $0.endSeconds > $0.startSeconds
@@ -179,8 +184,9 @@ public extension Array where Element == SubtitleCue {
                 }
                 text += cue.text
                 styles += cue.styles.map {
-                    SubtitleStyleRun(range: ($0.range.lowerBound + offset)..<($0.range.upperBound + offset),
-                                     style: $0.style)
+                    SubtitleStyleRun(
+                        range: ($0.range.lowerBound + offset)..<($0.range.upperBound + offset),
+                        style: $0.style)
                 }
                 offset += cue.text.unicodeScalars.count
             }

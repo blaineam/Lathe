@@ -54,18 +54,20 @@ struct MediaProbeTests {
         #expect(video.codecFourCC == "avc1")
         #expect(video.codecName == "h264")
         #expect(video.codedSize == Self.size)
-        #expect(video.displaySize == Self.size)      // no rotation in the fixture
+        #expect(video.displaySize == Self.size)  // no rotation in the fixture
         #expect(abs((video.nominalFrameRate ?? 0) - Double(Self.frameRate)) < 0.5)
         #expect((video.estimatedBitRate ?? 0) > 0)
-        #expect(video.sampleRate == nil)             // not an audio track
+        #expect(video.sampleRate == nil)  // not an audio track
         #expect(video.channelCount == nil)
     }
 
     @Test("an audio track is detected and described")
     func audioTrackFacts() async throws {
-        guard let movie = await standardMovie(
-            named: "probe-av.mov", audio: .tone(hertz: 440, amplitude: 0.4)
-        ) else { return }
+        guard
+            let movie = await standardMovie(
+                named: "probe-av.mov", audio: .tone(hertz: 440, amplitude: 0.4)
+            )
+        else { return }
 
         let info = try await probe.probe(url: movie)
         #expect(info.hasVideoTrack)
@@ -82,7 +84,7 @@ struct MediaProbeTests {
         #expect(audio.codecName == "aac")
         #expect(audio.channelCount == 1)
         #expect(abs((audio.sampleRate ?? 0) - FixtureLibrary.sampleRate) < 1)
-        #expect(audio.codedSize == nil)              // not a visual track
+        #expect(audio.codedSize == nil)  // not a visual track
         #expect(audio.nominalFrameRate == nil)
 
         // Track indices are distinct and in container order.
@@ -91,12 +93,16 @@ struct MediaProbeTests {
 
     @Test("an audio-only file has no video track and is still a valid asset")
     func audioOnly() async throws {
-        guard let wav = await fixture("probe-audio-only.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "probe-audio-only.wav", seconds: 2,
-                audio: .tone(hertz: 440, amplitude: 0.4)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "probe-audio-only.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "probe-audio-only.wav", seconds: 2,
+                        audio: .tone(hertz: 440, amplitude: 0.4)
+                    )
+                })
+        else { return }
 
         let info = try await probe.probe(url: wav)
         #expect(!info.hasVideoTrack)
@@ -115,9 +121,13 @@ struct MediaProbeTests {
 
     @Test("a zero-duration asset is a fact, not an error")
     func zeroDuration() async throws {
-        guard let empty = await fixture("probe-empty.wav", {
-            try await FixtureLibrary.shared.emptyWAV(named: "probe-empty.wav")
-        }) else { return }
+        guard
+            let empty = await fixture(
+                "probe-empty.wav",
+                {
+                    try await FixtureLibrary.shared.emptyWAV(named: "probe-empty.wav")
+                })
+        else { return }
 
         let info = try await probe.probe(url: empty)
         #expect(info.duration < 0.001)
@@ -129,15 +139,19 @@ struct MediaProbeTests {
 
     @Test("a file that is not media at all is refused, with a reason")
     func notMedia() async throws {
-        guard let url = await fixture("probe-not-media.mov", {
-            try await FixtureLibrary.shared.notMedia(named: "probe-not-media.mov")
-        }) else { return }
+        guard
+            let url = await fixture(
+                "probe-not-media.mov",
+                {
+                    try await FixtureLibrary.shared.notMedia(named: "probe-not-media.mov")
+                })
+        else { return }
 
         do {
             let info = try await probe.probe(url: url)
             Issue.record("expected a refusal, got \(info)")
         } catch let error as LatheError {
-            guard case let .invalidInput(reason) = error else {
+            guard case .invalidInput(let reason) = error else {
                 Issue.record("expected .invalidInput, got \(error)")
                 return
             }
@@ -168,14 +182,19 @@ struct MediaProbeTests {
     /// for playable media. That is the assertion.
     @Test("a still image never looks like playable media")
     func stillImage() async throws {
-        guard let png = await fixture("probe-still.png", {
-            try await FixtureLibrary.shared.stillImage(named: "probe-still.png")
-        }) else { return }
+        guard
+            let png = await fixture(
+                "probe-still.png",
+                {
+                    try await FixtureLibrary.shared.stillImage(named: "probe-still.png")
+                })
+        else { return }
 
         do {
             let info = try await probe.probe(url: png)
-            print("AVURLAsset opened a PNG: \(info.tracks.count) track(s), "
-                  + "duration \(info.duration)s, empty=\(info.isEmptyAsset)")
+            print(
+                "AVURLAsset opened a PNG: \(info.tracks.count) track(s), "
+                    + "duration \(info.duration)s, empty=\(info.isEmptyAsset)")
             #expect(info.isEmptyAsset)
             #expect(info.duration < 0.001)
         } catch let error as LatheError {
@@ -197,7 +216,8 @@ struct MediaProbeTests {
         #expect(MediaProbe.applying(.identity, to: coded) == coded)
         #expect(MediaProbe.applying(CGAffineTransform(rotationAngle: .pi), to: coded) == coded)
         for angle in [Double.pi / 2, -Double.pi / 2, 3 * Double.pi / 2] {
-            #expect(MediaProbe.applying(CGAffineTransform(rotationAngle: angle), to: coded)
+            #expect(
+                MediaProbe.applying(CGAffineTransform(rotationAngle: angle), to: coded)
                     == PixelSize(width: 1080, height: 1920))
         }
     }

@@ -20,10 +20,12 @@ private struct FakeLongRunningOperation: Sendable {
     /// Units actually completed. Read after the operation ends.
     let completed: UnitCounter
 
-    init(unitCount: UInt64 = 50,
-         unitDuration: TimeInterval = 0.01,
-         started: AsyncGate = AsyncGate(),
-         completed: UnitCounter = UnitCounter()) {
+    init(
+        unitCount: UInt64 = 50,
+        unitDuration: TimeInterval = 0.01,
+        started: AsyncGate = AsyncGate(),
+        completed: UnitCounter = UnitCounter()
+    ) {
         self.unitCount = unitCount
         self.unitDuration = unitDuration
         self.started = started
@@ -61,7 +63,10 @@ private final class AsyncGate: @unchecked Sendable {
     /// Callable from any thread, including a blocking worker.
     func open() {
         lock.lock()
-        guard !isOpen else { lock.unlock(); return }
+        guard !isOpen else {
+            lock.unlock()
+            return
+        }
         isOpen = true
         let pending = waiters
         waiters.removeAll()
@@ -90,11 +95,14 @@ private final class UnitCounter: @unchecked Sendable {
     private var count: UInt64 = 0
 
     func increment() {
-        lock.lock(); count += 1; lock.unlock()
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 
     var value: UInt64 {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return count
     }
 }
@@ -153,8 +161,9 @@ struct ProgressCancellationTests {
         // After the cancel lands, at most one more unit may finish before the
         // next checkpoint trips. Allow generous slack for scheduling on a busy
         // CI machine — the assertion that matters is "bounded", not "instant".
-        #expect(completed.value - unitsAtCancel < 200,
-                "cancellation should be observed within a small number of units")
+        #expect(
+            completed.value - unitsAtCancel < 200,
+            "cancellation should be observed within a small number of units")
     }
 
     @Test("cancelling before the work starts means it never runs")
@@ -239,7 +248,7 @@ struct ProgressCancellationTests {
         }
 
         await started.wait()
-        progress.cancel()   // not Task.cancel() — an external stop signal
+        progress.cancel()  // not Task.cancel() — an external stop signal
 
         let result = await task.result
         let error = try #require(result.failureAsLatheError)
@@ -326,7 +335,7 @@ struct ProgressCancellationTests {
         for try await event in LatheWork.stream(throttle: .unthrottled, operation: { try operation.run($0) }) {
             switch event {
             case .progress: progressCount += 1
-            case let .finished(value): finished = value
+            case .finished(let value): finished = value
             }
         }
 
@@ -343,8 +352,10 @@ struct ProgressCancellationTests {
         // the iterator, which fires `onTermination`, which cancels the work.
         await Task {
             do {
-                for try await event in LatheWork.stream(throttle: .unthrottled,
-                                                        operation: { try operation.run($0) }) {
+                for try await event in LatheWork.stream(
+                    throttle: .unthrottled,
+                    operation: { try operation.run($0) })
+                {
                     if case .progress = event { break }
                 }
             } catch {
@@ -368,7 +379,7 @@ extension Result where Failure == any Error {
     var failureAsLatheError: LatheError? {
         switch self {
         case .success: nil
-        case let .failure(error): LatheError.wrapping(error)
+        case .failure(let error): LatheError.wrapping(error)
         }
     }
 }

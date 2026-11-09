@@ -1,5 +1,5 @@
-import AudioToolbox
 import AVFoundation
+import AudioToolbox
 import Foundation
 import LatheCore
 import LatheFixtures
@@ -24,12 +24,16 @@ struct AudioTranscoderTests {
     /// away have not been thrown away once already.
     @Test("a lossless source shrinks by a lot")
     func losslessSourceShrinks() async throws {
-        guard let wav = await fixture("tx-lossless.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-lossless.wav", seconds: 4,
-                audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-lossless.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-lossless.wav", seconds: 4,
+                        audio: .noise(amplitude: 0.4), sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-lossless-out.m4a")
 
         let result = try await transcoder.transcode(
@@ -55,12 +59,16 @@ struct AudioTranscoderTests {
     /// Apple Lossless, where the codec's promise is the whole point.
     @Test("a lossless source can be made smaller without becoming lossy")
     func losslessToLossless() async throws {
-        guard let wav = await fixture("tx-alac.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-alac.wav", seconds: 3,
-                audio: .tone(hertz: 440, amplitude: 0.5), sampleRate: 44_100, channels: 1
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-alac.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-alac.wav", seconds: 3,
+                        audio: .tone(hertz: 440, amplitude: 0.5), sampleRate: 44_100, channels: 1
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-alac-out.m4a")
 
         let result = try await transcoder.transcode(
@@ -79,11 +87,15 @@ struct AudioTranscoderTests {
     /// output is two generations of loss for no saving, and is refused.
     @Test("an already-lossy source at a similar bitrate is skipped, and nothing is written")
     func lossySourceAtSimilarBitrateIsSkipped() async throws {
-        guard let aac = await fixture("tx-lossy-128.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-lossy-128.m4a", seconds: 3, bitsPerSecond: 128_000
-            )
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "tx-lossy-128.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-lossy-128.m4a", seconds: 3, bitsPerSecond: 128_000
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-lossy-128-out.m4a")
         try? FileManager.default.removeItem(at: destination)
 
@@ -91,11 +103,11 @@ struct AudioTranscoderTests {
             source: aac, to: destination, codec: .aac, quality: .averageBitrate(128_000)
         )
 
-        guard case let .skipped(reason) = result.outcome else {
+        guard case .skipped(let reason) = result.outcome else {
             Issue.record("expected a skip, got \(result.outcome)")
             return
         }
-        guard case let .lossySourceWithoutMeaningfulSavings(source, target, fraction) = reason else {
+        guard case .lossySourceWithoutMeaningfulSavings(let source, let target, let fraction) = reason else {
             Issue.record("expected the savings rule to fire, got \(reason)")
             return
         }
@@ -116,11 +128,15 @@ struct AudioTranscoderTests {
 
     @Test("a big enough drop in bitrate is allowed through")
     func lossySourceWithRealSavingsProceeds() async throws {
-        guard let aac = await fixture("tx-lossy-192.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-lossy-192.m4a", seconds: 3, bitsPerSecond: 192_000
-            )
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "tx-lossy-192.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-lossy-192.m4a", seconds: 3, bitsPerSecond: 192_000
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-lossy-192-out.m4a")
 
         let result = try await transcoder.transcode(
@@ -133,11 +149,15 @@ struct AudioTranscoderTests {
 
     @Test("the rule can be turned off, and turned all the way up")
     func ruleIsOverridable() async throws {
-        guard let aac = await fixture("tx-rule.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-rule.m4a", seconds: 2, bitsPerSecond: 128_000
-            )
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "tx-rule.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-rule.m4a", seconds: 2, bitsPerSecond: 128_000
+                    )
+                })
+        else { return }
 
         // `.never`: no lossy source is ever re-encoded, however large the saving.
         let refused = try await transcoder.transcode(
@@ -152,7 +172,7 @@ struct AudioTranscoderTests {
             source: aac, to: await scratch("tx-rule-allow.m4a"),
             quality: .averageBitrate(128_000), lossySources: .allow
         )
-        if case let .skipped(reason) = allowed.outcome {
+        if case .skipped(let reason) = allowed.outcome {
             if case .lossySourceWithoutMeaningfulSavings = reason {
                 Issue.record(".allow should bypass the savings rule")
             }
@@ -164,9 +184,13 @@ struct AudioTranscoderTests {
     /// identical.
     @Test("a lossy source is not re-encoded to a lossless target")
     func lossyToLosslessIsRefused() async throws {
-        guard let aac = await fixture("tx-lossy-alac.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "tx-lossy-alac.m4a", seconds: 2)
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "tx-lossy-alac.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "tx-lossy-alac.m4a", seconds: 2)
+                })
+        else { return }
         let destination = await scratch("tx-lossy-alac-out.m4a")
         try? FileManager.default.removeItem(at: destination)
 
@@ -185,19 +209,23 @@ struct AudioTranscoderTests {
     /// exactly the amount of information they do not add.
     @Test("a 22 kHz mono source does not become 48 kHz stereo")
     func neverUpsamples() async throws {
-        guard let wav = await fixture("tx-narrow.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-narrow.wav", seconds: 2,
-                audio: .noise(amplitude: 0.4), sampleRate: 22_050, channels: 1
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-narrow.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-narrow.wav", seconds: 2,
+                        audio: .noise(amplitude: 0.4), sampleRate: 22_050, channels: 1
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-narrow-out.m4a")
 
         let result = try await transcoder.transcode(
             source: wav, to: destination,
             quality: .quality(0.5),
-            sampleRate: 48_000,                  // asked for, and refused
-            channels: .atMost(6)                 // likewise
+            sampleRate: 48_000,  // asked for, and refused
+            channels: .atMost(6)  // likewise
         )
 
         #expect(result.outcome == .transcoded)
@@ -218,29 +246,37 @@ struct AudioTranscoderTests {
 
         // A multi-channel source with no layout cannot be preserved by any
         // encoder, and the case that says so is its own.
-        #expect(AudioTranscoder.resolveChannels(.preserve, sourceChannels: 6, hasLayout: true)
-            == .preserved(channels: 6))
-        #expect(AudioTranscoder.resolveChannels(.preserve, sourceChannels: 6, hasLayout: false)
-            == .downmixedForWantOfALayout(from: 6, to: 2))
+        #expect(
+            AudioTranscoder.resolveChannels(.preserve, sourceChannels: 6, hasLayout: true)
+                == .preserved(channels: 6))
+        #expect(
+            AudioTranscoder.resolveChannels(.preserve, sourceChannels: 6, hasLayout: false)
+                == .downmixedForWantOfALayout(from: 6, to: 2))
         // 7.1 to 5.1 is a mixing decision this package does not make; it becomes
         // the one downmix every decoder agrees on.
-        #expect(AudioTranscoder.resolveChannels(.atMost(6), sourceChannels: 8, hasLayout: true)
-            == .downmixed(from: 8, to: 2))
+        #expect(
+            AudioTranscoder.resolveChannels(.atMost(6), sourceChannels: 8, hasLayout: true)
+                == .downmixed(from: 8, to: 2))
     }
 
     // MARK: - Multi-channel
 
     /// The iOS Simulator's AAC encoder refuses six channels (AVFoundation
     /// -11800), so only the downmix half can run there.
-    @Test("5.1 is preserved by default, and downmixed only when asked",
-          .disabled(if: audioRunningInSimulator, "the simulator's AAC encoder has no 5.1 layout"))
+    @Test(
+        "5.1 is preserved by default, and downmixed only when asked",
+        .disabled(if: audioRunningInSimulator, "the simulator's AAC encoder has no 5.1 layout"))
     func multichannelIsPreservedUnlessAsked() async throws {
-        guard let surround = await fixture("tx-surround.caf", {
-            try await FixtureLibrary.shared.multichannelPCM(
-                named: "tx-surround.caf", seconds: 1,
-                audio: .noise(amplitude: 0.3), channels: 6
-            )
-        }) else { return }
+        guard
+            let surround = await fixture(
+                "tx-surround.caf",
+                {
+                    try await FixtureLibrary.shared.multichannelPCM(
+                        named: "tx-surround.caf", seconds: 1,
+                        audio: .noise(amplitude: 0.3), channels: 6
+                    )
+                })
+        else { return }
 
         let preserved = try await transcoder.transcode(
             source: surround, to: await scratch("tx-surround-6.m4a"), quality: .quality(0.4)
@@ -264,11 +300,15 @@ struct AudioTranscoderTests {
 
     @Test("the duration survives the transcode")
     func durationSurvives() async throws {
-        guard let wav = await fixture("tx-duration.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-duration.wav", seconds: 5, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-duration.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-duration.wav", seconds: 5, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-duration-out.m4a")
 
         let result = try await transcoder.transcode(source: wav, to: destination)
@@ -285,13 +325,17 @@ struct AudioTranscoderTests {
 
     @Test("tags and cover art survive a policy that preserves them")
     func metadataSurvives() async throws {
-        guard let tagged = await fixture("tx-tagged.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-tagged.m4a", seconds: 2, bitsPerSecond: 192_000,
-                title: "A Known Title", artist: "A Known Artist", album: "A Known Album",
-                artwork: true
-            )
-        }) else { return }
+        guard
+            let tagged = await fixture(
+                "tx-tagged.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-tagged.m4a", seconds: 2, bitsPerSecond: 192_000,
+                        title: "A Known Title", artist: "A Known Artist", album: "A Known Album",
+                        artwork: true
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-tagged-out.m4a")
 
         let result = try await transcoder.transcode(
@@ -318,12 +362,16 @@ struct AudioTranscoderTests {
 
     @Test("stripAll removes everything, cover art included")
     func stripAllRemovesEverything() async throws {
-        guard let tagged = await fixture("tx-strip.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-strip.m4a", seconds: 2, bitsPerSecond: 192_000,
-                title: "Gone", artist: "Gone", artwork: true
-            )
-        }) else { return }
+        guard
+            let tagged = await fixture(
+                "tx-strip.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-strip.m4a", seconds: 2, bitsPerSecond: 192_000,
+                        title: "Gone", artist: "Gone", artwork: true
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-strip-out.m4a")
 
         let result = try await transcoder.transcode(
@@ -342,12 +390,16 @@ struct AudioTranscoderTests {
     /// nothing else does.
     @Test("a targeted strip of thumbnails takes the cover art and leaves the title")
     func strippingThumbnailsTakesTheCover() async throws {
-        guard let tagged = await fixture("tx-cover.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-cover.m4a", seconds: 2, bitsPerSecond: 192_000,
-                title: "Still Here", artwork: true
-            )
-        }) else { return }
+        guard
+            let tagged = await fixture(
+                "tx-cover.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-cover.m4a", seconds: 2, bitsPerSecond: 192_000,
+                        title: "Still Here", artwork: true
+                    )
+                })
+        else { return }
 
         let stripped = await scratch("tx-cover-stripped.m4a")
         let result = try await transcoder.transcode(
@@ -375,11 +427,15 @@ struct AudioTranscoderTests {
 
     @Test("a cancelled transcode leaves no file at all")
     func cancellationLeavesNoFile() async throws {
-        guard let wav = await fixture("tx-cancel.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-cancel.wav", seconds: 30, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-cancel.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-cancel.wav", seconds: 30, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-cancel-out.m4a")
         try? FileManager.default.removeItem(at: destination)
 
@@ -411,11 +467,15 @@ struct AudioTranscoderTests {
     /// nothing".
     @Test("a cancelled transcode leaves a previous file untouched")
     func cancellationLeavesThePreviousFile() async throws {
-        guard let wav = await fixture("tx-cancel2.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-cancel2.wav", seconds: 30, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-cancel2.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-cancel2.wav", seconds: 30, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-cancel2-out.m4a")
         let sentinel = Data("not a real m4a, and must survive".utf8)
         try sentinel.write(to: destination)
@@ -443,11 +503,15 @@ struct AudioTranscoderTests {
     /// name, and nothing quietly substitutes AAC.
     @Test("an Opus destination is refused, clearly, and nothing is substituted")
     func opusIsRefused() async throws {
-        guard let wav = await fixture("tx-opus.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-opus.wav", seconds: 1, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-opus.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-opus.wav", seconds: 1, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
 
         for ext in ["opus", "ogg", "webm"] {
             let destination = await scratch("tx-opus-out.\(ext)")
@@ -456,7 +520,7 @@ struct AudioTranscoderTests {
                 _ = try await transcoder.transcode(source: wav, to: destination)
                 Issue.record("a .\(ext) destination should have been refused")
             } catch let error as LatheError {
-                guard case let .unsupportedOnThisPlatform(feature) = error else {
+                guard case .unsupportedOnThisPlatform(let feature) = error else {
                     Issue.record("expected unsupportedOnThisPlatform, got \(error)")
                     continue
                 }
@@ -471,11 +535,15 @@ struct AudioTranscoderTests {
 
     @Test("MP3 and FLAC destinations are refused by name too")
     func otherUnwritableContainersAreRefused() async throws {
-        guard let wav = await fixture("tx-refuse.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-refuse.wav", seconds: 1, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-refuse.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-refuse.wav", seconds: 1, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
 
         for ext in ["mp3", "flac", "wav", "zzz"] {
             let destination = await scratch("tx-refuse-out.\(ext)")
@@ -487,11 +555,15 @@ struct AudioTranscoderTests {
 
     @Test("a quality knob on a lossless codec is a contradiction, and is refused")
     func contradictoryQualityIsRefused() async throws {
-        guard let wav = await fixture("tx-config.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-config.wav", seconds: 1, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-config.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-config.wav", seconds: 1, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-config-out.m4a")
 
         // ALAC has no quality knob.
@@ -517,11 +589,15 @@ struct AudioTranscoderTests {
 
     @Test("a transcode cannot overwrite the file it is reading")
     func sourceAndDestinationMustDiffer() async throws {
-        guard let wav = await fixture("tx-same.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "tx-same.wav", seconds: 1, audio: .noise(amplitude: 0.3)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "tx-same.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "tx-same.wav", seconds: 1, audio: .noise(amplitude: 0.3)
+                    )
+                })
+        else { return }
         await #expect(throws: LatheError.self) {
             _ = try await transcoder.transcode(source: wav, to: wav)
         }
@@ -531,11 +607,15 @@ struct AudioTranscoderTests {
 
     @Test("the plan says what the transcode would do, and writes nothing")
     func planAgreesWithTheTranscode() async throws {
-        guard let aac = await fixture("tx-plan.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "tx-plan.m4a", seconds: 2, bitsPerSecond: 128_000
-            )
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "tx-plan.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "tx-plan.m4a", seconds: 2, bitsPerSecond: 128_000
+                    )
+                })
+        else { return }
         let destination = await scratch("tx-plan-out.m4a")
         try? FileManager.default.removeItem(at: destination)
 
@@ -592,18 +672,20 @@ struct AudioTranscoderTests {
         var source = FixtureLibrary.channelLayout(for: 6)
         let sourceData = Data(bytes: &source, count: MemoryLayout<AudioChannelLayout>.size)
 
-        let translated = try? #require(AudioEncodeSupport.channelLayout(
-            forSource: sourceData, formatID: kAudioFormatMPEG4AAC, channels: 6
-        ))
+        let translated = try? #require(
+            AudioEncodeSupport.channelLayout(
+                forSource: sourceData, formatID: kAudioFormatMPEG4AAC, channels: 6
+            ))
         let tag = try? #require(AudioEncodeSupport.tag(of: translated))
         #expect(tag.map { accepted.contains($0) } == true)
         #expect(tag.map { AudioChannelLayoutTag_GetNumberOfChannels($0) } == 6)
 
         // Mono and stereo need no layout, and handing one over is how a valid
         // request becomes an invalid settings dictionary.
-        #expect(AudioEncodeSupport.channelLayout(
-            forSource: sourceData, formatID: kAudioFormatMPEG4AAC, channels: 2
-        ) == nil)
+        #expect(
+            AudioEncodeSupport.channelLayout(
+                forSource: sourceData, formatID: kAudioFormatMPEG4AAC, channels: 2
+            ) == nil)
     }
 
     @Test("the chosen sample rate is never above the one asked for")
@@ -627,8 +709,9 @@ struct AudioTranscoderTests {
         #expect(high < 50_000_000)
         #expect(low < high)
         // An ordinary request passes through untouched.
-        #expect(AudioEncodeSupport.bitrate(nearest: 128_000, formatID: kAudioFormatMPEG4AAC)
-            == 128_000)
+        #expect(
+            AudioEncodeSupport.bitrate(nearest: 128_000, formatID: kAudioFormatMPEG4AAC)
+                == 128_000)
     }
 
     @Test("the capability report names both codecs")
@@ -681,19 +764,22 @@ private final class Counter: @unchecked Sendable {
     private var count = 0
 
     var value: Int {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
+        defer { lock.unlock() }
         return count
     }
 
     func increment() {
-        lock.lock(); count += 1; lock.unlock()
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }
 
 let audioRunningInSimulator: Bool = {
     #if targetEnvironment(simulator)
-    true
+        true
     #else
-    false
+        false
     #endif
 }()

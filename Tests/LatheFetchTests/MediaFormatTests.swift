@@ -102,8 +102,9 @@ struct MediaFormatTests {
 
     @Test("size falls back from exact to approximate and never invents one")
     func reportsSizes() {
-        #expect(MediaFormat(formatID: "a", byteCount: 100, approximateByteCount: 200)
-            .estimatedByteCount == 100)
+        #expect(
+            MediaFormat(formatID: "a", byteCount: 100, approximateByteCount: 200)
+                .estimatedByteCount == 100)
         #expect(MediaFormat(formatID: "a", approximateByteCount: 200).estimatedByteCount == 200)
         #expect(MediaFormat(formatID: "a").estimatedByteCount == nil)
     }

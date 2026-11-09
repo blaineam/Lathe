@@ -199,10 +199,12 @@ public struct ImageEncoder: Sendable {
         // `kCGImageSourceShouldCache: false`: the decoded bitmap is used once and
         // handed straight to the encoder, so ImageIO's cache would only hold a
         // second copy of a potentially very large image alive.
-        guard let imageSource = CGImageSourceCreateWithURL(
-            request.source as CFURL,
-            [kCGImageSourceShouldCache: false] as CFDictionary
-        ), CGImageSourceGetCount(imageSource) > 0 else {
+        guard
+            let imageSource = CGImageSourceCreateWithURL(
+                request.source as CFURL,
+                [kCGImageSourceShouldCache: false] as CFDictionary
+            ), CGImageSourceGetCount(imageSource) > 0
+        else {
             throw LatheError.invalidInput(
                 reason: "\(request.source.lastPathComponent) is not an image ImageIO can read"
             )
@@ -217,7 +219,8 @@ public struct ImageEncoder: Sendable {
         // tag those differ by a transpose, and resolving `.fit(1000x2000)`
         // against the stored axes gives a differently-shaped result from the one
         // the caller drew on screen.
-        let displaySize = sourceOrientation.swapsAxes
+        let displaySize =
+            sourceOrientation.swapsAxes
             ? PixelSize(width: storedSize.height, height: storedSize.width)
             : storedSize
         let targetDisplaySize = request.resize.resolve(from: displaySize)
@@ -225,7 +228,8 @@ public struct ImageEncoder: Sendable {
         // A format that cannot be read at odd dimensions loses its last column
         // and/or row — a crop, not a rescale, so nothing is resampled. See
         // `ImageFormat.requiresEvenDimensions`.
-        let encodedDisplaySize = request.format.requiresEvenDimensions
+        let encodedDisplaySize =
+            request.format.requiresEvenDimensions
             ? PixelSize(
                 width: evenFloor(targetDisplaySize.width),
                 height: evenFloor(targetDisplaySize.height))
@@ -239,7 +243,7 @@ public struct ImageEncoder: Sendable {
         // the user's.
         let strategy: OrientationStrategy
         if sourceOrientation == .up {
-            strategy = .preserveTag          // nothing to rotate; skip the redraw
+            strategy = .preserveTag  // nothing to rotate; skip the redraw
         } else if needsEvenCrop {
             // The crop is defined on the picture a viewer sees: its right
             // column and bottom row. Cropping stored pixels under a tag would
@@ -266,7 +270,8 @@ public struct ImageEncoder: Sendable {
         // `.preserveTag` they stay put and the viewer's transpose does it.
         // Scaling to the display size first and rotating second would squash the
         // image by its aspect ratio, twice, and still report a plausible number.
-        let targetStoredSize = sourceOrientation.swapsAxes
+        let targetStoredSize =
+            sourceOrientation.swapsAxes
             ? PixelSize(width: targetDisplaySize.height, height: targetDisplaySize.width)
             : targetDisplaySize
 
@@ -287,8 +292,10 @@ public struct ImageEncoder: Sendable {
         }
         if needsEvenCrop {
             // `cropping(to:)` is in top-left coordinates and copies nothing.
-            guard let cropped = image.cropping(to: CGRect(
-                x: 0, y: 0, width: encodedDisplaySize.width, height: encodedDisplaySize.height))
+            guard
+                let cropped = image.cropping(
+                    to: CGRect(
+                        x: 0, y: 0, width: encodedDisplaySize.width, height: encodedDisplaySize.height))
             else {
                 throw LatheError.encodingFailed(
                     stage: "scale", code: nil,
@@ -318,8 +325,9 @@ public struct ImageEncoder: Sendable {
         let outputByteCount: UInt64
         switch backend {
         case .imageIO:
-            guard let typeIdentifier = EncodeSupport.shared
-                .destinationTypeIdentifier(for: request.format)
+            guard
+                let typeIdentifier = EncodeSupport.shared
+                    .destinationTypeIdentifier(for: request.format)
             else {
                 throw LatheError.encodeUnavailable(format: request.format.description)
             }
@@ -412,16 +420,20 @@ public struct ImageEncoder: Sendable {
             // any, is the camera's low-quality one and may not even be the same
             // picture. `…WithTransform: false` because orientation is this
             // file's business, applied once, further down.
-            image = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: false,
-                kCGImageSourceThumbnailMaxPixelSize: targetStoredSize.longestSide,
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary)
+            image = CGImageSourceCreateThumbnailAtIndex(
+                imageSource, 0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: false,
+                    kCGImageSourceThumbnailMaxPixelSize: targetStoredSize.longestSide,
+                    kCGImageSourceShouldCacheImmediately: true,
+                ] as CFDictionary)
         } else {
-            image = CGImageSourceCreateImageAtIndex(imageSource, 0, [
-                kCGImageSourceShouldCacheImmediately: true,
-            ] as CFDictionary)
+            image = CGImageSourceCreateImageAtIndex(
+                imageSource, 0,
+                [
+                    kCGImageSourceShouldCacheImmediately: true
+                ] as CFDictionary)
         }
 
         guard let image else {
@@ -444,9 +456,11 @@ public struct ImageEncoder: Sendable {
     /// pixel off often enough to matter.
     private static func exactly(_ target: PixelSize, from image: CGImage) throws -> CGImage {
         guard image.width != target.width || image.height != target.height else { return image }
-        return try redraw(image, into: target, transform: .identity, drawnAt: PixelSize(
-            width: target.width, height: target.height
-        ))
+        return try redraw(
+            image, into: target, transform: .identity,
+            drawnAt: PixelSize(
+                width: target.width, height: target.height
+            ))
     }
 
     // MARK: - Orientation
@@ -458,7 +472,8 @@ public struct ImageEncoder: Sendable {
     ) throws -> CGImage {
         guard orientation != .up else { return image }
         let stored = PixelSize(width: image.width, height: image.height)
-        let display = orientation.swapsAxes
+        let display =
+            orientation.swapsAxes
             ? PixelSize(width: stored.height, height: stored.width)
             : stored
         return try redraw(
@@ -491,16 +506,18 @@ public struct ImageEncoder: Sendable {
         let sourceSpace = image.colorSpace
         let space = (sourceSpace?.model == .rgb ? sourceSpace : nil) ?? CGColorSpaceCreateDeviceRGB()
 
-        guard let context = CGContext(
-            data: nil,
-            width: canvas.width,
-            height: canvas.height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,            // let Core Graphics pick its own alignment
-            space: space,
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: nil,
+                width: canvas.width,
+                height: canvas.height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,  // let Core Graphics pick its own alignment
+                space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "scale", code: nil, reason: "could not create a \(canvas) drawing context"
             )
@@ -583,9 +600,11 @@ public struct ImageEncoder: Sendable {
         properties: [CFString: Any],
         progress: ProgressHandle
     ) throws {
-        guard let sink = CGImageDestinationCreateWithURL(
-            scratch as CFURL, typeIdentifier as CFString, 1, nil
-        ) else {
+        guard
+            let sink = CGImageDestinationCreateWithURL(
+                scratch as CFURL, typeIdentifier as CFString, 1, nil
+            )
+        else {
             // The capability probe already said this format encodes, so reaching
             // here means the destination is at fault.
             throw LatheError.writeFailed(
@@ -613,7 +632,8 @@ public struct ImageEncoder: Sendable {
             // asked for maximum quality should be told it was not available, not
             // handed a slightly different file and no mention of it.
             let quality = (properties[kCGImageDestinationLossyCompressionQuality] as? Double) ?? -1
-            let hint = quality >= 1
+            let hint =
+                quality >= 1
                 ? " — note that this encoder was asked for a lossy quality of exactly 1.0, "
                     + "which some ImageIO encoders (AVIF, observed) reject outright; "
                     + "0.99 is the practical maximum"
@@ -670,7 +690,7 @@ public struct ImageEncoder: Sendable {
 
     private static func orientation(from properties: [CFString: Any]) -> CGImagePropertyOrientation {
         guard let raw = (properties[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value,
-              let orientation = CGImagePropertyOrientation(rawValue: raw)
+            let orientation = CGImagePropertyOrientation(rawValue: raw)
         else { return .up }
         return orientation
     }
@@ -705,17 +725,18 @@ extension CGImagePropertyOrientation {
     /// cases have determinant −1, which is the arithmetic signature of a
     /// reflection and a quick way to check the table has not been scrambled.
     func transform(forStoredSize stored: PixelSize) -> CGAffineTransform {
-        let w = CGFloat(stored.width), h = CGFloat(stored.height)
+        let w = CGFloat(stored.width)
+        let h = CGFloat(stored.height)
         switch self {
-        case .up:            return .identity
-        case .upMirrored:    return CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: w, ty: 0)
-        case .down:          return CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: w, ty: h)
-        case .downMirrored:  return CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: h)
-        case .leftMirrored:  return CGAffineTransform(a: 0, b: -1, c: -1, d: 0, tx: h, ty: w)
-        case .right:         return CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: w)
+        case .up: return .identity
+        case .upMirrored: return CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: w, ty: 0)
+        case .down: return CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: w, ty: h)
+        case .downMirrored: return CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: h)
+        case .leftMirrored: return CGAffineTransform(a: 0, b: -1, c: -1, d: 0, tx: h, ty: w)
+        case .right: return CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: w)
         case .rightMirrored: return CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
-        case .left:          return CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: h, ty: 0)
-        @unknown default:    return .identity
+        case .left: return CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: h, ty: 0)
+        @unknown default: return .identity
         }
     }
 }
@@ -762,8 +783,8 @@ enum OrientationTagSupport {
         // that is what a viewer of the file will use.
         for format in support.supportedFormats {
             guard let written = probeBytes(format, image: image, support: support),
-                  let source = CGImageSourceCreateWithData(written as CFData, nil),
-                  CGImageSourceGetCount(source) > 0
+                let source = CGImageSourceCreateWithData(written as CFData, nil),
+                CGImageSourceGetCount(source) > 0
             else { continue }
 
             let properties = ImageMetadata.sourceProperties(of: source)
@@ -793,9 +814,11 @@ enum OrientationTagSupport {
         case .imageIO:
             guard let uti = support.destinationTypeIdentifier(for: format) else { return nil }
             let buffer = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(
-                buffer as CFMutableData, uti as CFString, 1, nil
-            ) else { return nil }
+            guard
+                let destination = CGImageDestinationCreateWithData(
+                    buffer as CFMutableData, uti as CFString, 1, nil
+                )
+            else { return nil }
             CGImageDestinationAddImage(destination, image, tagged as CFDictionary)
             guard CGImageDestinationFinalize(destination), buffer.length > 0 else { return nil }
             return buffer as Data

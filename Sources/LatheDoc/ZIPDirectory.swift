@@ -178,7 +178,7 @@ enum ZIPDirectory {
 
         while reader.remaining >= 46 {
             guard try reader.u32() == centralFileHeaderSignature else { break }
-            reader.skip(4)                                   // versions
+            reader.skip(4)  // versions
             let flags = try reader.u16()
             let method = try reader.u16()
             let modTime = try reader.u16()
@@ -189,7 +189,7 @@ enum ZIPDirectory {
             let nameLength = Int(try reader.u16())
             let extraLength = Int(try reader.u16())
             let commentLength = Int(try reader.u16())
-            reader.skip(4)                                   // disk start, internal attrs
+            reader.skip(4)  // disk start, internal attrs
             let externalAttributes = try reader.u32()
             var localOffset = UInt64(try reader.u32())
 
@@ -209,18 +209,19 @@ enum ZIPDirectory {
                 localOffset: &localOffset
             )
 
-            entries.append(ZIPEntry(
-                name: decodeName(nameBytes, flags: flags),
-                compressionMethod: method,
-                compressedSize: compressed,
-                uncompressedSize: uncompressed,
-                localHeaderOffset: localOffset,
-                crc32: crc,
-                modificationTime: modTime,
-                modificationDate: modDate,
-                flags: flags,
-                externalAttributes: externalAttributes
-            ))
+            entries.append(
+                ZIPEntry(
+                    name: decodeName(nameBytes, flags: flags),
+                    compressionMethod: method,
+                    compressedSize: compressed,
+                    uncompressedSize: uncompressed,
+                    localHeaderOffset: localOffset,
+                    crc32: crc,
+                    modificationTime: modTime,
+                    modificationDate: modDate,
+                    flags: flags,
+                    externalAttributes: externalAttributes
+                ))
         }
 
         return entries
@@ -336,7 +337,7 @@ enum ZIPDirectory {
         }
 
         var reader = ByteReader(tail, at: endIndex + 4)
-        reader.skip(4)                                       // disk numbers
+        reader.skip(4)  // disk numbers
         let entriesOnDisk = try reader.u16()
         _ = entriesOnDisk
         let totalEntries16 = try reader.u16()
@@ -347,18 +348,20 @@ enum ZIPDirectory {
         // than 65535 entries that is read with the 16-bit field reports its
         // count modulo 65536 — a 70000-page archive counted as 4464 — which is a
         // wrong number rather than a failure, so it gets believed.
-        let saturated = totalEntries16 == 0xFFFF
+        let saturated =
+            totalEntries16 == 0xFFFF
             || directorySize32 == 0xFFFF_FFFF
             || directoryOffset32 == 0xFFFF_FFFF
 
         if saturated,
-           let readZIP64,
-           let locator = try zip64Locator(in: tail, endingAt: endIndex),
-           locator < fileSize {
+            let readZIP64,
+            let locator = try zip64Locator(in: tail, endingAt: endIndex),
+            locator < fileSize
+        {
             let record = try readZIP64(locator, 56)
             var zip = ByteReader(record)
             if try zip.u32() == zip64EndSignature {
-                zip.skip(28)                                 // size, versions, disk numbers, per-disk count
+                zip.skip(28)  // size, versions, disk numbers, per-disk count
                 let totalEntries = try zip.u64()
                 let directorySize = try zip.u64()
                 let directoryOffset = try zip.u64()
@@ -381,7 +384,7 @@ enum ZIPDirectory {
         guard endIndex >= 20 else { return nil }
         var reader = ByteReader(tail, at: endIndex - 20)
         guard try reader.u32() == zip64LocatorSignature else { return nil }
-        reader.skip(4)                                       // disk with the ZIP64 record
+        reader.skip(4)  // disk with the ZIP64 record
         return try reader.u64()
     }
 
@@ -397,7 +400,8 @@ enum ZIPDirectory {
         var index = bytes.count - 4
         while index >= 0 {
             if bytes[index] == s0, bytes[index + 1] == s1,
-               bytes[index + 2] == s2, bytes[index + 3] == s3 {
+                bytes[index + 2] == s2, bytes[index + 3] == s3
+            {
                 return index
             }
             index -= 1
@@ -462,7 +466,7 @@ enum ZIPDirectory {
         let written: Int = destination.withUnsafeMutableBytes { destinationBuffer in
             data.withUnsafeBytes { sourceBuffer in
                 guard let destinationBase = destinationBuffer.bindMemory(to: UInt8.self).baseAddress,
-                      let sourceBase = sourceBuffer.bindMemory(to: UInt8.self).baseAddress
+                    let sourceBase = sourceBuffer.bindMemory(to: UInt8.self).baseAddress
                 else { return 0 }
                 return compression_decode_buffer(
                     destinationBase, capacity, sourceBase, data.count, nil, COMPRESSION_ZLIB

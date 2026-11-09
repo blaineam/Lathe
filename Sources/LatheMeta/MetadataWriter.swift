@@ -1,14 +1,15 @@
 import Foundation
 import LatheCore
+
 #if canImport(AVFoundation)
-import AVFoundation
+    import AVFoundation
 #endif
 #if canImport(ImageIO)
-import ImageIO
-import UniformTypeIdentifiers
+    import ImageIO
+    import UniformTypeIdentifiers
 #endif
 #if canImport(PDFKit)
-import PDFKit
+    import PDFKit
 #endif
 
 /// Writes metadata into a file **without re-encoding what the file contains.**
@@ -119,297 +120,305 @@ public struct MetadataWriter: Sendable {
     // MARK: - MP4 family
 
     #if canImport(AVFoundation)
-    /// What a container write produced beyond its size: chapters it had to put
-    /// back, and tracks that putting them back could not carry.
-    private struct ContainerWrite {
-        var bytes: UInt64
-        var restoredChapters = 0
-        var droppedTracks: [String] = []
-    }
-
-    /// The passthrough export, and the chapter list it may lose.
-    ///
-    /// ## The trap
-    ///
-    /// `AVAssetExportSession` at the passthrough preset copies every sample and
-    /// writes the new tags — and, for `.mp4` and `.m4a` output, silently leaves
-    /// the chapter track behind. `.mov` and `.m4v` keep theirs. So an ordinary
-    /// title edit deleted an audiobook's or a film's chapters, and nothing said
-    /// so: the chapter track is a separate text track with a `chap` reference
-    /// (see ``LatheCore/ChapterTrack``), and it is simply not in the output.
-    ///
-    /// ## The fix, and why this shape
-    ///
-    /// The chapters are read from the source first. The export runs as it
-    /// always did — a file with no chapters pays nothing — and its output is
-    /// then asked for its chapters. Only when they are gone is the export's
-    /// output remuxed by ``ChapterWriter`` with the source's list and the same
-    /// tags. Detecting the loss rather than listing the containers that cause
-    /// it means a system that fixes (or extends) the export needs no change
-    /// here, and a file whose chapters survived is never copied twice.
-    ///
-    /// The cost is a second copy of a chaptered `.mp4` or `.m4a`, which is
-    /// seconds for an audiobook. Remuxing straight from the source instead
-    /// would save that copy and give up everything else the export carries
-    /// that a remux does not.
-    private func writeContainer(
-        _ metadata: MediaMetadata, source: URL, destination: URL
-    ) async throws -> ContainerWrite {
-        let asset = AVURLAsset(url: source)
-        guard let session = AVAssetExportSession(
-            asset: asset, presetName: AVAssetExportPresetPassthrough
-        ) else {
-            throw LatheError.encodeUnavailable(format: "passthrough export for \(source.lastPathComponent)")
+        /// What a container write produced beyond its size: chapters it had to put
+        /// back, and tracks that putting them back could not carry.
+        private struct ContainerWrite {
+            var bytes: UInt64
+            var restoredChapters = 0
+            var droppedTracks: [String] = []
         }
 
-        let fileType = try await Self.outputFileType(for: asset, source: source, session: session)
-        let items = MetadataItemBuilder.items(for: metadata)
-        let chapters = await ChapterTrack.read(from: asset)
-        let ext = destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension
-
-        // The export goes to a scratch file of the container's own extension,
-        // because ``ChapterWriter`` chooses its container by extension.
-        let exported = TrackRemux.scratchURL(
-            beside: destination, prefix: ".lathe-"
-        ).deletingPathExtension().appendingPathExtension(Self.pathExtension(for: fileType) ?? ext)
-        defer { try? FileManager.default.removeItem(at: exported) }
-        let supported = await session.supportedFileTypes
-        let fallbacks = mp4FileTypes.filter { $0 == .mp4 || supported.contains($0) }
-        let attempts = fileType == .mp4 && !fallbacks.isEmpty ? fallbacks : [fileType]
-        try await Self.export(
-            asset: asset, first: session, to: exported, attempts: attempts, metadata: items)
-
-        guard !chapters.isEmpty else {
-            let bytes = try MetaFiles.writingAtomically(
-                to: destination, pathExtension: ext, stage: "metadata-passthrough"
-            ) { scratch in
-                try? FileManager.default.removeItem(at: scratch)
-                try FileManager.default.moveItem(at: exported, to: scratch)
-            }
-            return ContainerWrite(bytes: bytes)
-        }
-
-        let kept = await ChapterTrack.read(from: AVURLAsset(url: exported))
-        if kept.map(\.title) == chapters.map(\.title) {
-            let bytes = try MetaFiles.writingAtomically(
-                to: destination, pathExtension: ext, stage: "metadata-passthrough"
-            ) { scratch in
-                try? FileManager.default.removeItem(at: scratch)
-                try FileManager.default.moveItem(at: exported, to: scratch)
-            }
-            return ContainerWrite(bytes: bytes)
-        }
-
-        let restored: ChapterWriteResult
-        let rewritten = exported.deletingLastPathComponent()
-            .appendingPathComponent(".lathe-chapters-restored-" + exported.lastPathComponent)
-        defer { try? FileManager.default.removeItem(at: rewritten) }
-        do {
-            restored = try await ChapterWriter().write(
-                chapters, into: exported, writingTo: rewritten, metadata: items, progress: .ignoring()
-            )
-        } catch let error as ChapterError {
-            throw LatheError.encodingFailed(
-                stage: "metadata-chapters", code: nil,
-                reason: "the export dropped the file's \(chapters.count) chapters and they could not "
-                    + "be put back: \(error.description)"
-            )
-        }
-        let bytes = try MetaFiles.writingAtomically(
-            to: destination, pathExtension: ext, stage: "metadata-chapters"
-        ) { scratch in
-            try? FileManager.default.removeItem(at: scratch)
-            try FileManager.default.moveItem(at: rewritten, to: scratch)
-        }
-        return ContainerWrite(
-            bytes: bytes,
-            restoredChapters: restored.chapters.count,
-            droppedTracks: restored.droppedTracks
-        )
-    }
-
-    /// Exports as each file type in `attempts` until one keeps the tags.
-    ///
-    /// Every attempt but the last is read back, and accepted when every tag is
-    /// there under the identifier it was written with; the last is accepted as
-    /// it is, so a system that loses tags either way still gets the best file
-    /// it can make.
-    /// A session runs once, so each retry makes its own.
-    private static func export(
-        asset: AVURLAsset, first: AVAssetExportSession, to url: URL,
-        attempts: [AVFileType], metadata: [AVMetadataItem]
-    ) async throws {
-        var session = first
-        for (index, fileType) in attempts.enumerated() {
-            if index > 0 {
-                try? FileManager.default.removeItem(at: url)
-                guard let fresh = AVAssetExportSession(
+        /// The passthrough export, and the chapter list it may lose.
+        ///
+        /// ## The trap
+        ///
+        /// `AVAssetExportSession` at the passthrough preset copies every sample and
+        /// writes the new tags — and, for `.mp4` and `.m4a` output, silently leaves
+        /// the chapter track behind. `.mov` and `.m4v` keep theirs. So an ordinary
+        /// title edit deleted an audiobook's or a film's chapters, and nothing said
+        /// so: the chapter track is a separate text track with a `chap` reference
+        /// (see ``LatheCore/ChapterTrack``), and it is simply not in the output.
+        ///
+        /// ## The fix, and why this shape
+        ///
+        /// The chapters are read from the source first. The export runs as it
+        /// always did — a file with no chapters pays nothing — and its output is
+        /// then asked for its chapters. Only when they are gone is the export's
+        /// output remuxed by ``ChapterWriter`` with the source's list and the same
+        /// tags. Detecting the loss rather than listing the containers that cause
+        /// it means a system that fixes (or extends) the export needs no change
+        /// here, and a file whose chapters survived is never copied twice.
+        ///
+        /// The cost is a second copy of a chaptered `.mp4` or `.m4a`, which is
+        /// seconds for an audiobook. Remuxing straight from the source instead
+        /// would save that copy and give up everything else the export carries
+        /// that a remux does not.
+        private func writeContainer(
+            _ metadata: MediaMetadata, source: URL, destination: URL
+        ) async throws -> ContainerWrite {
+            let asset = AVURLAsset(url: source)
+            guard
+                let session = AVAssetExportSession(
                     asset: asset, presetName: AVAssetExportPresetPassthrough
-                ) else {
-                    throw LatheError.encodeUnavailable(format: "passthrough export as \(fileType.rawValue)")
-                }
-                session = fresh
+                )
+            else {
+                throw LatheError.encodeUnavailable(format: "passthrough export for \(source.lastPathComponent)")
             }
-            try export(session, to: url, fileType: fileType, metadata: metadata)
-            guard index < attempts.count - 1 else { return }
-            if await TagSurvival.allKept(metadata, in: url) { return }
-        }
-    }
 
-    /// Runs the passthrough export to `url`, blocking until it ends.
-    private static func export(
-        _ session: AVAssetExportSession, to url: URL, fileType: AVFileType, metadata: [AVMetadataItem]
-    ) throws {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var failure: Error?
-        session.outputURL = url
-        session.outputFileType = fileType
-        session.metadata = metadata
-        session.exportAsynchronously {
-            if session.status != .completed {
-                failure = session.error ?? LatheError.encodingFailed(
-                    stage: "metadata-passthrough", code: nil,
-                    reason: "the export ended in state \(session.status.rawValue)"
+            let fileType = try await Self.outputFileType(for: asset, source: source, session: session)
+            let items = MetadataItemBuilder.items(for: metadata)
+            let chapters = await ChapterTrack.read(from: asset)
+            let ext = destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension
+
+            // The export goes to a scratch file of the container's own extension,
+            // because ``ChapterWriter`` chooses its container by extension.
+            let exported = TrackRemux.scratchURL(
+                beside: destination, prefix: ".lathe-"
+            ).deletingPathExtension().appendingPathExtension(Self.pathExtension(for: fileType) ?? ext)
+            defer { try? FileManager.default.removeItem(at: exported) }
+            let supported = await session.supportedFileTypes
+            let fallbacks = mp4FileTypes.filter { $0 == .mp4 || supported.contains($0) }
+            let attempts = fileType == .mp4 && !fallbacks.isEmpty ? fallbacks : [fileType]
+            try await Self.export(
+                asset: asset, first: session, to: exported, attempts: attempts, metadata: items)
+
+            guard !chapters.isEmpty else {
+                let bytes = try MetaFiles.writingAtomically(
+                    to: destination, pathExtension: ext, stage: "metadata-passthrough"
+                ) { scratch in
+                    try? FileManager.default.removeItem(at: scratch)
+                    try FileManager.default.moveItem(at: exported, to: scratch)
+                }
+                return ContainerWrite(bytes: bytes)
+            }
+
+            let kept = await ChapterTrack.read(from: AVURLAsset(url: exported))
+            if kept.map(\.title) == chapters.map(\.title) {
+                let bytes = try MetaFiles.writingAtomically(
+                    to: destination, pathExtension: ext, stage: "metadata-passthrough"
+                ) { scratch in
+                    try? FileManager.default.removeItem(at: scratch)
+                    try FileManager.default.moveItem(at: exported, to: scratch)
+                }
+                return ContainerWrite(bytes: bytes)
+            }
+
+            let restored: ChapterWriteResult
+            let rewritten = exported.deletingLastPathComponent()
+                .appendingPathComponent(".lathe-chapters-restored-" + exported.lastPathComponent)
+            defer { try? FileManager.default.removeItem(at: rewritten) }
+            do {
+                restored = try await ChapterWriter().write(
+                    chapters, into: exported, writingTo: rewritten, metadata: items, progress: .ignoring()
+                )
+            } catch let error as ChapterError {
+                throw LatheError.encodingFailed(
+                    stage: "metadata-chapters", code: nil,
+                    reason: "the export dropped the file's \(chapters.count) chapters and they could not "
+                        + "be put back: \(error.description)"
                 )
             }
-            semaphore.signal()
-        }
-        semaphore.wait()
-        if let failure {
-            throw LatheError.encodingFailed(
-                stage: "metadata-passthrough", code: nil,
-                reason: (failure as NSError).localizedDescription
+            let bytes = try MetaFiles.writingAtomically(
+                to: destination, pathExtension: ext, stage: "metadata-chapters"
+            ) { scratch in
+                try? FileManager.default.removeItem(at: scratch)
+                try FileManager.default.moveItem(at: rewritten, to: scratch)
+            }
+            return ContainerWrite(
+                bytes: bytes,
+                restoredChapters: restored.chapters.count,
+                droppedTracks: restored.droppedTracks
             )
         }
-    }
 
-    private static func pathExtension(for fileType: AVFileType) -> String? {
-        switch fileType {
-        case .mp4: "mp4"
-        case .m4v: "m4v"
-        case .m4a: "m4a"
-        case .mov: "mov"
-        default: nil
+        /// Exports as each file type in `attempts` until one keeps the tags.
+        ///
+        /// Every attempt but the last is read back, and accepted when every tag is
+        /// there under the identifier it was written with; the last is accepted as
+        /// it is, so a system that loses tags either way still gets the best file
+        /// it can make.
+        /// A session runs once, so each retry makes its own.
+        private static func export(
+            asset: AVURLAsset, first: AVAssetExportSession, to url: URL,
+            attempts: [AVFileType], metadata: [AVMetadataItem]
+        ) async throws {
+            var session = first
+            for (index, fileType) in attempts.enumerated() {
+                if index > 0 {
+                    try? FileManager.default.removeItem(at: url)
+                    guard
+                        let fresh = AVAssetExportSession(
+                            asset: asset, presetName: AVAssetExportPresetPassthrough
+                        )
+                    else {
+                        throw LatheError.encodeUnavailable(format: "passthrough export as \(fileType.rawValue)")
+                    }
+                    session = fresh
+                }
+                try export(session, to: url, fileType: fileType, metadata: metadata)
+                guard index < attempts.count - 1 else { return }
+                if await TagSurvival.allKept(metadata, in: url) { return }
+            }
         }
-    }
 
-    /// The container to write, preferring the one the source already is.
-    ///
-    /// Rewriting an `.m4v` as a plain `.mp4` would work and would also drop the
-    /// hint some players use to treat it as video rather than audio, so the
-    /// source's own type is kept whenever the session will produce it.
-    private static func outputFileType(
-        for asset: AVURLAsset, source: URL, session: AVAssetExportSession
-    ) async throws -> AVFileType {
-        let supported = await session.supportedFileTypes
-        let byExtension: [String: AVFileType] = [
-            "mp4": .mp4, "m4v": .m4v, "m4a": .m4a, "mov": .mov, "qt": .mov,
-        ]
-        if let preferred = byExtension[source.pathExtension.lowercased()],
-           supported.contains(preferred) {
-            return preferred
+        /// Runs the passthrough export to `url`, blocking until it ends.
+        private static func export(
+            _ session: AVAssetExportSession, to url: URL, fileType: AVFileType, metadata: [AVMetadataItem]
+        ) throws {
+            let semaphore = DispatchSemaphore(value: 0)
+            nonisolated(unsafe) var failure: Error?
+            session.outputURL = url
+            session.outputFileType = fileType
+            session.metadata = metadata
+            session.exportAsynchronously {
+                if session.status != .completed {
+                    failure =
+                        session.error
+                        ?? LatheError.encodingFailed(
+                            stage: "metadata-passthrough", code: nil,
+                            reason: "the export ended in state \(session.status.rawValue)"
+                        )
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            if let failure {
+                throw LatheError.encodingFailed(
+                    stage: "metadata-passthrough", code: nil,
+                    reason: (failure as NSError).localizedDescription
+                )
+            }
         }
-        if let first = supported.first { return first }
-        throw LatheError.encodeUnavailable(
-            format: "no output container for \(source.lastPathComponent)"
-        )
-    }
+
+        private static func pathExtension(for fileType: AVFileType) -> String? {
+            switch fileType {
+            case .mp4: "mp4"
+            case .m4v: "m4v"
+            case .m4a: "m4a"
+            case .mov: "mov"
+            default: nil
+            }
+        }
+
+        /// The container to write, preferring the one the source already is.
+        ///
+        /// Rewriting an `.m4v` as a plain `.mp4` would work and would also drop the
+        /// hint some players use to treat it as video rather than audio, so the
+        /// source's own type is kept whenever the session will produce it.
+        private static func outputFileType(
+            for asset: AVURLAsset, source: URL, session: AVAssetExportSession
+        ) async throws -> AVFileType {
+            let supported = await session.supportedFileTypes
+            let byExtension: [String: AVFileType] = [
+                "mp4": .mp4, "m4v": .m4v, "m4a": .m4a, "mov": .mov, "qt": .mov,
+            ]
+            if let preferred = byExtension[source.pathExtension.lowercased()],
+                supported.contains(preferred)
+            {
+                return preferred
+            }
+            if let first = supported.first { return first }
+            throw LatheError.encodeUnavailable(
+                format: "no output container for \(source.lastPathComponent)"
+            )
+        }
     #else
-    private struct ContainerWrite {
-        var bytes: UInt64
-        var restoredChapters = 0
-        var droppedTracks: [String] = []
-    }
+        private struct ContainerWrite {
+            var bytes: UInt64
+            var restoredChapters = 0
+            var droppedTracks: [String] = []
+        }
 
-    private func writeContainer(
-        _ metadata: MediaMetadata, source: URL, destination: URL
-    ) async throws -> ContainerWrite {
-        throw LatheError.encodeUnavailable(format: "container metadata needs AVFoundation")
-    }
+        private func writeContainer(
+            _ metadata: MediaMetadata, source: URL, destination: URL
+        ) async throws -> ContainerWrite {
+            throw LatheError.encodeUnavailable(format: "container metadata needs AVFoundation")
+        }
     #endif
 
     // MARK: - Stills
 
     #if canImport(ImageIO)
-    private func writeImage(
-        _ metadata: MediaMetadata, source: URL, destination: URL
-    ) throws -> UInt64 {
-        guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil),
-              let type = CGImageSourceGetType(imageSource)
-        else {
-            throw LatheError.readFailed(path: source.lastPathComponent, reason: "not a readable image")
-        }
-
-        var properties = (CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
-            as? [CFString: Any]) ?? [:]
-        ImagePropertyBuilder.apply(metadata, to: &properties)
-
-        return try MetaFiles.writingAtomically(
-            to: destination,
-            pathExtension: destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension,
-            stage: "metadata-image"
-        ) { scratch in
-            guard let dest = CGImageDestinationCreateWithURL(scratch as CFURL, type, 1, nil) else {
-                throw LatheError.encodeUnavailable(format: String(type))
+        private func writeImage(
+            _ metadata: MediaMetadata, source: URL, destination: URL
+        ) throws -> UInt64 {
+            guard let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil),
+                let type = CGImageSourceGetType(imageSource)
+            else {
+                throw LatheError.readFailed(path: source.lastPathComponent, reason: "not a readable image")
             }
-            // From the SOURCE, not from a decoded CGImage: this copies the
-            // encoded bytes and replaces only the property dictionaries, which
-            // is what makes the edit lossless. Adding a CGImage instead would
-            // re-encode every pixel.
-            CGImageDestinationAddImageFromSource(dest, imageSource, 0, properties as CFDictionary)
-            guard CGImageDestinationFinalize(dest) else {
-                throw LatheError.encodingFailed(
-                    stage: "metadata-image", code: nil, reason: "ImageIO declined to finalise"
-                )
+
+            var properties =
+                (CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil)
+                    as? [CFString: Any]) ?? [:]
+            ImagePropertyBuilder.apply(metadata, to: &properties)
+
+            return try MetaFiles.writingAtomically(
+                to: destination,
+                pathExtension: destination.pathExtension.isEmpty ? source.pathExtension : destination.pathExtension,
+                stage: "metadata-image"
+            ) { scratch in
+                guard let dest = CGImageDestinationCreateWithURL(scratch as CFURL, type, 1, nil) else {
+                    throw LatheError.encodeUnavailable(format: String(type))
+                }
+                // From the SOURCE, not from a decoded CGImage: this copies the
+                // encoded bytes and replaces only the property dictionaries, which
+                // is what makes the edit lossless. Adding a CGImage instead would
+                // re-encode every pixel.
+                CGImageDestinationAddImageFromSource(dest, imageSource, 0, properties as CFDictionary)
+                guard CGImageDestinationFinalize(dest) else {
+                    throw LatheError.encodingFailed(
+                        stage: "metadata-image", code: nil, reason: "ImageIO declined to finalise"
+                    )
+                }
             }
         }
-    }
     #else
-    private func writeImage(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
-        throw LatheError.encodeUnavailable(format: "still metadata needs ImageIO")
-    }
+        private func writeImage(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
+            throw LatheError.encodeUnavailable(format: "still metadata needs ImageIO")
+        }
     #endif
 
     // MARK: - PDF
 
     #if canImport(PDFKit)
-    private func writePDF(
-        _ metadata: MediaMetadata, source: URL, destination: URL
-    ) throws -> UInt64 {
-        guard let document = PDFDocument(url: source) else {
-            throw LatheError.invalidInput(
-                reason: "\(source.lastPathComponent) is not a PDF PDFKit can open"
-            )
-        }
-        var attributes = document.documentAttributes ?? [:]
-        attributes[PDFDocumentAttribute.titleAttribute] = metadata.title
-        attributes[PDFDocumentAttribute.subjectAttribute] = metadata.summary
-        attributes[PDFDocumentAttribute.authorAttribute] = metadata.creators.first
-        attributes[PDFDocumentAttribute.creationDateAttribute] = metadata.date
-        if let keywords = metadata.custom["pdf.Keywords"] {
-            attributes[PDFDocumentAttribute.keywordsAttribute] =
-                keywords.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        } else {
-            attributes[PDFDocumentAttribute.keywordsAttribute] = nil
-        }
-        attributes[PDFDocumentAttribute.creatorAttribute] = metadata.custom["pdf.Creator"]
-        attributes[PDFDocumentAttribute.producerAttribute] = metadata.custom["pdf.Producer"]
-        document.documentAttributes = attributes
-
-        return try MetaFiles.writingAtomically(
-            to: destination, pathExtension: "pdf", stage: "metadata-pdf"
-        ) { scratch in
-            guard document.write(to: scratch) else {
-                throw LatheError.writeFailed(
-                    path: destination.lastPathComponent, reason: "PDFKit declined to write"
+        private func writePDF(
+            _ metadata: MediaMetadata, source: URL, destination: URL
+        ) throws -> UInt64 {
+            guard let document = PDFDocument(url: source) else {
+                throw LatheError.invalidInput(
+                    reason: "\(source.lastPathComponent) is not a PDF PDFKit can open"
                 )
             }
+            var attributes = document.documentAttributes ?? [:]
+            attributes[PDFDocumentAttribute.titleAttribute] = metadata.title
+            attributes[PDFDocumentAttribute.subjectAttribute] = metadata.summary
+            attributes[PDFDocumentAttribute.authorAttribute] = metadata.creators.first
+            attributes[PDFDocumentAttribute.creationDateAttribute] = metadata.date
+            if let keywords = metadata.custom["pdf.Keywords"] {
+                attributes[PDFDocumentAttribute.keywordsAttribute] =
+                    keywords.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            } else {
+                attributes[PDFDocumentAttribute.keywordsAttribute] = nil
+            }
+            attributes[PDFDocumentAttribute.creatorAttribute] = metadata.custom["pdf.Creator"]
+            attributes[PDFDocumentAttribute.producerAttribute] = metadata.custom["pdf.Producer"]
+            document.documentAttributes = attributes
+
+            return try MetaFiles.writingAtomically(
+                to: destination, pathExtension: "pdf", stage: "metadata-pdf"
+            ) { scratch in
+                guard document.write(to: scratch) else {
+                    throw LatheError.writeFailed(
+                        path: destination.lastPathComponent, reason: "PDFKit declined to write"
+                    )
+                }
+            }
         }
-    }
     #else
-    private func writePDF(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
-        throw LatheError.encodeUnavailable(format: "PDF metadata needs PDFKit")
-    }
+        private func writePDF(_ metadata: MediaMetadata, source: URL, destination: URL) throws -> UInt64 {
+            throw LatheError.encodeUnavailable(format: "PDF metadata needs PDFKit")
+        }
     #endif
 }
 

@@ -86,25 +86,29 @@ public enum FrameFixtures {
     /// average into looking correct.
     public static func centreGray(of image: CGImage) throws -> Double {
         var pixel: [UInt8] = [0, 0, 0, 0]
-        guard let context = CGContext(
-            data: &pixel,
-            width: 1, height: 1,
-            bitsPerComponent: 8, bytesPerRow: 4,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: &pixel,
+                width: 1, height: 1,
+                bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw FixtureError.writerUnavailable("no 1x1 sampling context")
         }
         // Draw the whole image scaled down to the single pixel's worth of the
         // *centre*, by placing it so its middle lands on the one pixel.
         context.interpolationQuality = .none
-        context.draw(image, in: CGRect(
-            x: -Double(image.width) / 2 + 0.5,
-            y: -Double(image.height) / 2 + 0.5,
-            width: Double(image.width),
-            height: Double(image.height)
-        ))
+        context.draw(
+            image,
+            in: CGRect(
+                x: -Double(image.width) / 2 + 0.5,
+                y: -Double(image.height) / 2 + 0.5,
+                width: Double(image.width),
+                height: Double(image.height)
+            ))
         // BGRA little-endian: [B, G, R, A]. A flat grey makes all three equal,
         // so any one of them is the answer.
         return Double(pixel[2]) / 255.0

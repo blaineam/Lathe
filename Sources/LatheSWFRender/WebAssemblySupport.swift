@@ -73,9 +73,9 @@ public enum WebAssemblySupport {
     /// interpreter tier has to supply.
     static let probeModule: [UInt8] = [
         0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,  // "\0asm", version 1
-        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F,        // type:   () -> i32
-        0x03, 0x02, 0x01, 0x00,                          // func:   0 : type 0
-        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,        // export: "f" = func 0
+        0x01, 0x05, 0x01, 0x60, 0x00, 0x01, 0x7F,  // type:   () -> i32
+        0x03, 0x02, 0x01, 0x00,  // func:   0 : type 0
+        0x07, 0x05, 0x01, 0x01, 0x66, 0x00, 0x00,  // export: "f" = func 0
         0x0A, 0x06, 0x01, 0x04, 0x00, 0x41, 0x2A, 0x0B,  // code:   i32.const 42; end
     ]
 
@@ -83,26 +83,41 @@ public enum WebAssemblySupport {
     /// its extensions build, byte for byte as `ruffle.js` has them. If any is
     /// refused, Ruffle falls back to the vanilla build, which is not bundled.
     static let rufflesRequiredExtensions: [(name: String, module: [UInt8])] = [
-        ("bulk memory", [
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 5, 3, 1, 0, 1, 10, 14, 1,
-            12, 0, 65, 0, 65, 0, 65, 0, 252, 10, 0, 0, 11,
-        ]),
-        ("SIMD", [
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65,
-            0, 253, 15, 253, 98, 11,
-        ]),
-        ("non-trapping float-to-int", [
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 12, 1, 10, 0, 67, 0,
-            0, 0, 0, 252, 0, 26, 11,
-        ]),
-        ("sign extension", [
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 8, 1, 6, 0, 65, 0,
-            192, 26, 11,
-        ]),
-        ("reference types", [
-            0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 7, 1, 5, 0, 208, 112,
-            26, 11,
-        ]),
+        (
+            "bulk memory",
+            [
+                0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 5, 3, 1, 0, 1, 10, 14, 1,
+                12, 0, 65, 0, 65, 0, 65, 0, 252, 10, 0, 0, 11,
+            ]
+        ),
+        (
+            "SIMD",
+            [
+                0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65,
+                0, 253, 15, 253, 98, 11,
+            ]
+        ),
+        (
+            "non-trapping float-to-int",
+            [
+                0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 12, 1, 10, 0, 67, 0,
+                0, 0, 0, 252, 0, 26, 11,
+            ]
+        ),
+        (
+            "sign extension",
+            [
+                0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 8, 1, 6, 0, 65, 0,
+                192, 26, 11,
+            ]
+        ),
+        (
+            "reference types",
+            [
+                0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 7, 1, 5, 0, 208, 112,
+                26, 11,
+            ]
+        ),
     ]
 
     /// Runs the probe in a throwaway `WKWebView`.

@@ -1,5 +1,5 @@
-import Accelerate
 import AVFoundation
+import Accelerate
 import CoreMedia
 import Foundation
 import LatheCore
@@ -38,7 +38,7 @@ public enum MeanVolume: Sendable, Equatable {
 
     /// The measurement, or `nil` when there is nothing to measure.
     public var decibels: Float? {
-        if case let .decibels(value) = self { return value }
+        if case .decibels(let value) = self { return value }
         return nil
     }
 
@@ -246,14 +246,16 @@ public struct LoudnessProbe: Sendable {
         }
         guard let track = tracks.first else { return nil }
 
-        let duration = (try? await asset.load(.duration)).map {
-            $0.isNumeric ? max(0, $0.seconds) : 0
-        } ?? 0
+        let duration =
+            (try? await asset.load(.duration)).map {
+                $0.isNumeric ? max(0, $0.seconds) : 0
+            } ?? 0
 
         var sampleRate: Double = 0
         var channelCount = 1
         if let description = try await track.load(.formatDescriptions).first,
-           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee {
+            let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee
+        {
             sampleRate = asbd.mSampleRate
             channelCount = max(1, Int(asbd.mChannelsPerFrame))
         }
@@ -279,7 +281,7 @@ public struct LoudnessProbe: Sendable {
                 AVLinearPCMIsNonInterleaved: false,
             ]
         )
-        output.alwaysCopiesSampleData = false   // read-only pass; the copy is waste
+        output.alwaysCopiesSampleData = false  // read-only pass; the copy is waste
         guard reader.canAdd(output) else {
             throw LatheError.invalidInput(
                 reason: "\(url.lastPathComponent)'s audio track cannot be decoded to PCM"
@@ -352,14 +354,16 @@ public struct LoudnessProbe: Sendable {
         var windowPeak: Float = 0
 
         var thresholds: AudibilityThresholds?
-        if case let .stopWhenAudible(values) = mode { thresholds = values }
+        if case .stopWhenAudible(let values) = mode { thresholds = values }
 
         let totalFrames = max(1.0, session.duration * session.sampleRate)
         var reportedUnit: UInt64 = 0
 
         func closeWindow() {
             guard windowCount > 0, let thresholds else {
-                windowSum = 0; windowCount = 0; windowPeak = 0
+                windowSum = 0
+                windowCount = 0
+                windowPeak = 0
                 return
             }
             let rms = (windowSum / Double(windowCount)).squareRoot()
@@ -368,7 +372,9 @@ public struct LoudnessProbe: Sendable {
             if peakDB > thresholds.peakDBFS, rmsDB > thresholds.shortTermRMSDBFS {
                 result.foundAudibleWindow = true
             }
-            windowSum = 0; windowCount = 0; windowPeak = 0
+            windowSum = 0
+            windowCount = 0
+            windowPeak = 0
         }
 
         readLoop: while let buffer = session.output.copyNextSampleBuffer() {
@@ -467,9 +473,10 @@ public struct LoudnessProbe: Sendable {
             guard let data = audioBuffer.mData, audioBuffer.mDataByteSize > 0 else { continue }
             let count = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
             guard count > 0 else { continue }
-            try body(UnsafeBufferPointer(
-                start: data.assumingMemoryBound(to: Float.self), count: count
-            ))
+            try body(
+                UnsafeBufferPointer(
+                    start: data.assumingMemoryBound(to: Float.self), count: count
+                ))
         }
     }
 

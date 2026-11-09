@@ -70,13 +70,13 @@ enum ImageMetadata {
         case .stripAll:
             result = [:]
 
-        case let .strip(classes):
+        case .strip(let classes):
             result = source
             for metadataClass in classes {
                 result = strip(metadataClass, from: result)
             }
 
-        case let .custom(allowList):
+        case .custom(let allowList):
             // Start from nothing and copy in only what was named, so a key
             // nobody thought of stays out — the same by-construction guarantee
             // as `stripAll`.
@@ -111,15 +111,17 @@ enum ImageMetadata {
     /// Dimensions, colour model and depth. ImageIO derives these from the image
     /// it is actually given, so passing the source's copies through can only
     /// make them disagree.
-    private static var structuralKeys: [CFString] { [
-        kCGImagePropertyPixelWidth,
-        kCGImagePropertyPixelHeight,
-        kCGImagePropertyColorModel,
-        kCGImagePropertyDepth,
-        kCGImagePropertyIsFloat,
-        kCGImagePropertyHasAlpha,
-        kCGImagePropertyProfileName,
-    ] }
+    private static var structuralKeys: [CFString] {
+        [
+            kCGImagePropertyPixelWidth,
+            kCGImagePropertyPixelHeight,
+            kCGImagePropertyColorModel,
+            kCGImagePropertyDepth,
+            kCGImagePropertyIsFloat,
+            kCGImagePropertyHasAlpha,
+            kCGImagePropertyProfileName,
+        ]
+    }
 
     // MARK: - Classes
 
@@ -135,9 +137,9 @@ enum ImageMetadata {
         var result = properties
         for removal in removals(for: metadataClass) {
             switch removal {
-            case let .wholeDictionary(key):
+            case .wholeDictionary(let key):
                 result.removeValue(forKey: key)
-            case let .entry(container, key):
+            case .entry(let container, let key):
                 guard var dictionary = result[container] as? [CFString: Any] else { continue }
                 dictionary.removeValue(forKey: key)
                 result[container] = dictionary.isEmpty ? nil : dictionary
@@ -254,27 +256,31 @@ enum ImageMetadata {
     /// the tag names: `exif.DateTimeOriginal`, `gps.Latitude`, `iptc.City`,
     /// `tiff.Make`, `png.Software`. A maker-note entry is
     /// `exif.MakerApple.<tag>`.
-    private static var containers: [String: CFString] { [
-        "exif": kCGImagePropertyExifDictionary,
-        "exifaux": kCGImagePropertyExifAuxDictionary,
-        "gps": kCGImagePropertyGPSDictionary,
-        "iptc": kCGImagePropertyIPTCDictionary,
-        "tiff": kCGImagePropertyTIFFDictionary,
-        "png": kCGImagePropertyPNGDictionary,
-        "gif": kCGImagePropertyGIFDictionary,
-        "heic": kCGImagePropertyHEICSDictionary,
-        "webp": kCGImagePropertyWebPDictionary,
-    ] }
+    private static var containers: [String: CFString] {
+        [
+            "exif": kCGImagePropertyExifDictionary,
+            "exifaux": kCGImagePropertyExifAuxDictionary,
+            "gps": kCGImagePropertyGPSDictionary,
+            "iptc": kCGImagePropertyIPTCDictionary,
+            "tiff": kCGImagePropertyTIFFDictionary,
+            "png": kCGImagePropertyPNGDictionary,
+            "gif": kCGImagePropertyGIFDictionary,
+            "heic": kCGImagePropertyHEICSDictionary,
+            "webp": kCGImagePropertyWebPDictionary,
+        ]
+    }
 
-    private static var makers: [String: CFString] { [
-        "MakerApple": kCGImagePropertyMakerAppleDictionary,
-        "MakerCanon": kCGImagePropertyMakerCanonDictionary,
-        "MakerNikon": kCGImagePropertyMakerNikonDictionary,
-        "MakerFuji": kCGImagePropertyMakerFujiDictionary,
-        "MakerOlympus": kCGImagePropertyMakerOlympusDictionary,
-        "MakerPentax": kCGImagePropertyMakerPentaxDictionary,
-        "MakerMinolta": kCGImagePropertyMakerMinoltaDictionary,
-    ] }
+    private static var makers: [String: CFString] {
+        [
+            "MakerApple": kCGImagePropertyMakerAppleDictionary,
+            "MakerCanon": kCGImagePropertyMakerCanonDictionary,
+            "MakerNikon": kCGImagePropertyMakerNikonDictionary,
+            "MakerFuji": kCGImagePropertyMakerFujiDictionary,
+            "MakerOlympus": kCGImagePropertyMakerOlympusDictionary,
+            "MakerPentax": kCGImagePropertyMakerPentaxDictionary,
+            "MakerMinolta": kCGImagePropertyMakerMinoltaDictionary,
+        ]
+    }
 
     /// Copies the named keys from `source` into `properties`.
     ///
@@ -290,7 +296,10 @@ enum ImageMetadata {
         var result = properties
         for key in keys {
             let parts = key.rawValue.split(separator: ".", maxSplits: 2).map(String.init)
-            guard parts.count >= 2 else { unmapped(key); continue }
+            guard parts.count >= 2 else {
+                unmapped(key)
+                continue
+            }
 
             if parts[0] == "exif", let maker = makers[parts[1]] {
                 if parts.count == 2 || parts[2] == "*" {
@@ -300,7 +309,10 @@ enum ImageMetadata {
                 }
                 continue
             }
-            guard let container = containers[parts[0]] else { unmapped(key); continue }
+            guard let container = containers[parts[0]] else {
+                unmapped(key)
+                continue
+            }
             let entry = parts.dropFirst().joined(separator: ".")
             if entry == "*" {
                 if let whole = source[container] { result[container] = whole }
@@ -318,7 +330,7 @@ enum ImageMetadata {
         into result: inout [CFString: Any]
     ) {
         guard let from = source[container] as? [CFString: Any],
-              let value = from[entry as CFString]
+            let value = from[entry as CFString]
         else { return }
         var into = result[container] as? [CFString: Any] ?? [:]
         into[entry as CFString] = value

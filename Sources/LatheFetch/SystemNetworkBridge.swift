@@ -81,8 +81,10 @@ public enum SystemNetworkBridge {
         json in
         let text = json.map { String(cString: $0) } ?? ""
         let reply = SystemHTTP.shared.open(requestJSON: text)
-        let data = (try? JSONSerialization.data(withJSONObject: reply)) ?? Data(
-            #"{"ok":false,"kind":"transport","error":"the reply could not be encoded"}"#.utf8)
+        let data =
+            (try? JSONSerialization.data(withJSONObject: reply))
+            ?? Data(
+                #"{"ok":false,"kind":"transport","error":"the reply could not be encoded"}"#.utf8)
         return duplicate(data, terminated: true)
     }
 
@@ -408,7 +410,8 @@ final class SystemHTTP: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         guard let transfer = transfer(for: task) else { return }
         transfer.condition.lock()
         if let error, !transfer.finished {
-            let (kind, reason) = Self.classify(error, proxied: session.configuration.proxyConfigurations.isEmpty == false)
+            let (kind, reason) = Self.classify(
+                error, proxied: session.configuration.proxyConfigurations.isEmpty == false)
             transfer.failure = reason
             transfer.failureKind = kind
         }

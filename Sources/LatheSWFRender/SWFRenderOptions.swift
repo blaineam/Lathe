@@ -130,14 +130,14 @@ public struct SWFRenderOptions: Sendable {
         switch limit {
         case .timeline:
             requested = max(1, Int((header.timelineSeconds * rate).rounded()))
-        case let .seconds(seconds):
+        case .seconds(let seconds):
             guard seconds > 0, seconds.isFinite else {
                 throw LatheError.invalidConfiguration(
                     reason: "a duration of \(seconds) seconds cannot be recorded"
                 )
             }
             requested = max(1, Int((seconds * rate).rounded()))
-        case let .frames(count):
+        case .frames(let count):
             guard count > 0 else {
                 throw LatheError.invalidConfiguration(
                     reason: "a capture of \(count) frames cannot be recorded"

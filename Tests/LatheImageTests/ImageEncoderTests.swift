@@ -33,8 +33,9 @@ struct ImageEncoderTests {
         try await Fixtures.withDirectory { directory in
             let source = try Fixtures.plainImage(in: directory, size: PixelSize(width: 32, height: 24))
             let unsupported = EncodeSupport.shared.unsupportedFormats.sorted { $0.rawValue < $1.rawValue }
-            print("  formats this system refuses: "
-                  + (unsupported.isEmpty ? "none" : unsupported.map(\.description).joined(separator: ", ")))
+            print(
+                "  formats this system refuses: "
+                    + (unsupported.isEmpty ? "none" : unsupported.map(\.description).joined(separator: ", ")))
 
             for format in unsupported {
                 let destination = directory.appendingPathComponent("no.\(format.preferredFilenameExtension)")
@@ -62,8 +63,10 @@ struct ImageEncoderTests {
             let source = try Fixtures.plainImage(in: directory, size: PixelSize(width: 32, height: 24))
 
             for format in EncodeSupport.shared.imageIOEncodableFormats
-                .sorted(by: { $0.rawValue < $1.rawValue }) {
-                let destination = directory
+                .sorted(by: { $0.rawValue < $1.rawValue })
+            {
+                let destination =
+                    directory
                     .appendingPathComponent("lossless.\(format.preferredFilenameExtension)")
                 do {
                     _ = try await encoder.encode(
@@ -101,7 +104,8 @@ struct ImageEncoderTests {
 
             print("")
             for format in EncodeSupport.shared.supportedFormats.sorted(by: { $0.rawValue < $1.rawValue }) {
-                let destination = directory
+                let destination =
+                    directory
                     .appendingPathComponent("rt.\(format.preferredFilenameExtension)")
                 let result: ImageEncodeResult
                 do {
@@ -122,20 +126,23 @@ struct ImageEncoderTests {
                 // PDF is the deliberate asymmetry: ImageIO writes it and does not
                 // read it back as an image source, so there is nothing to decode.
                 guard DecodeSupport.shared.canDecode(format) else {
-                    print("  \(format.description): wrote \(result.outputByteCount) bytes "
-                          + "(ImageIO cannot decode it back; not round-tripped)")
+                    print(
+                        "  \(format.description): wrote \(result.outputByteCount) bytes "
+                            + "(ImageIO cannot decode it back; not round-tripped)")
                     continue
                 }
 
                 guard let decoded = Fixtures.decode(destination) else {
-                    findings.append("\(format): encoded \(result.outputByteCount) bytes that ImageIO "
-                                    + "could not decode")
+                    findings.append(
+                        "\(format): encoded \(result.outputByteCount) bytes that ImageIO "
+                            + "could not decode")
                     continue
                 }
                 #expect(decoded.width == size.width)
                 #expect(decoded.height == size.height)
-                print("  \(format.description): \(result.outputByteCount) bytes, "
-                      + "decodes as \(decoded.width)x\(decoded.height)")
+                print(
+                    "  \(format.description): \(result.outputByteCount) bytes, "
+                        + "decodes as \(decoded.width)x\(decoded.height)")
 
                 if format == .jpeg || format == .png {
                     #expect(decoded.width == size.width && decoded.height == size.height)
@@ -164,11 +171,14 @@ struct ImageEncoderTests {
     /// without complaining. A "cap the longest edge at N" batch built on either
     /// one turns every small image in a library into a blurry large one, and it
     /// looks like it worked.
-    @Test("a large resize target never enlarges a small source",
-          arguments: [ResizeTarget.longestSide(4000),
-                      .fit(PixelSize(width: 4000, height: 4000)),
-                      .scale(8),
-                      .maxPixels(40_000_000)])
+    @Test(
+        "a large resize target never enlarges a small source",
+        arguments: [
+            ResizeTarget.longestSide(4000),
+            .fit(PixelSize(width: 4000, height: 4000)),
+            .scale(8),
+            .maxPixels(40_000_000),
+        ])
     func neverEnlarges(target: ResizeTarget) async throws {
         try await Fixtures.withDirectory { directory in
             let size = PixelSize(width: 32, height: 24)
@@ -262,13 +272,15 @@ struct ImageEncoderTests {
             // And the tag must now say "already upright", or a viewer rotates it
             // a second time.
             let tag = Fixtures.orientation(of: destination)
-            #expect(tag == .up || tag == nil, "baked pixels must not keep a rotation tag, got \(String(describing: tag))")
+            #expect(
+                tag == .up || tag == nil, "baked pixels must not keep a rotation tag, got \(String(describing: tag))")
 
             // Orientation 6 means "the 0th row is the right side": the stored
             // bottom-left quadrant is what ends up in the display's top-left.
             let decoded = try #require(Fixtures.decode(destination))
-            #expect(Fixtures.corner(.topLeft, of: decoded).isCloseTo(Fixtures.bottomLeftColour),
-                    "a wrong transform puts a different quadrant here")
+            #expect(
+                Fixtures.corner(.topLeft, of: decoded).isCloseTo(Fixtures.bottomLeftColour),
+                "a wrong transform puts a different quadrant here")
             #expect(Fixtures.corner(.topRight, of: decoded).isCloseTo(Fixtures.topLeftColour))
         }
     }
@@ -281,16 +293,18 @@ struct ImageEncoderTests {
     /// displayed top-left. Checking a single orientation — or checking only the
     /// dimensions — passes for a table with two rows swapped, for a sign error in
     /// one of the four reflections, and for a 180° mistake.
-    @Test("baking is correct for every EXIF orientation", arguments: [
-        (UInt32(1), Fixtures.topLeftColour, false),      // up
-        (UInt32(2), Fixtures.topRightColour, false),     // mirrored horizontally
-        (UInt32(3), Fixtures.bottomRightColour, false),  // 180°
-        (UInt32(4), Fixtures.bottomLeftColour, false),   // mirrored vertically
-        (UInt32(5), Fixtures.topLeftColour, true),       // transposed
-        (UInt32(6), Fixtures.bottomLeftColour, true),    // 90° clockwise
-        (UInt32(7), Fixtures.bottomRightColour, true),   // transposed, mirrored
-        (UInt32(8), Fixtures.topRightColour, true),      // 90° anticlockwise
-    ])
+    @Test(
+        "baking is correct for every EXIF orientation",
+        arguments: [
+            (UInt32(1), Fixtures.topLeftColour, false),  // up
+            (UInt32(2), Fixtures.topRightColour, false),  // mirrored horizontally
+            (UInt32(3), Fixtures.bottomRightColour, false),  // 180°
+            (UInt32(4), Fixtures.bottomLeftColour, false),  // mirrored vertically
+            (UInt32(5), Fixtures.topLeftColour, true),  // transposed
+            (UInt32(6), Fixtures.bottomLeftColour, true),  // 90° clockwise
+            (UInt32(7), Fixtures.bottomRightColour, true),  // transposed, mirrored
+            (UInt32(8), Fixtures.topRightColour, true),  // 90° anticlockwise
+        ])
     func bakingIsCorrectForEveryOrientation(
         raw: UInt32, expectedTopLeft: RGB, transposes: Bool
     ) async throws {
@@ -308,15 +322,17 @@ struct ImageEncoderTests {
             )
 
             let stored = Fixtures.quadrantSize
-            let expectedSize = transposes
+            let expectedSize =
+                transposes
                 ? PixelSize(width: stored.height, height: stored.width)
                 : stored
             #expect(result.pixelSize == expectedSize)
 
             let decoded = try #require(Fixtures.decode(destination))
             let actual = Fixtures.corner(.topLeft, of: decoded)
-            #expect(actual.isCloseTo(expectedTopLeft),
-                    "orientation \(raw): displayed top-left is \(actual), expected \(expectedTopLeft)")
+            #expect(
+                actual.isCloseTo(expectedTopLeft),
+                "orientation \(raw): displayed top-left is \(actual), expected \(expectedTopLeft)")
         }
     }
 
@@ -342,7 +358,8 @@ struct ImageEncoderTests {
 
             print("")
             for format in EncodeSupport.shared.supportedFormats.sorted(by: { $0.rawValue < $1.rawValue }) {
-                let destination = directory
+                let destination =
+                    directory
                     .appendingPathComponent("orient.\(format.preferredFilenameExtension)")
                 // 0.95, not 1.0: ImageIO's AVIF encoder rejects exactly 1.0.
                 // That is pinned by `qualityOneIsHandledOrRefusedCleanly`; here
@@ -363,7 +380,8 @@ struct ImageEncoderTests {
                 let keptTheTag = tag == .right
                 let rotatedThePixels = result.pixelSize == displayed
 
-                let detail = "\(format.description): tag=\(String(describing: tag)), "
+                let detail =
+                    "\(format.description): tag=\(String(describing: tag)), "
                     + "size=\(result.pixelSize) — exactly one of \"kept the tag\" and "
                     + "\"rotated the pixels\" must hold"
                 #expect(keptTheTag != rotatedThePixels, Comment(rawValue: detail))
@@ -419,7 +437,8 @@ struct ImageEncoderTests {
 
             let out = Fixtures.properties(of: destination)
             #expect(Fixtures.gpsLatitude(out) != nil)
-            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+            #expect(
+                Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
                     == Fixtures.dateTimeOriginal)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
         }
@@ -469,7 +488,8 @@ struct ImageEncoderTests {
             #expect(Fixtures.gpsLatitude(out) == nil)
             // ...and the rest survives, which is the half that distinguishes
             // "strip GPS" from "strip everything".
-            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+            #expect(
+                Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
                     == Fixtures.dateTimeOriginal)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFModel) as? String == Fixtures.model)
@@ -522,8 +542,9 @@ struct ImageEncoderTests {
                 orientation: .preserveTag
             )
             #expect(result.pixelSize == Fixtures.quadrantSize)
-            #expect(Fixtures.orientation(of: destination) == .right,
-                    "stripAll dropped the orientation, which rotates the picture")
+            #expect(
+                Fixtures.orientation(of: destination) == .right,
+                "stripAll dropped the orientation, which rotates the picture")
         }
     }
 
@@ -551,8 +572,9 @@ struct ImageEncoderTests {
                 // back out is its business, not this package's. Reported rather
                 // than asserted so a platform that refuses does not read as a
                 // defect here — the policy layer is tested directly below.
-                print("  note: ImageIO did not write the MakerApple dictionary back out; "
-                      + "the force-preserve floor is asserted at the policy layer instead")
+                print(
+                    "  note: ImageIO did not write the MakerApple dictionary back out; "
+                        + "the force-preserve floor is asserted at the policy layer instead")
             }
 
             // The policy layer, where the guarantee actually lives.
@@ -585,7 +607,8 @@ struct ImageEncoderTests {
             )
 
             let out = Fixtures.properties(of: destination)
-            #expect(Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
+            #expect(
+                Fixtures.exif(out, kCGImagePropertyExifDateTimeOriginal) as? String
                     == Fixtures.dateTimeOriginal)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFMake) as? String == Fixtures.make)
             #expect(Fixtures.tiff(out, kCGImagePropertyTIFFModel) == nil)
@@ -595,10 +618,11 @@ struct ImageEncoderTests {
 
     @Test("an allow-list can name a whole dictionary, and ignores keys it cannot map")
     func customPolicyWholeDictionary() throws {
-        let source = [
-            kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 51.5] as [CFString: Any],
-            kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Maker"] as [CFString: Any],
-        ] as [CFString: Any]
+        let source =
+            [
+                kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 51.5] as [CFString: Any],
+                kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Maker"] as [CFString: Any],
+            ] as [CFString: Any]
 
         let kept = ImageMetadata.properties(
             for: .custom(allowList: [MetadataKey("gps.*"), MetadataKey("xmp.dc.title"), MetadataKey("bogus")]),
@@ -625,7 +649,7 @@ struct ImageEncoderTests {
             let handle = ProgressHandle(
                 sink: ClosureProgressSink { _ in
                     ticks.increment()
-                    return false        // stop at the very first checkpoint
+                    return false  // stop at the very first checkpoint
                 },
                 throttle: .unthrottled
             )
@@ -642,8 +666,9 @@ struct ImageEncoderTests {
             // completion and reporting the cancellation afterwards.
             #expect(ticks.value == 1, "expected the encode to stop at the first checkpoint")
             #expect(!FileManager.default.fileExists(atPath: destination.path))
-            #expect(Fixtures.strayFiles(in: directory).isEmpty,
-                    "a cancelled encode left its scratch file behind")
+            #expect(
+                Fixtures.strayFiles(in: directory).isEmpty,
+                "a cancelled encode left its scratch file behind")
         }
     }
 
@@ -722,10 +747,12 @@ struct ImageEncoderTests {
 
             #expect(cheap.inputByteCount > 0)
             #expect(cheap.outputByteCount > 0)
-            #expect(expensive.outputByteCount > cheap.outputByteCount,
-                    "quality 1.0 must not produce a smaller file than quality 0.2")
-            print("  JPEG re-encode of \(cheap.inputByteCount) bytes: "
-                  + "q0.2 → \(cheap.outputByteCount), q1.0 → \(expensive.outputByteCount)")
+            #expect(
+                expensive.outputByteCount > cheap.outputByteCount,
+                "quality 1.0 must not produce a smaller file than quality 0.2")
+            print(
+                "  JPEG re-encode of \(cheap.inputByteCount) bytes: "
+                    + "q0.2 → \(cheap.outputByteCount), q1.0 → \(expensive.outputByteCount)")
 
             if EncodeSupport.shared.canEncode(.heic) {
                 let heic = directory.appendingPathComponent("max.heic")
@@ -733,9 +760,10 @@ struct ImageEncoderTests {
                     source: source, to: heic,
                     format: .heic, quality: .quality(1.0), resize: nil, metadata: .stripAll
                 )
-                print("  HEIC at quality 1.0: \(result.inputByteCount) → "
-                      + "\(result.outputByteCount) bytes "
-                      + (result.outputByteCount > result.inputByteCount ? "(grew)" : "(shrank)"))
+                print(
+                    "  HEIC at quality 1.0: \(result.inputByteCount) → "
+                        + "\(result.outputByteCount) bytes "
+                        + (result.outputByteCount > result.inputByteCount ? "(grew)" : "(shrank)"))
             }
         }
     }
@@ -764,7 +792,8 @@ struct ImageEncoderTests {
 
             print("")
             for format in lossy {
-                let destination = directory
+                let destination =
+                    directory
                     .appendingPathComponent("max.\(format.preferredFilenameExtension)")
                 do {
                     let result = try await encoder.encode(
@@ -775,16 +804,18 @@ struct ImageEncoderTests {
                     #expect(FileManager.default.fileExists(atPath: destination.path))
                     print("  \(format.description) at quality 1.0: \(result.outputByteCount) bytes")
                 } catch let error as LatheError {
-                    guard case let .encodingFailed(_, _, reason) = error else {
+                    guard case .encodingFailed(_, _, let reason) = error else {
                         Issue.record("\(format.description) failed with \(error), expected .encodingFailed")
                         continue
                     }
                     // The refusal must be survivable, which means nothing left
                     // behind — not at the destination, and not beside it.
-                    #expect(!FileManager.default.fileExists(atPath: destination.path),
-                            "\(format.description) refused quality 1.0 and left a file")
-                    #expect(Fixtures.strayFiles(in: directory).isEmpty,
-                            "\(format.description) refused quality 1.0 and left its scratch file")
+                    #expect(
+                        !FileManager.default.fileExists(atPath: destination.path),
+                        "\(format.description) refused quality 1.0 and left a file")
+                    #expect(
+                        Fixtures.strayFiles(in: directory).isEmpty,
+                        "\(format.description) refused quality 1.0 and left its scratch file")
                     // ...and it must say something a caller can act on.
                     #expect(reason.contains("1.0"))
                     print("  \(format.description) at quality 1.0: refused — \(reason)")
@@ -874,8 +905,16 @@ struct ImageEncoderTests {
 private final class Counter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
-    func increment() { lock.lock(); count += 1; lock.unlock() }
-    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
 }
 
 private final class SampleRecorder: @unchecked Sendable {
@@ -884,12 +923,16 @@ private final class SampleRecorder: @unchecked Sendable {
 
     func sink() -> any ProgressSink {
         ObservingProgressSink { [self] sample in
-            lock.lock(); recorded.append(sample); lock.unlock()
+            lock.lock()
+            recorded.append(sample)
+            lock.unlock()
         }
     }
 
     var samples: [LatheProgress] {
-        lock.lock(); defer { lock.unlock() }; return recorded
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
     }
 }
 
@@ -952,11 +995,14 @@ enum Fixtures {
         // clearly, and keeps the macro's input a simple identifier.
         let made = quadrants()
         let image = try #require(made, "could not build a quadrant CGImage")
-        let url = directory.appendingPathComponent("quadrants-\(orientation.rawValue)."
-                                                   + format.preferredFilenameExtension)
-        try write(image, to: url, format: format, properties: [
-            kCGImagePropertyOrientation: orientation.rawValue,
-        ])
+        let url = directory.appendingPathComponent(
+            "quadrants-\(orientation.rawValue)."
+                + format.preferredFilenameExtension)
+        try write(
+            image, to: url, format: format,
+            properties: [
+                kCGImagePropertyOrientation: orientation.rawValue
+            ])
         return url
     }
 
@@ -968,30 +1014,32 @@ enum Fixtures {
         let made = quadrants()
         let image = try #require(made, "could not build a quadrant CGImage")
         let url = directory.appendingPathComponent("tagged.jpg")
-        try write(image, to: url, format: .jpeg, properties: [
-            kCGImagePropertyOrientation: CGImagePropertyOrientation.up.rawValue,
-            kCGImagePropertyGPSDictionary: [
-                kCGImagePropertyGPSLatitude: 51.5,
-                kCGImagePropertyGPSLatitudeRef: "N",
-                kCGImagePropertyGPSLongitude: 0.12,
-                kCGImagePropertyGPSLongitudeRef: "W",
-            ] as [CFString: Any],
-            kCGImagePropertyExifDictionary: [
-                kCGImagePropertyExifDateTimeOriginal: dateTimeOriginal,
-                kCGImagePropertyExifDateTimeDigitized: dateTimeOriginal,
-                kCGImagePropertyExifLensModel: "50mm f/1.8",
-            ] as [CFString: Any],
-            kCGImagePropertyTIFFDictionary: [
-                kCGImagePropertyTIFFMake: make,
-                kCGImagePropertyTIFFModel: model,
-                kCGImagePropertyTIFFSoftware: "Lathe fixtures",
-                kCGImagePropertyTIFFDateTime: dateTimeOriginal,
-            ] as [CFString: Any],
-            kCGImagePropertyMakerAppleDictionary: [
-                "17" as CFString: contentIdentifier,
-                "14" as CFString: 1,
-            ] as [CFString: Any],
-        ])
+        try write(
+            image, to: url, format: .jpeg,
+            properties: [
+                kCGImagePropertyOrientation: CGImagePropertyOrientation.up.rawValue,
+                kCGImagePropertyGPSDictionary: [
+                    kCGImagePropertyGPSLatitude: 51.5,
+                    kCGImagePropertyGPSLatitudeRef: "N",
+                    kCGImagePropertyGPSLongitude: 0.12,
+                    kCGImagePropertyGPSLongitudeRef: "W",
+                ] as [CFString: Any],
+                kCGImagePropertyExifDictionary: [
+                    kCGImagePropertyExifDateTimeOriginal: dateTimeOriginal,
+                    kCGImagePropertyExifDateTimeDigitized: dateTimeOriginal,
+                    kCGImagePropertyExifLensModel: "50mm f/1.8",
+                ] as [CFString: Any],
+                kCGImagePropertyTIFFDictionary: [
+                    kCGImagePropertyTIFFMake: make,
+                    kCGImagePropertyTIFFModel: model,
+                    kCGImagePropertyTIFFSoftware: "Lathe fixtures",
+                    kCGImagePropertyTIFFDateTime: dateTimeOriginal,
+                ] as [CFString: Any],
+                kCGImagePropertyMakerAppleDictionary: [
+                    "17" as CFString: contentIdentifier,
+                    "14" as CFString: 1,
+                ] as [CFString: Any],
+            ])
         return url
     }
 
@@ -1018,17 +1066,21 @@ enum Fixtures {
             ),
             "could not create a GIF destination"
         )
-        CGImageDestinationSetProperties(destination, [
-            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: loopCount],
-        ] as CFDictionary)
+        CGImageDestinationSetProperties(
+            destination,
+            [
+                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: loopCount]
+            ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
             let frame = try #require(Self.frame(index, of: delays.count), "could not build a GIF frame")
-            CGImageDestinationAddImage(destination, frame, [
-                kCGImagePropertyGIFDictionary: [
-                    kCGImagePropertyGIFUnclampedDelayTime: delay,
-                ] as [CFString: Any],
-            ] as CFDictionary)
+            CGImageDestinationAddImage(
+                destination, frame,
+                [
+                    kCGImagePropertyGIFDictionary: [
+                        kCGImagePropertyGIFUnclampedDelayTime: delay
+                    ] as [CFString: Any]
+                ] as CFDictionary)
         }
         #expect(CGImageDestinationFinalize(destination), "could not finalise a GIF fixture")
         return url
@@ -1043,17 +1095,21 @@ enum Fixtures {
             ),
             "could not create an APNG destination"
         )
-        CGImageDestinationSetProperties(destination, [
-            kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: 0],
-        ] as CFDictionary)
+        CGImageDestinationSetProperties(
+            destination,
+            [
+                kCGImagePropertyPNGDictionary: [kCGImagePropertyAPNGLoopCount: 0]
+            ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
             let frame = try #require(Self.frame(index, of: delays.count))
-            CGImageDestinationAddImage(destination, frame, [
-                kCGImagePropertyPNGDictionary: [
-                    kCGImagePropertyAPNGUnclampedDelayTime: delay,
-                ] as [CFString: Any],
-            ] as CFDictionary)
+            CGImageDestinationAddImage(
+                destination, frame,
+                [
+                    kCGImagePropertyPNGDictionary: [
+                        kCGImagePropertyAPNGUnclampedDelayTime: delay
+                    ] as [CFString: Any]
+                ] as CFDictionary)
         }
         #expect(CGImageDestinationFinalize(destination), "could not finalise an APNG fixture")
         return url
@@ -1068,17 +1124,21 @@ enum Fixtures {
             CGImageDestinationCreateWithURL(url as CFURL, uti as CFString, delays.count, nil),
             "could not create a HEICS destination"
         )
-        CGImageDestinationSetProperties(destination, [
-            kCGImagePropertyHEICSDictionary: [kCGImagePropertyHEICSLoopCount: 0],
-        ] as CFDictionary)
+        CGImageDestinationSetProperties(
+            destination,
+            [
+                kCGImagePropertyHEICSDictionary: [kCGImagePropertyHEICSLoopCount: 0]
+            ] as CFDictionary)
 
         for (index, delay) in delays.enumerated() {
             let frame = try #require(Self.frame(index, of: delays.count))
-            CGImageDestinationAddImage(destination, frame, [
-                kCGImagePropertyHEICSDictionary: [
-                    kCGImagePropertyHEICSUnclampedDelayTime: delay,
-                ] as [CFString: Any],
-            ] as CFDictionary)
+            CGImageDestinationAddImage(
+                destination, frame,
+                [
+                    kCGImagePropertyHEICSDictionary: [
+                        kCGImagePropertyHEICSUnclampedDelayTime: delay
+                    ] as [CFString: Any]
+                ] as CFDictionary)
         }
         #expect(CGImageDestinationFinalize(destination), "could not finalise a HEICS fixture")
         return url
@@ -1137,8 +1197,10 @@ enum Fixtures {
                 format: .webp, quality: .lossless, resize: nil, metadata: .preserveAll
             )
             let bytes = try Data(contentsOf: stillWebP)
-            frames.append(try #require(simpleWebPBitstream(bytes),
-                                       "could not find a bitstream chunk in a still WebP"))
+            frames.append(
+                try #require(
+                    simpleWebPBitstream(bytes),
+                    "could not find a bitstream chunk in a still WebP"))
         }
 
         var body = Data()
@@ -1159,13 +1221,13 @@ enum Fixtures {
 
         for (delay, bitstream) in zip(delays, frames) {
             var anmf = Data()
-            anmf.append(uint24LE(0))                              // frame x / 2
-            anmf.append(uint24LE(0))                              // frame y / 2
+            anmf.append(uint24LE(0))  // frame x / 2
+            anmf.append(uint24LE(0))  // frame y / 2
             anmf.append(uint24LE(animationSize.width - 1))
             anmf.append(uint24LE(animationSize.height - 1))
             anmf.append(uint24LE(Int((delay * 1000).rounded())))  // duration, ms
-            anmf.append(0)                                        // blend + dispose
-            anmf.append(bitstream)                                // a whole VP8L chunk
+            anmf.append(0)  // blend + dispose
+            anmf.append(bitstream)  // a whole VP8L chunk
             body.append(riffChunk("ANMF", anmf))
         }
 
@@ -1182,7 +1244,7 @@ enum Fixtures {
     /// all, ready to drop inside an `ANMF`.
     private static func simpleWebPBitstream(_ file: Data) -> Data? {
         guard file.count > 12, fourCC(file, at: 0) == "RIFF", fourCC(file, at: 8) == "WEBP",
-              let tag = fourCC(file, at: 12), tag == "VP8L" || tag == "VP8 "
+            let tag = fourCC(file, at: 12), tag == "VP8L" || tag == "VP8 "
         else { return nil }
         let payload = Int(littleEndianUInt32(file, at: 16))
         let end = 20 + payload + (payload % 2)
@@ -1199,8 +1261,10 @@ enum Fixtures {
     }
 
     private static func uint32LE(_ value: Int) -> Data {
-        Data([UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
-              UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF)])
+        Data([
+            UInt8(value & 0xFF), UInt8((value >> 8) & 0xFF),
+            UInt8((value >> 16) & 0xFF), UInt8((value >> 24) & 0xFF),
+        ])
     }
 
     private static func uint24LE(_ value: Int) -> Data {
@@ -1298,7 +1362,8 @@ enum Fixtures {
 
     static func gradient(_ size: PixelSize) -> CGImage? {
         bitmap(size) { x, y in
-            RGB(UInt8(x * 255 / max(1, size.width - 1)),
+            RGB(
+                UInt8(x * 255 / max(1, size.width - 1)),
                 UInt8(y * 255 / max(1, size.height - 1)),
                 128)
         }
@@ -1384,13 +1449,15 @@ enum Fixtures {
         let bytesPerRow = image.width * 4
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * image.height)
         let drew: Bool = pixels.withUnsafeMutableBytes { raw in
-            guard let context = CGContext(
-                data: raw.baseAddress, width: image.width, height: image.height,
-                bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-                space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                    | CGBitmapInfo.byteOrder32Big.rawValue
-            ) else { return false }
+            guard
+                let context = CGContext(
+                    data: raw.baseAddress, width: image.width, height: image.height,
+                    bitsPerComponent: 8, bytesPerRow: bytesPerRow,
+                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                        | CGBitmapInfo.byteOrder32Big.rawValue
+                )
+            else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
             return true
         }
@@ -1484,12 +1551,21 @@ enum Fixtures {
     /// a lossy codec's ringing is worst at an edge, and the assertion is about
     /// *which quadrant landed here*, not about exact reconstruction.
     static func corner(_ corner: Corner, of image: CGImage) -> RGB {
-        let x: Int, y: Int
+        let x: Int
+        let y: Int
         switch corner {
-        case .topLeft: x = image.width / 4; y = image.height / 4
-        case .topRight: x = image.width * 3 / 4; y = image.height / 4
-        case .bottomLeft: x = image.width / 4; y = image.height * 3 / 4
-        case .bottomRight: x = image.width * 3 / 4; y = image.height * 3 / 4
+        case .topLeft:
+            x = image.width / 4
+            y = image.height / 4
+        case .topRight:
+            x = image.width * 3 / 4
+            y = image.height / 4
+        case .bottomLeft:
+            x = image.width / 4
+            y = image.height * 3 / 4
+        case .bottomRight:
+            x = image.width * 3 / 4
+            y = image.height * 3 / 4
         }
         return pixel(at: x, y: y, of: image) ?? RGB(0, 0, 0)
     }
@@ -1497,17 +1573,22 @@ enum Fixtures {
     private static func pixel(at x: Int, y: Int, of image: CGImage) -> RGB? {
         var bytes = [UInt8](repeating: 0, count: 4)
         let result: CGImage? = bytes.withUnsafeMutableBytes { raw -> CGImage? in
-            guard let context = CGContext(
-                data: raw.baseAddress, width: 1, height: 1,
-                bitsPerComponent: 8, bytesPerRow: 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return nil }
+            guard
+                let context = CGContext(
+                    data: raw.baseAddress, width: 1, height: 1,
+                    bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )
+            else { return nil }
             context.interpolationQuality = .none
             // Draw the whole image scaled so that the pixel of interest lands in
             // the 1x1 context.
-            context.draw(image, in: CGRect(x: -x, y: -(image.height - 1 - y),
-                                           width: image.width, height: image.height))
+            context.draw(
+                image,
+                in: CGRect(
+                    x: -x, y: -(image.height - 1 - y),
+                    width: image.width, height: image.height))
             return image
         }
         guard result != nil else { return nil }
@@ -1517,7 +1598,11 @@ enum Fixtures {
 
 struct RGB: Equatable, Sendable, CustomStringConvertible {
     var r: UInt8, g: UInt8, b: UInt8
-    init(_ r: UInt8, _ g: UInt8, _ b: UInt8) { self.r = r; self.g = g; self.b = b }
+    init(_ r: UInt8, _ g: UInt8, _ b: UInt8) {
+        self.r = r
+        self.g = g
+        self.b = b
+    }
     var description: String { "rgb(\(r),\(g),\(b))" }
 
     /// Lossy codecs and a colour-space round trip both move values a little, so

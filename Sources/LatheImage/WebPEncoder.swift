@@ -1,9 +1,8 @@
 import Accelerate
+import CWebP
 import CoreGraphics
 import Foundation
 import LatheCore
-
-import CWebP
 
 /// The WebP encoder, on top of the vendored libwebp.
 ///
@@ -139,7 +138,7 @@ enum WebPEncoder {
             // transparent pixels to whatever compresses best. Invisible, and
             // still not what "lossless" should mean.
             config.exact = 1
-        case let .quality(value):
+        case .quality(let value):
             config.quality = Float(min(max(value, 0), 1) * 100)
         case .constantQualityFactor, .averageBitrate:
             break  // libwebp's default quality (75). See the doc comment.
@@ -217,13 +216,14 @@ enum WebPEncoder {
 
             for (fourCC, payload) in [("EXIF", metadata.exif), ("XMP ", metadata.xmp)] {
                 guard let payload, !payload.isEmpty else { continue }
-                try WebPMux.check(payload.withUnsafeBytes { bytes -> WebPMuxError in
-                    var chunk = WebPData(
-                        bytes: bytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
-                        size: bytes.count
-                    )
-                    return WebPMuxSetChunk(mux, fourCC, &chunk, 1)
-                }, doing: "adding the \(fourCC.trimmingCharacters(in: .whitespaces)) chunk")
+                try WebPMux.check(
+                    payload.withUnsafeBytes { bytes -> WebPMuxError in
+                        var chunk = WebPData(
+                            bytes: bytes.baseAddress?.assumingMemoryBound(to: UInt8.self),
+                            size: bytes.count
+                        )
+                        return WebPMuxSetChunk(mux, fourCC, &chunk, 1)
+                    }, doing: "adding the \(fourCC.trimmingCharacters(in: .whitespaces)) chunk")
             }
             return try WebPMux.assemble(doing: "assembling an extended WebP") { output in
                 WebPMuxAssemble(mux, &output)
@@ -262,15 +262,17 @@ enum WebPEncoder {
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
 
         let drew: Bool = pixels.withUnsafeMutableBytes { raw in
-            guard let context = CGContext(
-                data: raw.baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: bytesPerRow,
-                space: space,
-                bitmapInfo: alphaInfo.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
-            ) else { return false }
+            guard
+                let context = CGContext(
+                    data: raw.baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: space,
+                    bitmapInfo: alphaInfo.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+                )
+            else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
         }

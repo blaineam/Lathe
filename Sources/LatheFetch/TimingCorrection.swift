@@ -82,7 +82,9 @@ struct TimingCorrection: Sendable {
         let measured = try? await track.load(.timeRange)
 
         guard let declared = header, let range = measured else {
-            DiagnosticLog.note("timing: no comparison possible — header \(header == nil ? "unreadable" : "ok"), track \(measured == nil ? "unreadable" : "ok")")
+            DiagnosticLog.note(
+                "timing: no comparison possible — header \(header == nil ? "unreadable" : "ok"), track \(measured == nil ? "unreadable" : "ok")"
+            )
             LatheFetchLog.timing.log(
                 """
                 timing: no comparison possible — header \(header == nil ? "unreadable" : "ok",                 privacy: .public), track \(measured == nil ? "unreadable" : "ok", privacy: .public)
@@ -94,17 +96,20 @@ struct TimingCorrection: Sendable {
         let declaredSeconds = CMTimeGetSeconds(declared)
         let observedSeconds = CMTimeGetSeconds(range.duration)
         guard declaredSeconds.isFinite, observedSeconds.isFinite,
-              declaredSeconds > 0, observedSeconds > 0
+            declaredSeconds > 0, observedSeconds > 0
         else {
             DiagnosticLog.note("timing: unusable durations declared=\(declaredSeconds) observed=\(observedSeconds)")
             LatheFetchLog.timing.log(
-                "timing: unusable durations declared=\(declaredSeconds, privacy: .public) observed=\(observedSeconds, privacy: .public)")
+                "timing: unusable durations declared=\(declaredSeconds, privacy: .public) observed=\(observedSeconds, privacy: .public)"
+            )
             self = .identity
             return
         }
 
         guard let factor = Self.factor(declared: declaredSeconds, observed: observedSeconds) else {
-            DiagnosticLog.note("timing: leaving alone — declared=\(declaredSeconds)s observed=\(observedSeconds)s ratio=\(declaredSeconds / observedSeconds)")
+            DiagnosticLog.note(
+                "timing: leaving alone — declared=\(declaredSeconds)s observed=\(observedSeconds)s ratio=\(declaredSeconds / observedSeconds)"
+            )
             LatheFetchLog.timing.log(
                 """
                 timing: leaving alone — declared=\(declaredSeconds, privacy: .public)s                 observed=\(observedSeconds, privacy: .public)s                 ratio=\(declaredSeconds / observedSeconds, privacy: .public)
@@ -123,7 +128,9 @@ struct TimingCorrection: Sendable {
         // are measured too, and only a disagreement they confirm is corrected.
         let measuredFactor = await Self.sampleFactor(of: track)
         guard let measuredFactor, abs(measuredFactor - factor) <= Self.tolerance else {
-            DiagnosticLog.note("timing: header disagrees (ratio \(factor)) but samples measure \(measuredFactor.map { "\($0)" } ?? "unmeasurable") — leaving alone")
+            DiagnosticLog.note(
+                "timing: header disagrees (ratio \(factor)) but samples measure \(measuredFactor.map { "\($0)" } ?? "unmeasurable") — leaving alone"
+            )
             LatheFetchLog.timing.log(
                 """
                 timing: header disagrees (ratio \(factor, privacy: .public)) but samples measure \(measuredFactor.map { "\($0)" } ?? "unmeasurable", privacy: .public) — leaving alone
@@ -132,7 +139,9 @@ struct TimingCorrection: Sendable {
             return
         }
 
-        DiagnosticLog.note("timing: correcting by \(factor) — declared=\(declaredSeconds)s observed=\(observedSeconds)s anchor=\(CMTimeGetSeconds(range.start))s")
+        DiagnosticLog.note(
+            "timing: correcting by \(factor) — declared=\(declaredSeconds)s observed=\(observedSeconds)s anchor=\(CMTimeGetSeconds(range.start))s"
+        )
         LatheFetchLog.timing.log(
             """
             timing: correcting by \(factor, privacy: .public) —             declared=\(declaredSeconds, privacy: .public)s             observed=\(observedSeconds, privacy: .public)s             anchor=\(CMTimeGetSeconds(range.start), privacy: .public)s
@@ -183,8 +192,11 @@ struct TimingCorrection: Sendable {
             let start = dts.isNumeric ? dts : CMSampleBufferGetPresentationTimeStamp(buffer)
             let duration = CMSampleBufferGetDuration(buffer)
             guard start.isNumeric else { continue }
-            spans.append((CMTimeGetSeconds(start),
-                          duration.isNumeric ? CMTimeGetSeconds(duration) : 0))
+            spans.append(
+                (
+                    CMTimeGetSeconds(start),
+                    duration.isNumeric ? CMTimeGetSeconds(duration) : 0
+                ))
         }
         return sampleFactor(spans: spans)
     }
@@ -199,7 +211,7 @@ struct TimingCorrection: Sendable {
         let starts = spans.map(\.start).sorted()
         let durations = spans.map(\.duration).filter { $0 > 0 && $0.isFinite }
         guard starts.count >= 3, durations.count >= 2,
-              let first = starts.first, let last = starts.last, last > first
+            let first = starts.first, let last = starts.last, last > first
         else { return nil }
         let meanDuration = durations.reduce(0, +) / Double(durations.count)
         let meanSpacing = (last - first) / Double(starts.count - 1)

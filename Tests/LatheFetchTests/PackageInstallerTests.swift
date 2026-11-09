@@ -45,8 +45,9 @@ struct PackageInstallerTests {
 
     // MARK: - Refusals
 
-    @Test("a wheel whose hash does not match is refused, and writes nothing",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "a wheel whose hash does not match is refused, and writes nothing",
+        .enabled(if: SharedInterpreter.isAvailable))
     func refusesBadDigest() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -66,8 +67,9 @@ struct PackageInstallerTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("example_pkg").path))
     }
 
-    @Test("a wheel with compiled code is refused, and writes nothing",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "a wheel with compiled code is refused, and writes nothing",
+        .enabled(if: SharedInterpreter.isAvailable))
     func refusesCompiledWheel() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -82,7 +84,7 @@ struct PackageInstallerTests {
         let error = await #expect(throws: PythonPackageError.self) {
             try await installer.install(wheel: data, named: "fastthing-1.0-py3-none-any.whl", verifying: nil)
         }
-        guard case let .notPurePython(_, _, members) = error else {
+        guard case .notPurePython(_, _, let members) = error else {
             Issue.record("expected notPurePython, got \(String(describing: error))")
             return
         }
@@ -90,8 +92,9 @@ struct PackageInstallerTests {
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("fastthing").path))
     }
 
-    @Test("a wheel that would write outside the root is refused",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "a wheel that would write outside the root is refused",
+        .enabled(if: SharedInterpreter.isAvailable))
     func refusesEscapingMember() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -114,8 +117,9 @@ struct PackageInstallerTests {
 
     // MARK: - The round trip
 
-    @Test("a pure wheel installs, imports, lists and removes",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "a pure wheel installs, imports, lists and removes",
+        .enabled(if: SharedInterpreter.isAvailable))
     func installsListsAndRemoves() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -154,8 +158,9 @@ struct PackageInstallerTests {
         #expect(!files.fileExists(atPath: root.appendingPathComponent("lathe_demo-1.2.3.dist-info").path))
     }
 
-    @Test("reinstalling a different version leaves nothing of the old one behind",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "reinstalling a different version leaves nothing of the old one behind",
+        .enabled(if: SharedInterpreter.isAvailable))
     func replacesRatherThanMerges() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -217,8 +222,9 @@ struct PackageInstallerTests {
         try await installer.forgetImportedPackages()
     }
 
-    @Test("after forgetting, a replaced package imports as its new version",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "after forgetting, a replaced package imports as its new version",
+        .enabled(if: SharedInterpreter.isAvailable))
     func forgetsReplacedModules() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -243,8 +249,9 @@ struct PackageInstallerTests {
         #expect(try runtime.evaluate("__import__('lathe_forget.core').core.greet()").value.string?.isEmpty == false)
     }
 
-    @Test("forgetting clears the drivers' registration flags and spares the standard library",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "forgetting clears the drivers' registration flags and spares the standard library",
+        .enabled(if: SharedInterpreter.isAvailable))
     func forgettingResetsRegistrations() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -276,8 +283,9 @@ struct PackageInstallerTests {
         #expect(try runtime.evaluate("str('json' in __import__('sys').modules)").value.string == "True")
     }
 
-    @Test("removing something that is not installed says so",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "removing something that is not installed says so",
+        .enabled(if: SharedInterpreter.isAvailable))
     func refusesUnknownRemoval() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()
@@ -291,8 +299,9 @@ struct PackageInstallerTests {
         }
     }
 
-    @Test("activate puts the root at the front of sys.path, once",
-          .enabled(if: SharedInterpreter.isAvailable))
+    @Test(
+        "activate puts the root at the front of sys.path, once",
+        .enabled(if: SharedInterpreter.isAvailable))
     func activatesIdempotently() async throws {
         let runtime = try #require(SharedInterpreter.outcome.runtime)
         let root = try temporaryRoot()

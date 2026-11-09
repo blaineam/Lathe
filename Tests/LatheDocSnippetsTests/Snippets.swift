@@ -47,7 +47,7 @@ enum Snippets {
         let result = try await VideoTranscoder().transcode(
             source: source, to: out,
             codec: .hevc, quality: .quality(0.65), resize: .longestSide(1920))
-        print(result.rateControl)   // what actually ran, not what was asked
+        print(result.rateControl)  // what actually ran, not what was asked
         // end
     }
 
@@ -68,7 +68,8 @@ enum Snippets {
         // The lowest quality this picture can take without a visible change,
         // decided for this picture alone. nil: nothing in range passed.
         if let result = try await ImageEncoder().encodeVisuallyLossless(
-            source: photo, to: out, format: .heic) {
+            source: photo, to: out, format: .heic)
+        {
             print(result.quality, result.similarity.overall, result.encode.outputByteCount)
         }
         // end

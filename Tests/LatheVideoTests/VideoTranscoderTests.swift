@@ -67,8 +67,9 @@ struct VideoTranscoderTests {
     /// The iOS Simulator encodes in software, and its HEVC encoder accepts
     /// `Quality` and then ignores it: both files come out byte-for-byte the
     /// same size. Devices and Macs encode in hardware, where it is honoured.
-    @Test("a lower quality target produces a smaller file",
-          .disabled(if: runningInSimulator, "the simulator's software encoder ignores Quality"))
+    @Test(
+        "a lower quality target produces a smaller file",
+        .disabled(if: runningInSimulator, "the simulator's software encoder ignores Quality"))
     func lowerQualityIsSmaller() async throws {
         guard let source = await noiseMovie() else { return }
         let low = await FixtureLibrary.shared.scratchURL(named: "quality-low.mov")
@@ -82,9 +83,12 @@ struct VideoTranscoderTests {
         )
 
         #expect(cheap.outputByteCount > 0)
-        #expect(cheap.outputByteCount < dear.outputByteCount, Comment(rawValue:
-            "quality 0.15 produced \(cheap.outputByteCount) bytes, "
-                + "quality 0.9 produced \(dear.outputByteCount)"))
+        #expect(
+            cheap.outputByteCount < dear.outputByteCount,
+            Comment(
+                rawValue:
+                    "quality 0.15 produced \(cheap.outputByteCount) bytes, "
+                    + "quality 0.9 produced \(dear.outputByteCount)"))
         // The reported counts are the files', not a guess.
         #expect(Self.byteCount(of: low) == cheap.outputByteCount)
         #expect(Self.byteCount(of: high) == dear.outputByteCount)
@@ -100,8 +104,9 @@ struct VideoTranscoderTests {
             source: source, to: output, codec: .hevc, quality: .quality(0.2)
         )
         #expect(result.inputByteCount > 0)
-        #expect(result.outputByteCount < result.inputByteCount,
-                "\(result.inputByteCount) → \(result.outputByteCount) bytes")
+        #expect(
+            result.outputByteCount < result.inputByteCount,
+            "\(result.inputByteCount) → \(result.outputByteCount) bytes")
     }
 
     @Test("the result says which rate control actually ran")
@@ -155,7 +160,7 @@ struct VideoTranscoderTests {
             _ = try await transcoder.transcode(source: source, to: output, quality: .lossless)
             Issue.record("expected a refusal")
         } catch let error as LatheError {
-            guard case let .invalidConfiguration(reason) = error else {
+            guard case .invalidConfiguration(let reason) = error else {
                 Issue.record("expected .invalidConfiguration, got \(error)")
                 return
             }
@@ -174,10 +179,11 @@ struct VideoTranscoderTests {
 
         let input = try await MediaProbe().probe(url: source)
         let written = try await MediaProbe().probe(url: output)
-        #expect(abs(written.duration - input.duration) < 0.1,
-                "\(input.duration)s in, \(written.duration)s out")
+        #expect(
+            abs(written.duration - input.duration) < 0.1,
+            "\(input.duration)s in, \(written.duration)s out")
         #expect(abs(result.duration - input.duration) < 0.1)
-        #expect(result.frameCount == 48)   // 2 s at 24 fps, by construction
+        #expect(result.frameCount == 48)  // 2 s at 24 fps, by construction
     }
 
     @Test("audio survives, and is passed through rather than re-encoded")
@@ -219,12 +225,16 @@ struct VideoTranscoderTests {
     /// happens, and it looks like a success from every angle except the user's.
     @Test("the track's rotation survives")
     func rotationSurvives() async throws {
-        guard let source = await fixture("transcode-rotated.mov", {
-            try await FixtureLibrary.shared.movie(
-                named: "transcode-rotated.mov", size: Self.flatSize, frameRate: 24, seconds: 1,
-                colour: .black, rightHalf: .white, rotationDegrees: 90
-            )
-        }) else { return }
+        guard
+            let source = await fixture(
+                "transcode-rotated.mov",
+                {
+                    try await FixtureLibrary.shared.movie(
+                        named: "transcode-rotated.mov", size: Self.flatSize, frameRate: 24, seconds: 1,
+                        colour: .black, rightHalf: .white, rotationDegrees: 90
+                    )
+                })
+        else { return }
 
         let output = await FixtureLibrary.shared.scratchURL(named: "rotated.mov")
         _ = try await transcoder.transcode(source: source, to: output)
@@ -235,8 +245,9 @@ struct VideoTranscoderTests {
         // which is exactly what the source does.
         #expect(written.primaryVideoTrack?.codedSize == input.primaryVideoTrack?.codedSize)
         #expect(written.primaryVideoTrack?.displaySize == input.primaryVideoTrack?.displaySize)
-        #expect(written.primaryVideoTrack?.displaySize
-            == PixelSize(width: Self.flatSize.height, height: Self.flatSize.width))
+        #expect(
+            written.primaryVideoTrack?.displaySize
+                == PixelSize(width: Self.flatSize.height, height: Self.flatSize.width))
     }
 
     // MARK: - Metadata
@@ -281,8 +292,9 @@ struct VideoTranscoderTests {
         let key = MetadataKey("qt.com.apple.quicktime.location.ISO6709")
         #expect(VideoMetadata.metadataClass(of: key) == .gps)
         #expect(VideoMetadata.metadataClass(of: MetadataKey("qt.creationDate")) == .timestamps)
-        #expect(VideoMetadata.metadataClass(of: MetadataKey("qt.com.apple.quicktime.make"))
-            == .deviceIdentity)
+        #expect(
+            VideoMetadata.metadataClass(of: MetadataKey("qt.com.apple.quicktime.make"))
+                == .deviceIdentity)
         #expect(VideoMetadata.metadataClass(of: MetadataKey("qt.something.unheard.of")) == nil)
     }
 
@@ -319,12 +331,15 @@ struct VideoTranscoderTests {
     /// was asked for.
     @Test("odd resolved sizes are rounded down to even ones")
     func oddSizesAreEvened() {
-        #expect(VideoTranscoder.evenDimensions(PixelSize(width: 101, height: 57))
-            == PixelSize(width: 100, height: 56))
-        #expect(VideoTranscoder.evenDimensions(PixelSize(width: 1, height: 1))
-            == PixelSize(width: 2, height: 2))
-        #expect(VideoTranscoder.evenDimensions(PixelSize(width: 320, height: 240))
-            == PixelSize(width: 320, height: 240))
+        #expect(
+            VideoTranscoder.evenDimensions(PixelSize(width: 101, height: 57))
+                == PixelSize(width: 100, height: 56))
+        #expect(
+            VideoTranscoder.evenDimensions(PixelSize(width: 1, height: 1))
+                == PixelSize(width: 2, height: 2))
+        #expect(
+            VideoTranscoder.evenDimensions(PixelSize(width: 320, height: 240))
+                == PixelSize(width: 320, height: 240))
     }
 
     // MARK: - Progress and cancellation
@@ -364,7 +379,7 @@ struct VideoTranscoderTests {
         let recorder = Recorder()
         let sink = ClosureProgressSink { sample in
             recorder.append(sample)
-            return recorder.count < 4    // stop on the fourth frame
+            return recorder.count < 4  // stop on the fourth frame
         }
 
         do {
@@ -375,7 +390,7 @@ struct VideoTranscoderTests {
             Issue.record("expected the transcode to be cancelled")
         } catch let error as LatheError {
             #expect(error.isCancellation, "expected cancellation, got \(error)")
-            if case let .cancelled(unit) = error {
+            if case .cancelled(let unit) = error {
                 #expect((unit ?? 0) < 10, "stopped at frame \(unit as Any), which is not early")
             }
         }
@@ -384,9 +399,10 @@ struct VideoTranscoderTests {
         // And no half-written scratch file beside it. The temporary file is a
         // sibling by design — a move across volumes is a copy — so a leak would
         // land right here.
-        let leftovers = (try? FileManager.default.contentsOfDirectory(
-            atPath: output.deletingLastPathComponent().path
-        ))?.filter { $0.hasPrefix(".lathe-") } ?? []
+        let leftovers =
+            (try? FileManager.default.contentsOfDirectory(
+                atPath: output.deletingLastPathComponent().path
+            ))?.filter { $0.hasPrefix(".lathe-") } ?? []
         #expect(leftovers.isEmpty, "left behind \(leftovers)")
     }
 
@@ -431,9 +447,11 @@ struct VideoTranscoderTests {
 
     /// B-frames are on by default here, and the flag is read back off the
     /// session rather than echoed from the request.
-    @Test("B-frames are allowed by default and can be turned off", arguments: [
-        BFramePolicy.allow, BFramePolicy.disallow,
-    ])
+    @Test(
+        "B-frames are allowed by default and can be turned off",
+        arguments: [
+            BFramePolicy.allow, BFramePolicy.disallow,
+        ])
     func frameReorderingIsReported(_ policy: BFramePolicy) async throws {
         guard let source = await silentMovie() else { return }
         let output = await FixtureLibrary.shared.scratchURL(
@@ -456,9 +474,11 @@ struct VideoTranscoderTests {
         #expect(!FileManager.default.fileExists(atPath: output.path))
     }
 
-    @Test("containers are named by extension", arguments: [
-        ("clip.mov", AVFileType.mov), ("clip.MP4", .mp4), ("clip.m4v", .m4v),
-    ])
+    @Test(
+        "containers are named by extension",
+        arguments: [
+            ("clip.mov", AVFileType.mov), ("clip.MP4", .mp4), ("clip.m4v", .m4v),
+        ])
     func containerMapping(_ name: String, _ expected: AVFileType) throws {
         #expect(try VideoTranscoder.fileType(for: URL(fileURLWithPath: "/tmp/\(name)")) == expected)
     }
@@ -473,9 +493,13 @@ struct VideoTranscoderTests {
 
     @Test("a file that is not media is refused")
     func notMediaIsRefused() async throws {
-        guard let source = await fixture("transcode-not-media.mov", {
-            try await FixtureLibrary.shared.notMedia(named: "transcode-not-media.mov")
-        }) else { return }
+        guard
+            let source = await fixture(
+                "transcode-not-media.mov",
+                {
+                    try await FixtureLibrary.shared.notMedia(named: "transcode-not-media.mov")
+                })
+        else { return }
         let output = await FixtureLibrary.shared.scratchURL(named: "not-media-out.mov")
         await #expect(throws: LatheError.self) {
             _ = try await transcoder.transcode(source: source, to: output)
@@ -518,7 +542,7 @@ struct VideoTranscoderTests {
             // values ARE the names — pinned against the SDK constants in
             // VideoSurfaceTests, under the availability guard that costs.
             encoderSpecification: [
-                "EnableHardwareAcceleratedVideoEncoder" as CFString: true,
+                "EnableHardwareAcceleratedVideoEncoder" as CFString: true
             ] as CFDictionary,
             imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: nil, refcon: nil, compressionSessionOut: &session
@@ -583,8 +607,8 @@ private final class Recorder: @unchecked Sendable {
 /// software stand-ins for the hardware ones.
 let runningInSimulator: Bool = {
     #if targetEnvironment(simulator)
-    true
+        true
     #else
-    false
+        false
     #endif
 }()

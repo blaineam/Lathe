@@ -161,7 +161,8 @@ public struct AV1Encoder: Sendable {
                 path: destination.lastPathComponent, reason: (error as NSError).localizedDescription)
         }
 
-        let bytes = (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        let bytes =
+            (try? destination.resourceValues(forKeys: [.fileSizeKey]).fileSize)
             .flatMap { $0.map(UInt64.init) } ?? 0
         return AV1EncodeResult(
             output: destination,
@@ -179,7 +180,7 @@ public struct AV1Encoder: Sendable {
         let unlimited = PixelSize(width: Int.max / 4, height: Int.max / 4)
         guard resize != .none else { return unlimited }
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
-              let (natural, transform) = try? await track.load(.naturalSize, .preferredTransform)
+            let (natural, transform) = try? await track.load(.naturalSize, .preferredTransform)
         else {
             // The engine refuses a source without video, with a better message.
             return unlimited

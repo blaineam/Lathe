@@ -144,9 +144,10 @@ public struct MediaProbe: Sendable {
         let kind = MediaTrackKind(mediaType)
         let description = formatDescriptions.first
 
-        let fourCC = description.map {
-            MediaTrackInfo.fourCharacterCode(CMFormatDescriptionGetMediaSubType($0))
-        } ?? ""
+        let fourCC =
+            description.map {
+                MediaTrackInfo.fourCharacterCode(CMFormatDescriptionGetMediaSubType($0))
+            } ?? ""
 
         var codedSize: PixelSize?
         var displaySize: PixelSize?
@@ -164,15 +165,17 @@ public struct MediaProbe: Sendable {
             }
             if codedSize == nil || codedSize?.isEmpty == true {
                 let natural = try await track.load(.naturalSize)
-                codedSize = PixelSize(width: Int(natural.width.rounded()),
-                                      height: Int(natural.height.rounded()))
+                codedSize = PixelSize(
+                    width: Int(natural.width.rounded()),
+                    height: Int(natural.height.rounded()))
             }
             let transform = try await track.load(.preferredTransform)
             displaySize = codedSize.map { Self.applying(transform, to: $0) }
         }
 
         if kind == .audio, let description,
-           let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee {
+            let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee
+        {
             sampleRate = asbd.mSampleRate > 0 ? asbd.mSampleRate : nil
             channelCount = asbd.mChannelsPerFrame > 0 ? Int(asbd.mChannelsPerFrame) : nil
         }
@@ -201,7 +204,8 @@ public struct MediaProbe: Sendable {
     /// Only the rotation matters for a size — translation cannot change it, and
     /// a scale in the display matrix is vanishingly rare in capture formats.
     static func applying(_ transform: CGAffineTransform, to size: PixelSize) -> PixelSize {
-        let quarterTurn = abs(transform.b) > 0.5 && abs(transform.c) > 0.5
+        let quarterTurn =
+            abs(transform.b) > 0.5 && abs(transform.c) > 0.5
             && abs(transform.a) < 0.5 && abs(transform.d) < 0.5
         return quarterTurn
             ? PixelSize(width: size.height, height: size.width)

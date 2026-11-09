@@ -113,14 +113,15 @@ enum SWFFixtures {
     /// The same file, zlib-compressed and signed `CWS`.
     static func compressed(_ uncompressed: Data) -> Data {
         let body = uncompressed[(uncompressed.startIndex + 8)...]
-        return Data("CWS".utf8) + uncompressed[(uncompressed.startIndex + 3)..<(uncompressed
-            .startIndex + 8)] + zlib(Data(body))
+        return Data("CWS".utf8)
+            + uncompressed[
+                (uncompressed.startIndex + 3)..<(uncompressed
+                    .startIndex + 8)] + zlib(Data(body))
     }
 
     /// An `FWS` file whose declared tag stream is replaced wholesale, so a test
     /// can put arbitrary bytes where the tags belong.
-    static func swfWithRawBody(_ body: Data, signature: String = "FWS", version: UInt8 = 6) -> Data
-    {
+    static func swfWithRawBody(_ body: Data, signature: String = "FWS", version: UInt8 = 6) -> Data {
         var full = rect(width: 100, height: 100)
         full += u16(UInt16(12 * 256))
         full += u16(1)
@@ -149,7 +150,7 @@ enum SWFFixtures {
         let written: Int = destination.withUnsafeMutableBytes { out in
             data.withUnsafeBytes { input in
                 guard let outBase = out.bindMemory(to: UInt8.self).baseAddress,
-                      let inBase = input.bindMemory(to: UInt8.self).baseAddress
+                    let inBase = input.bindMemory(to: UInt8.self).baseAddress
                 else { return 0 }
                 return compression_encode_buffer(
                     outBase, capacity, inBase, data.count, nil, COMPRESSION_ZLIB

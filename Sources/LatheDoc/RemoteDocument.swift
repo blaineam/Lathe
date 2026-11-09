@@ -18,10 +18,10 @@ import LatheCore
 ///
 /// Both paths read the URL they are given and neither goes looking for one — see
 /// ``MediaSource``.
-public extension DocumentInspector {
+extension DocumentInspector {
 
     /// Page count for a document on disk or at a plain URL.
-    func pageCount(
+    public func pageCount(
         of source: MediaSource,
         transport: any MediaDataTransport = URLSessionMediaTransport(),
         limits: RemoteLimits = .standard
@@ -30,7 +30,7 @@ public extension DocumentInspector {
     }
 
     /// ``pageCount(of:transport:limits:)`` plus what the file turned out to be.
-    func inspect(
+    public func inspect(
         _ source: MediaSource,
         transport: any MediaDataTransport = URLSessionMediaTransport(),
         limits: RemoteLimits = .standard
@@ -89,7 +89,8 @@ public extension DocumentInspector {
         // whole comic is counted in one round trip.
         let directory: Data
         if located.offset >= UInt64(tailOffset),
-           located.offset + located.size <= UInt64(total) {
+            located.offset + located.size <= UInt64(total)
+        {
             let start = Int(located.offset - UInt64(tailOffset))
             let end = start + Int(located.size)
             if end <= tail.count {

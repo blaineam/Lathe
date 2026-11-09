@@ -173,7 +173,7 @@ public enum SWFSoundFormat: Sendable, Equatable, Codable, CustomStringConvertibl
         case .nellymoser8kHz: "Nellymoser 8 kHz"
         case .nellymoser: "Nellymoser"
         case .speex: "Speex"
-        case let .unassigned(code): "unassigned sound format \(code)"
+        case .unassigned(let code): "unassigned sound format \(code)"
         }
     }
 }

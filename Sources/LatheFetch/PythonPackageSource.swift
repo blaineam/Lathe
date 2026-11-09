@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields decode the package index's own JSON keys.
+
 import Foundation
 
 // MARK: - A release

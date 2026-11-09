@@ -99,7 +99,8 @@ struct MediaFetcherTests {
         defer { ProgressBridge.unregister(token) }
 
         func tick(part: Int, downloaded: Int, total: Int, status: String = "downloading") -> Bool {
-            let payload = #"{"token":\#(token),"part":\#(part),"part_count":2,"status":"\#(status)","downloaded_bytes":\#(downloaded),"total_bytes":\#(total)}"#
+            let payload =
+                #"{"token":\#(token),"part":\#(part),"part_count":2,"status":"\#(status)","downloaded_bytes":\#(downloaded),"total_bytes":\#(total)}"#
             return ProgressBridge.deliver(payload)
         }
 
@@ -127,7 +128,8 @@ struct MediaFetcherTests {
             handle: handle, selection: .single(MediaFormat(formatID: "a", byteCount: 10)), scale: 1)
         defer { ProgressBridge.unregister(token) }
 
-        let payload = #"{"token":\#(token),"part":0,"part_count":1,"status":"downloading","downloaded_bytes":1,"total_bytes":10}"#
+        let payload =
+            #"{"token":\#(token),"part":0,"part_count":1,"status":"downloading","downloaded_bytes":1,"total_bytes":10}"#
         #expect(!ProgressBridge.deliver(payload), "the return value is the cancellation signal")
     }
 
@@ -150,7 +152,8 @@ struct MediaFetcherTests {
             handle: handle, selection: .single(MediaFormat(formatID: "a")), scale: 1)
         defer { ProgressBridge.unregister(token) }
 
-        let payload = #"{"token":\#(token),"part":0,"part_count":1,"status":"downloading","fragment_index":25,"fragment_count":100}"#
+        let payload =
+            #"{"token":\#(token),"part":0,"part_count":1,"status":"downloading","fragment_index":25,"fragment_count":100}"#
         #expect(ProgressBridge.deliver(payload))
         #expect(abs((recorder.fractions.last.flatMap { $0 } ?? 0) - 0.25) < 0.001)
     }
@@ -317,7 +320,7 @@ struct MediaFetcherTests {
             try await fetcher.listing(
                 for: URL(string: "https://www.youtube.com/playlist?list=PLbpi6ZahtOH6Blw3RGYpWkSByi_T7Rygb")!)
         }
-        guard case let .isPlaylist(_, count) = error else {
+        guard case .isPlaylist(_, let count) = error else {
             Issue.record("expected isPlaylist, got \(String(describing: error))")
             return
         }
@@ -371,13 +374,15 @@ struct MediaFetcherTests {
         let new = try await after.prepare()
         print(new.report)
         #expect(new.isInstalled)
-        #expect(new.version.flatMap(PythonPackageVersion.init(parsing:))
-            == PythonPackageVersion(parsing: record.version))
+        #expect(
+            new.version.flatMap(PythonPackageVersion.init(parsing:))
+                == PythonPackageVersion(parsing: record.version))
         #expect(new.javaScriptSolverAvailable, "\(new.javaScriptUnavailableReason ?? "")")
         #expect(try runtime.evaluate("str(_LATHE_NET['ytdlp_registered'])").value.string == "True")
-        #expect(try runtime.evaluate(
-            "str('LatheURLSession' in __import__('yt_dlp.networking.common').networking.common._REQUEST_HANDLERS)"
-        ).value.string == "True")
+        #expect(
+            try runtime.evaluate(
+                "str('LatheURLSession' in __import__('yt_dlp.networking.common').networking.common._REQUEST_HANDLERS)"
+            ).value.string == "True")
 
         // And again: nothing left to do.
         #expect(try await after.update().plan.steps.isEmpty)

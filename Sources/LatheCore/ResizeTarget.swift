@@ -62,22 +62,23 @@ public enum ResizeTarget: Sendable, Equatable {
         case .none:
             return source
 
-        case let .fit(box):
+        case .fit(let box):
             guard !box.isEmpty else { return source }
-            let ratio = min(Double(box.width) / Double(source.width),
-                            Double(box.height) / Double(source.height))
+            let ratio = min(
+                Double(box.width) / Double(source.width),
+                Double(box.height) / Double(source.height))
             return Self.applyRatio(min(ratio, 1), to: source)
 
-        case let .longestSide(side):
+        case .longestSide(let side):
             guard side > 0 else { return source }
             let ratio = Double(side) / Double(source.longestSide)
             return Self.applyRatio(min(ratio, 1), to: source)
 
-        case let .scale(factor):
+        case .scale(let factor):
             guard factor > 0 else { return source }
             return Self.applyRatio(min(factor, 1), to: source)
 
-        case let .maxPixels(cap):
+        case .maxPixels(let cap):
             guard cap > 0, source.pixelCount > cap else { return source }
             let ratio = (Double(cap) / Double(source.pixelCount)).squareRoot()
             // Round *down* here: `maxPixels` is a hard ceiling, usually derived

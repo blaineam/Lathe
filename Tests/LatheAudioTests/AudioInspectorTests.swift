@@ -22,12 +22,16 @@ struct AudioInspectorTests {
     /// once made.
     @Test("duration is the length the fixture was written at")
     func durationMatchesTheFixture() async throws {
-        guard let wav = await fixture("audio-duration.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "audio-duration.wav", seconds: 3.5,
-                audio: .tone(hertz: 440, amplitude: 0.4)
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "audio-duration.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "audio-duration.wav", seconds: 3.5,
+                        audio: .tone(hertz: 440, amplitude: 0.4)
+                    )
+                })
+        else { return }
 
         let seconds = try await inspector.duration(of: wav)
         // A WAV's duration is sample-exact; the tolerance is for the rounding in
@@ -45,13 +49,20 @@ struct AudioInspectorTests {
     /// The distinction the whole module turns on, in both directions.
     @Test("PCM reads as lossless and AAC reads as lossy")
     func losslessIsDistinguishedFromLossy() async throws {
-        guard let wav = await fixture("audio-pcm.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "audio-pcm.wav", seconds: 2, audio: .tone(hertz: 440, amplitude: 0.4)
-            )
-        }), let aac = await fixture("audio-lossy.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "audio-lossy.m4a", seconds: 2)
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "audio-pcm.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "audio-pcm.wav", seconds: 2, audio: .tone(hertz: 440, amplitude: 0.4)
+                    )
+                }),
+            let aac = await fixture(
+                "audio-lossy.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "audio-lossy.m4a", seconds: 2)
+                })
+        else { return }
 
         let pcm = try #require(try await inspector.inspect(wav).stream)
         #expect(pcm.codecName == "pcm")
@@ -71,12 +82,16 @@ struct AudioInspectorTests {
 
     @Test("rate, channels and bitrate are reported from the container")
     func reportsTheShapeOfTheStream() async throws {
-        guard let aac = await fixture("audio-shape.m4a", {
-            try await FixtureLibrary.shared.aacFile(
-                named: "audio-shape.m4a", seconds: 4,
-                bitsPerSecond: 128_000, sampleRate: 44_100, channels: 2
-            )
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "audio-shape.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(
+                        named: "audio-shape.m4a", seconds: 4,
+                        bitsPerSecond: 128_000, sampleRate: 44_100, channels: 2
+                    )
+                })
+        else { return }
 
         let stream = try #require(try await inspector.inspect(aac).stream)
         #expect(stream.sampleRate == 44_100)
@@ -94,13 +109,17 @@ struct AudioInspectorTests {
 
     @Test("a low-rate mono source is reported as low-rate and mono")
     func reportsNarrowSources() async throws {
-        guard let wav = await fixture("audio-narrow.wav", {
-            try await FixtureLibrary.shared.wav(
-                named: "audio-narrow.wav", seconds: 2,
-                audio: .tone(hertz: 440, amplitude: 0.4),
-                sampleRate: 22_050, channels: 1
-            )
-        }) else { return }
+        guard
+            let wav = await fixture(
+                "audio-narrow.wav",
+                {
+                    try await FixtureLibrary.shared.wav(
+                        named: "audio-narrow.wav", seconds: 2,
+                        audio: .tone(hertz: 440, amplitude: 0.4),
+                        sampleRate: 22_050, channels: 1
+                    )
+                })
+        else { return }
 
         let stream = try #require(try await inspector.inspect(wav).stream)
         #expect(stream.sampleRate == 22_050)
@@ -111,11 +130,15 @@ struct AudioInspectorTests {
     /// impossible, and ``ChannelPolicy`` documents what happens instead.
     @Test("a multi-channel source carries a channel layout")
     func multichannelCarriesALayout() async throws {
-        guard let surround = await fixture("audio-surround.caf", {
-            try await FixtureLibrary.shared.multichannelPCM(
-                named: "audio-surround.caf", seconds: 1, channels: 6
-            )
-        }) else { return }
+        guard
+            let surround = await fixture(
+                "audio-surround.caf",
+                {
+                    try await FixtureLibrary.shared.multichannelPCM(
+                        named: "audio-surround.caf", seconds: 1, channels: 6
+                    )
+                })
+        else { return }
 
         let stream = try #require(try await inspector.inspect(surround).stream)
         #expect(stream.channelCount == 6)
@@ -128,9 +151,13 @@ struct AudioInspectorTests {
 
     @Test("a file with no audio track is a fact, not an error")
     func noAudioTrackIsNotAnError() async throws {
-        guard let movie = await fixture("audio-silent-video.mov", {
-            try await FixtureLibrary.shared.movie(named: "audio-silent-video.mov", audio: .none)
-        }) else { return }
+        guard
+            let movie = await fixture(
+                "audio-silent-video.mov",
+                {
+                    try await FixtureLibrary.shared.movie(named: "audio-silent-video.mov", audio: .none)
+                })
+        else { return }
 
         let info = try await inspector.inspect(movie)
         #expect(info.stream == nil)
@@ -142,18 +169,26 @@ struct AudioInspectorTests {
 
     @Test("a chapterless file reports no chapters")
     func chapterCountIsZeroWithoutChapters() async throws {
-        guard let aac = await fixture("audio-nochapters.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "audio-nochapters.m4a", seconds: 1)
-        }) else { return }
+        guard
+            let aac = await fixture(
+                "audio-nochapters.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "audio-nochapters.m4a", seconds: 1)
+                })
+        else { return }
 
         #expect(try await inspector.inspect(aac).chapterCount == 0)
     }
 
     @Test("a file that is not media fails, rather than reporting an empty one")
     func notMediaThrows() async throws {
-        guard let url = await fixture("audio-not-media.m4a", {
-            try await FixtureLibrary.shared.notMedia(named: "audio-not-media.m4a")
-        }) else { return }
+        guard
+            let url = await fixture(
+                "audio-not-media.m4a",
+                {
+                    try await FixtureLibrary.shared.notMedia(named: "audio-not-media.m4a")
+                })
+        else { return }
 
         await #expect(throws: LatheError.self) { _ = try await inspector.inspect(url) }
     }
@@ -180,16 +215,20 @@ struct AudioInspectorTests {
 
     @Test("codec names are spelled the way the familiar tools spell them")
     func codecNames() {
-        #expect(AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatMPEG4AAC, fourCC: "aac ")
-            == "aac")
-        #expect(AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatMPEGLayer3, fourCC: ".mp3")
-            == "mp3")
-        #expect(AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatAppleLossless, fourCC: "alac")
-            == "alac")
-        #expect(AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatOpus, fourCC: "opus")
-            == "opus")
+        #expect(
+            AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatMPEG4AAC, fourCC: "aac ")
+                == "aac")
+        #expect(
+            AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatMPEGLayer3, fourCC: ".mp3")
+                == "mp3")
+        #expect(
+            AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatAppleLossless, fourCC: "alac")
+                == "alac")
+        #expect(
+            AudioStreamInfo.commonCodecName(forFormatID: kAudioFormatOpus, fourCC: "opus")
+                == "opus")
         // An unrecognised code stays greppable rather than becoming "unknown".
-        #expect(AudioStreamInfo.commonCodecName(forFormatID: 0x7A7A7A7A, fourCC: "ZZZZ") == "zzzz")
+        #expect(AudioStreamInfo.commonCodecName(forFormatID: 0x7A7A_7A7A, fourCC: "ZZZZ") == "zzzz")
     }
 
     // MARK: - Fixture gate

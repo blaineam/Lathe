@@ -44,7 +44,9 @@ struct InPlaceWriteTests {
         try await expectReadable(file)
         // Twice the moov, plus a free header at most, plus two 8-byte labels.
         let moovAfter = try #require(after.first { $0.type == "moov" })
-        #expect(report0.bytesWritten <= 2 * moovAfter.size + 24, "wrote \(report0.bytesWritten) for a \(moovAfter.size)-byte moov")
+        #expect(
+            report0.bytesWritten <= 2 * moovAfter.size + 24,
+            "wrote \(report0.bytesWritten) for a \(moovAfter.size)-byte moov")
     }
 
     /// A smaller moov is padded with a `free` atom so `mdat` stays put.
@@ -106,7 +108,10 @@ struct InPlaceWriteTests {
         let moovBefore = try #require(try table(of: file).first { $0.type == "moov" })
 
         let (_, report) = try await writer.writeInPlace(
-            try await edited(file) { $0.artwork = []; $0.track = nil }, at: file, fallback: .refuse)
+            try await edited(file) {
+                $0.artwork = []
+                $0.track = nil
+            }, at: file, fallback: .refuse)
         let report0 = try #require(report)
         #expect(report0.compacted)
         #expect(report0.moovOffset == moovBefore.offset)
@@ -215,8 +220,9 @@ struct InPlaceWriteTests {
                 // Not every step happens for every layout; the ones that do
                 // must have stopped there.
                 let read = try await reader.read(file)
-                #expect(read.title == original.title || read.title == "Interrupted",
-                        "\(layout) at \(step): read \(String(describing: read.title))")
+                #expect(
+                    read.title == original.title || read.title == "Interrupted",
+                    "\(layout) at \(step): read \(String(describing: read.title))")
                 try await expectReadable(file, label: "\(layout) after \(step)")
 
                 // Then the write is run again, which heals and finishes.
@@ -225,7 +231,8 @@ struct InPlaceWriteTests {
                 #expect(try await reader.read(file).title == "Interrupted", "\(layout) healing after \(step)")
                 let after = try table(of: file)
                 #expect(after.filter { $0.type == "moov" }.count == 1, "\(layout) after \(step): \(after)")
-                #expect(after.last?.end == (try fileSize(file)), "\(layout) after \(step): table does not tile the file")
+                #expect(
+                    after.last?.end == (try fileSize(file)), "\(layout) after \(step): table does not tile the file")
                 try await expectReadable(file, label: "\(layout) healed after \(step)")
                 _ = stopped
                 _ = report
@@ -315,8 +322,10 @@ struct InPlaceWriteTests {
         var hdlr = Data(repeating: 0, count: 8)
         hdlr.append(ISOBMFF.fourCC("mdta"))
         hdlr.append(Data(repeating: 0, count: 13))
-        let meta = ISOBMFF.box("meta", Data([0, 0, 0, 0]) + ISOBMFF.box("hdlr", hdlr)
-            + ISOBMFF.box("keys", Data([0, 0, 0, 0, 0, 0, 0, 0])) + ISOBMFF.box("ilst", Data()))
+        let meta = ISOBMFF.box(
+            "meta",
+            Data([0, 0, 0, 0]) + ISOBMFF.box("hdlr", hdlr)
+                + ISOBMFF.box("keys", Data([0, 0, 0, 0, 0, 0, 0, 0])) + ISOBMFF.box("ilst", Data()))
         try replaceUserData(in: keyed, with: ISOBMFF.box("udta", meta))
         #expect(writer.canWriteInPlace(at: keyed).reason?.contains("mdta") == true)
         try await expectReadable(keyed, label: "the keyed fixture itself")
@@ -330,7 +339,8 @@ struct InPlaceWriteTests {
         try append(Data([0, 0, 1, 0]) + ISOBMFF.fourCC("moov") + Data(repeating: 7, count: 40), to: stumped)
         #expect(writer.canWriteInPlace(at: stumped).isSupported)
         let length = try fileSize(stumped)
-        _ = try await writer.writeInPlace(try await edited(stumped) { $0.title = "Healed" }, at: stumped, fallback: .refuse)
+        _ = try await writer.writeInPlace(
+            try await edited(stumped) { $0.title = "Healed" }, at: stumped, fallback: .refuse)
         #expect(try fileSize(stumped) < length)
         #expect(try table(of: stumped).last?.end == (try fileSize(stumped)))
         #expect(try await reader.read(stumped).title == "Healed")
@@ -339,7 +349,8 @@ struct InPlaceWriteTests {
         let moov = try #require(try table(of: doubled).first { $0.type == "moov" })
         try append(try Data(contentsOf: doubled).subdata(in: Int(moov.offset)..<Int(moov.end)), to: doubled)
         #expect(writer.canWriteInPlace(at: doubled).isSupported)
-        _ = try await writer.writeInPlace(try await edited(doubled) { $0.title = "Healed" }, at: doubled, fallback: .refuse)
+        _ = try await writer.writeInPlace(
+            try await edited(doubled) { $0.title = "Healed" }, at: doubled, fallback: .refuse)
         let after = try table(of: doubled)
         #expect(after.filter { $0.type == "moov" }.count == 1)
         #expect(after.last?.end == (try fileSize(doubled)))
@@ -438,8 +449,10 @@ struct InPlaceWriteTests {
         let file = try await mp4("inplace-avf")
         let cover = try #require(Artwork(sniffing: try Self.noisePNG(side: 64)))
         var meta = MediaMetadata(title: "Agreed", creators: ["One", "Two"], genre: "Drama", kind: .tvShow)
-        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 3, episodeNumber: 12, episodeID: "312", network: "Net")
-        meta.track = TrackInfo(albumName: "Album", trackNumber: 4, trackCount: 9, discNumber: 1, discCount: 2, isCompilation: true)
+        meta.show = ShowInfo(
+            seriesName: "A Series", seasonNumber: 3, episodeNumber: 12, episodeID: "312", network: "Net")
+        meta.track = TrackInfo(
+            albumName: "Album", trackNumber: 4, trackCount: 9, discNumber: 1, discCount: 2, isCompilation: true)
         meta.artwork = [cover]
         meta.date = Date(timeIntervalSince1970: 1_700_000_000)
         _ = try await writer.write(meta, inPlaceAt: file, fallback: .refuse)
@@ -489,7 +502,11 @@ struct InPlaceWriteTests {
         let before = try await sampleBytes(of: file)
         #expect(!before.isEmpty)
         let cover = try #require(Artwork(sniffing: try Self.noisePNG(side: 512)))
-        _ = try await writer.write(try await edited(file) { $0.artwork = [cover]; $0.title = "Samples" }, inPlaceAt: file, fallback: .refuse)
+        _ = try await writer.write(
+            try await edited(file) {
+                $0.artwork = [cover]
+                $0.title = "Samples"
+            }, inPlaceAt: file, fallback: .refuse)
         #expect(try await sampleBytes(of: file) == before)
     }
 
@@ -507,7 +524,8 @@ struct InPlaceWriteTests {
         _ = try await ChapterWriter().write(chapters, into: source, writingTo: chaptered)
         #expect(await ChapterTrack.read(from: AVURLAsset(url: chaptered)).map(\.title) == ["One", "Two"])
 
-        let result = try await writer.write(try await edited(chaptered) { $0.title = "Chaptered" }, inPlaceAt: chaptered, fallback: .refuse)
+        let result = try await writer.write(
+            try await edited(chaptered) { $0.title = "Chaptered" }, inPlaceAt: chaptered, fallback: .refuse)
         #expect(result.wroteInPlace)
         #expect(await ChapterTrack.read(from: AVURLAsset(url: chaptered)).map(\.title) == ["One", "Two"])
         #expect(try await reader.read(chaptered).title == "Chaptered")
@@ -538,7 +556,8 @@ struct InPlaceWriteTests {
         let moov = try #require(try table(of: file).first { $0.type == "moov" })
 
         let started = Date()
-        let result = try await writer.write(try await edited(file) { $0.title = "Measured" }, inPlaceAt: file, fallback: .refuse)
+        let result = try await writer.write(
+            try await edited(file) { $0.title = "Measured" }, inPlaceAt: file, fallback: .refuse)
         let seconds = Date().timeIntervalSince(started)
         #expect(result.wroteInPlace)
         #expect(result.bytesWritten < 3 * moov.size + 64)
@@ -546,14 +565,16 @@ struct InPlaceWriteTests {
 
         let exported = await FixtureLibrary.shared.scratchURL(named: "inplace-measure-export.m4a")
         try? FileManager.default.removeItem(at: exported)
-        let export = try await writer.write(try await edited(file) { $0.title = "Exported" }, to: file, writingTo: exported)
+        let export = try await writer.write(
+            try await edited(file) { $0.title = "Exported" }, to: file, writingTo: exported)
 
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         func n(_ value: UInt64) -> String { formatter.string(from: NSNumber(value: value)) ?? "\(value)" }
         // To stderr: the test runner swallows stdout, and this number is the
         // point of the path.
-        let line = "[measurement] in-place title change: file \(n(size)) bytes, moov \(n(moov.size)) bytes "
+        let line =
+            "[measurement] in-place title change: file \(n(size)) bytes, moov \(n(moov.size)) bytes "
             + "(cover \(n(UInt64(cover.data.count)))), wrote \(n(result.bytesWritten)) bytes "
             + "in \(String(format: "%.3f", seconds)) s; the export wrote \(n(export.bytesWritten)) bytes\n"
         FileHandle.standardError.write(Data(line.utf8))
@@ -604,7 +625,8 @@ struct InPlaceWriteTests {
 
     /// A plain MP4, by way of the export.
     private func mp4(_ name: String) async throws -> URL {
-        let mov = try await FixtureLibrary.shared.movie(named: "inplace-source.mov", seconds: 1,
+        let mov = try await FixtureLibrary.shared.movie(
+            named: "inplace-source.mov", seconds: 1,
             audio: .tone(hertz: 440, amplitude: 0.3),
             creationDate: Date(timeIntervalSince1970: 1_600_000_000), location: "+37.7749-122.4194/")
         let destination = await FixtureLibrary.shared.scratchURL(named: "\(name).mp4")
@@ -631,21 +653,25 @@ struct InPlaceWriteTests {
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
         var state: UInt64 = 0x9E37_79B9_7F4A_7C15 &+ UInt64(side)
         for index in pixels.indices {
-            state ^= state << 13; state ^= state >> 7; state ^= state << 17
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
             pixels[index] = UInt8(truncatingIfNeeded: state)
         }
         let data = Data(pixels)
         guard let provider = CGDataProvider(data: data as CFData),
-              let image = CGImage(
+            let image = CGImage(
                 width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
                 provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent),
-              let out = CFDataCreateMutable(nil, 0),
-              let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil)
+            let out = CFDataCreateMutable(nil, 0),
+            let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil)
         else { throw FixtureError.unsupported("could not make a PNG") }
         CGImageDestinationAddImage(destination, image, nil)
-        guard CGImageDestinationFinalize(destination) else { throw FixtureError.unsupported("could not finalise a PNG") }
+        guard CGImageDestinationFinalize(destination) else {
+            throw FixtureError.unsupported("could not finalise a PNG")
+        }
         return out as Data
     }
 
@@ -726,9 +752,11 @@ struct InPlaceWriteTests {
             guard let block = CMSampleBufferGetDataBuffer(buffer) else { continue }
             var length = 0
             var pointer: UnsafeMutablePointer<CChar>?
-            guard CMBlockBufferGetDataPointer(
-                block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer
-            ) == noErr, let pointer else { continue }
+            guard
+                CMBlockBufferGetDataPointer(
+                    block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer
+                ) == noErr, let pointer
+            else { continue }
             collected.append(UnsafeRawPointer(pointer).assumingMemoryBound(to: UInt8.self), count: length)
         }
         return collected
@@ -743,13 +771,14 @@ enum Relayout {
         let data = try Data(contentsOf: source)
         let (boxes, _) = try ISOBMFF.topLevel(of: try ISOFileReader(url: source))
         guard let moov = boxes.first(where: { $0.type == "moov" }),
-              let mdat = boxes.first(where: { $0.type == "mdat" }), moov.offset > mdat.offset
+            let mdat = boxes.first(where: { $0.type == "mdat" }), moov.offset > mdat.offset
         else {
             try data.write(to: destination)
             return
         }
         var moovBytes = data.subdata(in: Int(moov.offset)..<Int(moov.end))
-        try shiftChunkOffsets(in: &moovBytes, range: Int(moov.headerSize)..<moovBytes.count, by: Int64(moov.size), parent: "moov")
+        try shiftChunkOffsets(
+            in: &moovBytes, range: Int(moov.headerSize)..<moovBytes.count, by: Int64(moov.size), parent: "moov")
 
         var out = Data()
         var inserted = false
@@ -766,7 +795,9 @@ enum Relayout {
 
     private static let containers: Set<String> = ["trak", "mdia", "minf", "stbl"]
 
-    private static func shiftChunkOffsets(in data: inout Data, range: Range<Int>, by delta: Int64, parent: String) throws {
+    private static func shiftChunkOffsets(in data: inout Data, range: Range<Int>, by delta: Int64, parent: String)
+        throws
+    {
         let children = try ISOBMFF.children(of: data.subdata(in: range), base: UInt64(range.lowerBound), in: parent)
         for child in children {
             let start = Int(child.offset)

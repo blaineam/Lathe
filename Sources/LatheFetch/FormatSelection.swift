@@ -144,16 +144,16 @@ public enum FormatSelection: Sendable, Equatable {
     /// the ordering.
     public var formatIDs: [String] {
         switch self {
-        case let .single(format): [format.formatID]
-        case let .pair(video, audio): [video.formatID, audio.formatID]
+        case .single(let format): [format.formatID]
+        case .pair(let video, let audio): [video.formatID, audio.formatID]
         }
     }
 
     /// Every rendition in the selection.
     public var formats: [MediaFormat] {
         switch self {
-        case let .single(format): [format]
-        case let .pair(video, audio): [video, audio]
+        case .single(let format): [format]
+        case .pair(let video, let audio): [video, audio]
         }
     }
 
@@ -172,16 +172,16 @@ public enum FormatSelection: Sendable, Equatable {
     /// The container the result should be written as.
     public var containerExtension: String {
         switch self {
-        case let .single(format): format.ext ?? "mp4"
+        case .single(let format): format.ext ?? "mp4"
         case .pair: "mp4"
         }
     }
 
     public var summary: String {
         switch self {
-        case let .single(format):
+        case .single(let format):
             "single format — \(format.summary)"
-        case let .pair(video, audio):
+        case .pair(let video, let audio):
             "mux two formats —\n    video: \(video.summary)\n    audio: \(audio.summary)"
         }
     }

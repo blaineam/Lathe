@@ -281,9 +281,11 @@ public struct AudioTranscoder: Sendable {
             throw LatheError.invalidInput(reason: "\(info.fileName) has no audio track to transcode")
         }
         let formatDescription = (try? await track.load(.formatDescriptions))?.first
-        let trackRange = (try? await track.load(.timeRange)) ?? CMTimeRange(
-            start: .zero, duration: CMTime(seconds: info.duration, preferredTimescale: 600)
-        )
+        let trackRange =
+            (try? await track.load(.timeRange))
+            ?? CMTimeRange(
+                start: .zero, duration: CMTime(seconds: info.duration, preferredTimescale: 600)
+            )
 
         let reader: AVAssetReader
         do {
@@ -356,17 +358,22 @@ public struct AudioTranscoder: Sendable {
 
         // MARK: Run.
         guard reader.startReading() else {
-            throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
-                stage: "read", code: nil, reason: "the reader refused to start"
-            ))
+            throw LatheError.wrapping(
+                reader.error
+                    ?? LatheError.encodingFailed(
+                        stage: "read", code: nil, reason: "the reader refused to start"
+                    ))
         }
         guard writer.startWriting() else {
-            throw LatheError.wrapping(writer.error ?? LatheError.writeFailed(
-                path: request.destination.lastPathComponent,
-                reason: "the writer refused to start"
-            ))
+            throw LatheError.wrapping(
+                writer.error
+                    ?? LatheError.writeFailed(
+                        path: request.destination.lastPathComponent,
+                        reason: "the writer refused to start"
+                    ))
         }
-        let sessionStart = trackRange.start.isValid && trackRange.start >= .zero
+        let sessionStart =
+            trackRange.start.isValid && trackRange.start >= .zero
             ? trackRange.start : .zero
         writer.startSession(atSourceTime: sessionStart)
 
@@ -404,12 +411,13 @@ public struct AudioTranscoder: Sendable {
             let frames = UInt64(max(0, CMSampleBufferGetNumSamples(sample)))
 
             let elapsed = (presentation - sessionStart).seconds
-            try progress.checkpoint(LatheProgress(
-                fraction: totalSeconds > 0 ? min(1, max(0, elapsed / totalSeconds)) : nil,
-                stage: "encode",
-                unitIndex: state.frameCount,
-                unitCount: estimatedFrames
-            ))
+            try progress.checkpoint(
+                LatheProgress(
+                    fraction: totalSeconds > 0 ? min(1, max(0, elapsed / totalSeconds)) : nil,
+                    stage: "encode",
+                    unitIndex: state.frameCount,
+                    unitCount: estimatedFrames
+                ))
 
             guard input.append(sample) else {
                 throw failure(of: writer, stage: "mux", what: "a decoded audio buffer")
@@ -421,9 +429,11 @@ public struct AudioTranscoder: Sendable {
         try await pump.run()
 
         if reader.status == .failed {
-            throw LatheError.wrapping(reader.error ?? LatheError.encodingFailed(
-                stage: "read", code: nil, reason: "the reader failed without an error"
-            ))
+            throw LatheError.wrapping(
+                reader.error
+                    ?? LatheError.encodingFailed(
+                        stage: "read", code: nil, reason: "the reader failed without an error"
+                    ))
         }
 
         if let end = state.endTime, end > sessionStart {
@@ -464,9 +474,10 @@ public struct AudioTranscoder: Sendable {
             )
             return AudioTranscodeResult(
                 output: nil,
-                outcome: .skipped(.outputWouldBeLarger(
-                    inputByteCount: inputByteCount, outputByteCount: outputByteCount
-                )),
+                outcome: .skipped(
+                    .outputWouldBeLarger(
+                        inputByteCount: inputByteCount, outputByteCount: outputByteCount
+                    )),
                 source: sourceStream,
                 destination: nil,
                 inputByteCount: inputByteCount,
@@ -499,11 +510,12 @@ public struct AudioTranscoder: Sendable {
 
         // The terminal tick. A UI that never sees unitIndex == unitCount looks
         // stuck at 97% forever; `ProgressHandle` never throttles this one away.
-        progress.report(LatheProgress(
-            fraction: 1, stage: "encode",
-            unitIndex: max(state.frameCount, estimatedFrames),
-            unitCount: max(state.frameCount, estimatedFrames)
-        ))
+        progress.report(
+            LatheProgress(
+                fraction: 1, stage: "encode",
+                unitIndex: max(state.frameCount, estimatedFrames),
+                unitCount: max(state.frameCount, estimatedFrames)
+            ))
 
         return AudioTranscodeResult(
             output: request.destination,
@@ -554,9 +566,11 @@ public struct AudioTranscoder: Sendable {
         let sourceRate = source.sampleRate > 0 ? source.sampleRate : 44_100
         // The no-upsample rule, in one `min`.
         let asked = min(Double(request.sampleRate ?? Int(sourceRate)), sourceRate)
-        guard let rate = AudioEncodeSupport.sampleRate(
-            atOrBelow: asked, formatID: request.codec.formatID
-        ), rate > 0 else { return nil }
+        guard
+            let rate = AudioEncodeSupport.sampleRate(
+                atOrBelow: asked, formatID: request.codec.formatID
+            ), rate > 0
+        else { return nil }
 
         // Whether the source's channels can be *kept* is a question about the
         // encoder, not about the source: a six-channel layout a WAV is entitled
@@ -571,7 +585,8 @@ public struct AudioTranscoder: Sendable {
             sourceChannels: source.channelCount,
             hasLayout: layout != nil
         )
-        let bits = request.codec.isLossless
+        let bits =
+            request.codec.isLossless
             ? nil
             : bitrate(for: request.quality, channels: applied.outputChannelCount).map {
                 AudioEncodeSupport.bitrate(nearest: $0, formatID: request.codec.formatID)
@@ -650,11 +665,11 @@ public struct AudioTranscoder: Sendable {
     public static func bitrate(for quality: QualityTarget, channels: Int) -> Int? {
         let channels = max(1, channels)
         switch quality {
-        case let .quality(value):
+        case .quality(let value):
             let clamped = min(max(value, 0), 1)
             let perChannel = (24_000 + clamped * (96_000 - 24_000)) / 1_000
             return Int(perChannel.rounded()) * 1_000 * channels
-        case let .averageBitrate(bits):
+        case .averageBitrate(let bits):
             return max(1, bits)
         case .lossless:
             return nil
@@ -686,7 +701,7 @@ public struct AudioTranscoder: Sendable {
             return .lossySourceRefusedByRule
         case .allow:
             return nil
-        case let .requireSavings(fraction):
+        case .requireSavings(let fraction):
             let required = min(max(fraction, 0), 1)
             guard let sourceBitrate = source.bitsPerSecond, sourceBitrate > 0 else {
                 // No way to prove a saving against an unknown number, and
@@ -776,7 +791,7 @@ public struct AudioTranscoder: Sendable {
     static func alacBitDepthHint(for source: AudioStreamInfo, format: CMFormatDescription?) -> Int {
         if let depth = source.bitDepth, [16, 20, 24, 32].contains(depth) { return depth }
         guard let format,
-              let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
+            let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(format)?.pointee
         else { return 16 }
         // ALAC and FLAC both encode the source depth in the low bits of
         // `mFormatFlags`, with the same 1...4 numbering.
@@ -857,7 +872,7 @@ public struct AudioTranscoder: Sendable {
                     + "which resolve to a bitrate the lossy-source rule can compare against"
             )
         case (.aac, let quality):
-            if case let .averageBitrate(bits) = quality, bits <= 0 {
+            if case .averageBitrate(let bits) = quality, bits <= 0 {
                 throw LatheError.invalidConfiguration(
                     reason: "a target bitrate must be positive"
                 )
@@ -867,7 +882,7 @@ public struct AudioTranscoder: Sendable {
         if let rate = request.sampleRate, rate <= 0 {
             throw LatheError.invalidConfiguration(reason: "a target sample rate must be positive")
         }
-        if case let .atMost(count) = request.channels, count <= 0 {
+        if case .atMost(let count) = request.channels, count <= 0 {
             throw LatheError.invalidConfiguration(reason: "a channel count must be positive")
         }
         _ = container
@@ -1016,7 +1031,10 @@ private final class WriterInputPump: @unchecked Sendable {
     /// `markAsFinished()`, and resuming twice traps.
     private func settle(_ error: (any Error)?) {
         lock.lock()
-        guard !settled, let continuation else { lock.unlock(); return }
+        guard !settled, let continuation else {
+            lock.unlock()
+            return
+        }
         settled = true
         self.continuation = nil
         lock.unlock()

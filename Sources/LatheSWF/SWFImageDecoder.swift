@@ -4,7 +4,7 @@ import ImageIO
 import LatheCore
 
 #if canImport(UniformTypeIdentifiers)
-import UniformTypeIdentifiers
+    import UniformTypeIdentifiers
 #endif
 
 /// Turns SWF bitmap tags into files something written after 2010 can open.
@@ -100,7 +100,7 @@ enum SWFImageDecoder {
         guard data.count >= 4 else { return data }
         let start = data.startIndex
         guard data[start] == 0xFF, data[start + 1] == 0xD9,
-              data[start + 2] == 0xFF, data[start + 3] == 0xD8
+            data[start + 2] == 0xFF, data[start + 3] == 0xD8
         else { return data }
         return Data(data[(start + 4)...])
     }
@@ -119,7 +119,8 @@ enum SWFImageDecoder {
         var tail = strippingErroneousJPEGPrefix(imageData)
 
         if head.count >= 2, head[head.index(head.endIndex, offsetBy: -2)] == 0xFF,
-           head[head.index(head.endIndex, offsetBy: -1)] == 0xD9 {
+            head[head.index(head.endIndex, offsetBy: -1)] == 0xD9
+        {
             head = Data(head.dropLast(2))
         }
         if tail.count >= 2, tail[tail.startIndex] == 0xFF, tail[tail.startIndex + 1] == 0xD8 {
@@ -138,11 +139,11 @@ enum SWFImageDecoder {
     /// keeps a movie full of large photographs from being a memory problem.
     static func pixelSize(of data: Data) -> (width: Int, height: Int)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            CGImageSourceGetCount(source) > 0,
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
                 as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
         return (width, height)
     }
@@ -350,8 +351,8 @@ enum SWFImageDecoder {
         jpeg: Data, alphaZlib: Data, limits: SWFLimits, name: String
     ) -> Data? {
         guard let source = CGImageSourceCreateWithData(jpeg as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            CGImageSourceGetCount(source) > 0,
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
 
         let width = image.width
@@ -361,11 +362,13 @@ enum SWFImageDecoder {
         }
 
         let alphaCount = width * height
-        guard let alpha = try? SWFReader.inflateZlib(
-            alphaZlib, expectedCount: alphaCount,
-            limit: min(limits.maximumDecompressedBytes, alphaCount + 4096),
-            what: "\(name)'s alpha channel"
-        ), alpha.count >= alphaCount else { return nil }
+        guard
+            let alpha = try? SWFReader.inflateZlib(
+                alphaZlib, expectedCount: alphaCount,
+                limit: min(limits.maximumDecompressedBytes, alphaCount + 4096),
+                what: "\(name)'s alpha channel"
+            ), alpha.count >= alphaCount
+        else { return nil }
 
         // Draw into an opaque RGBX buffer first. Drawing straight into a
         // premultiplied buffer would be one step shorter and wrong: Core
@@ -377,7 +380,7 @@ enum SWFImageDecoder {
         var pixels = Data(count: width * height * 4)
         let drawn: Bool = pixels.withUnsafeMutableBytes { raw -> Bool in
             guard let base = raw.baseAddress,
-                  let context = CGContext(
+                let context = CGContext(
                     data: base, width: width, height: height, bitsPerComponent: 8,
                     bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
@@ -424,8 +427,8 @@ enum SWFImageDecoder {
     static func pngData(_ raster: Raster) -> Data? {
         let bytesPerRow = raster.width * 4
         guard raster.pixels.count >= bytesPerRow * raster.height,
-              let provider = CGDataProvider(data: raster.pixels as CFData),
-              let image = CGImage(
+            let provider = CGDataProvider(data: raster.pixels as CFData),
+            let image = CGImage(
                 width: raster.width, height: raster.height, bitsPerComponent: 8, bitsPerPixel: 32,
                 bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
@@ -433,9 +436,11 @@ enum SWFImageDecoder {
         else { return nil }
 
         let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            output as CFMutableData, pngTypeIdentifier as CFString, 1, nil
-        ) else { return nil }
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                output as CFMutableData, pngTypeIdentifier as CFString, 1, nil
+            )
+        else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return output as Data
@@ -443,9 +448,9 @@ enum SWFImageDecoder {
 
     private static var pngTypeIdentifier: String {
         #if canImport(UniformTypeIdentifiers)
-        return UTType.png.identifier
+            return UTType.png.identifier
         #else
-        return "public.png"
+            return "public.png"
         #endif
     }
 }

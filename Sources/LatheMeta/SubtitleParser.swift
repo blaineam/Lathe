@@ -135,17 +135,20 @@ public enum SubtitleParser {
             // UTF-16 without a mark: ASCII text puts its zero bytes all on one
             // side. Anything else with NULs in it is binary.
             let sample = bytes.prefix(4096)
-            var evenZeros = 0, oddZeros = 0
+            var evenZeros = 0
+            var oddZeros = 0
             for (index, byte) in sample.enumerated() where byte == 0 {
                 if index % 2 == 0 { evenZeros += 1 } else { oddZeros += 1 }
             }
             let half = sample.count / 2
             if half > 0, oddZeros * 10 >= half * 3, evenZeros * 10 < half,
-               let text = String(data: data, encoding: .utf16LittleEndian) {
+                let text = String(data: data, encoding: .utf16LittleEndian)
+            {
                 return stripBOM(text)
             }
             if half > 0, evenZeros * 10 >= half * 3, oddZeros * 10 < half,
-               let text = String(data: data, encoding: .utf16BigEndian) {
+                let text = String(data: data, encoding: .utf16BigEndian)
+            {
                 return stripBOM(text)
             }
             throw SubtitleError.notText
@@ -225,8 +228,8 @@ public enum SubtitleParser {
         let left = line[..<arrow.lowerBound]
         let rightTokens = line[arrow.upperBound...].split(whereSeparator: { $0 == " " || $0 == "\t" })
         guard let right = rightTokens.first,
-              let start = timestamp(left),
-              let end = timestamp(right)
+            let start = timestamp(left),
+            let end = timestamp(right)
         else { return nil }
         return (start, end)
     }
@@ -316,7 +319,8 @@ public enum SubtitleParser {
                 let line = lines[index]
                 if isBlank(line) || line.contains("-->") { break }
                 if index + 1 < lines.count, lines[index + 1].contains("-->"),
-                   format == .webVTT || isAllDigits(line) {
+                    format == .webVTT || isAllDigits(line)
+                {
                     break
                 }
                 collected.append(String(line).trimmingCharacters(in: .whitespaces))
@@ -395,7 +399,9 @@ enum SubtitleMarkup {
     static func strip(_ raw: String) -> (String, [SubtitleStyleRun]) {
         var output = String.UnicodeScalarView()
         var runs: [SubtitleStyleRun] = []
-        var bold = 0, italic = 0, underline = 0
+        var bold = 0
+        var italic = 0
+        var underline = 0
         var runStart = 0
         var runStyle: SubtitleStyle = []
 
@@ -429,7 +435,8 @@ enum SubtitleMarkup {
                 // optional slash, or a WebVTT timestamp. "I <3 you > him" is
                 // text.
                 let afterSlash = closing ? body.dropFirst() : Substring(body)
-                let isTimestamp = !body.isEmpty && body.allSatisfy { $0.isASCII && ($0.isNumber || $0 == ":" || $0 == ".") }
+                let isTimestamp =
+                    !body.isEmpty && body.allSatisfy { $0.isASCII && ($0.isNumber || $0 == ":" || $0 == ".") }
                 guard afterSlash.first?.isLetter == true || isTimestamp else {
                     output.append(scalar)
                     i += 1
@@ -441,7 +448,7 @@ enum SubtitleMarkup {
                 case "b": bold = max(0, bold + delta)
                 case "i": italic = max(0, italic + delta)
                 case "u": underline = max(0, underline + delta)
-                default: break   // font, c, v, lang, ruby, timestamps: dropped
+                default: break  // font, c, v, lang, ruby, timestamps: dropped
                 }
                 styleChanged()
                 i = close + 1
@@ -450,7 +457,8 @@ enum SubtitleMarkup {
             // `{\an8}`, `{\i1}` — SubStation override blocks that SubRip files
             // pick up from converters. `{\i1}` and `{\i0}` are honoured.
             if scalar == "{", i + 1 < scalars.count, scalars[i + 1] == "\\",
-               let close = scalars[(i + 1)...].prefix(256).firstIndex(of: "}") {
+                let close = scalars[(i + 1)...].prefix(256).firstIndex(of: "}")
+            {
                 let body = String(String.UnicodeScalarView(scalars[(i + 2)..<close]))
                 for tag in body.split(separator: "\\") {
                     switch tag {
@@ -565,7 +573,8 @@ enum SubtitleMarkup {
         let length = semicolon - start + 1
         if let scalar = named[name] { return (scalar, length) }
         if name.hasPrefix("#x") || name.hasPrefix("#X"),
-           let value = UInt32(name.dropFirst(2), radix: 16), let scalar = Unicode.Scalar(value) {
+            let value = UInt32(name.dropFirst(2), radix: 16), let scalar = Unicode.Scalar(value)
+        {
             return (scalar, length)
         }
         if name.hasPrefix("#"), let value = UInt32(name.dropFirst()), let scalar = Unicode.Scalar(value) {

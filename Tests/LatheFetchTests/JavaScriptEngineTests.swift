@@ -234,8 +234,9 @@ struct JavaScriptEngineTests {
         // "player" contains two hex digits of its own, and filtering for
         // `isHexDigit` quietly prepends them to the id.
         let pattern = try NSRegularExpression(pattern: #"player\\?/([0-9a-fA-F]{8})\\?/"#)
-        guard let match = pattern.firstMatch(
-            in: body, range: NSRange(body.startIndex..., in: body)),
+        guard
+            let match = pattern.firstMatch(
+                in: body, range: NSRange(body.startIndex..., in: body)),
             let range = Range(match.range(at: 1), in: body)
         else {
             throw MediaFetchError.extractionFailed(reason: "no player id in the iframe API")

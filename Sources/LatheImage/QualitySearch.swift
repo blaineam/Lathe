@@ -57,8 +57,9 @@ public struct QualitySearch: Sendable, Equatable {
         var value = high
 
         for index in 0..<maximumAttempts {
-            try progress.checkpoint(LatheProgress(
-                fraction: Double(index) / Double(maximumAttempts), stage: "search"))
+            try progress.checkpoint(
+                LatheProgress(
+                    fraction: Double(index) / Double(maximumAttempts), stage: "search"))
             let (output, similarity) = try await attempt(value)
             let passed = similarity.meets(threshold)
             outcome.attempts.append(Attempt(value: value, similarity: similarity, passed: passed))

@@ -1,7 +1,8 @@
 import Foundation
 import LatheCore
+
 #if canImport(AVFoundation)
-import AVFoundation
+    import AVFoundation
 #endif
 
 /// Whether a file can have its tags rewritten where it is.
@@ -48,7 +49,7 @@ extension MetadataWriter {
             return .supported
         } catch let error as LatheError {
             switch error {
-            case let .invalidInput(reason), let .readFailed(_, reason), let .writeFailed(_, reason):
+            case .invalidInput(let reason), .readFailed(_, let reason), .writeFailed(_, let reason):
                 return .unsupported(reason: reason)
             default:
                 return .unsupported(reason: error.localizedDescription)
@@ -98,9 +99,11 @@ extension MetadataWriter {
             return (try await exportInPlace(metadata, at: url), nil)
         }
 
-        let report = try MP4InPlace.commit(inspection, moov: moov, rebuild: { padding in
-            try MP4InPlace.buildMoov(inspection, metadata: metadata, padding: padding)
-        }, hooks: hooks)
+        let report = try MP4InPlace.commit(
+            inspection, moov: moov,
+            rebuild: { padding in
+                try MP4InPlace.buildMoov(inspection, metadata: metadata, padding: padding)
+            }, hooks: hooks)
         let result = MetadataWriteResult(
             output: url,
             store: .iTunesAtoms,
@@ -142,38 +145,43 @@ extension MetadataWriter {
     }
 
     #if canImport(AVFoundation)
-    /// Reads `moov` back the way every consumer will — through AVFoundation —
-    /// and refuses the write unless what comes back is what was asked for.
-    ///
-    /// The stub is `ftyp` and the new `moov` and nothing else. AVFoundation
-    /// reads the metadata out of that without ever touching a sample, so this
-    /// costs one small file in the temporary directory and no reads of the
-    /// film. It is also the check that the fields the atoms were built from are
-    /// the ones the reader's table maps: a mismatch here is a disagreement
-    /// between the two ends of this module, and the export path knows nothing
-    /// of it.
-    static func verifyReadBack(of moov: Data, inspection: MP4InPlace.Inspection, metadata: MediaMetadata) async throws {
-        let stub = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lathe-moov-\(UUID().uuidString)")
-            .appendingPathExtension(inspection.url.pathExtension.isEmpty ? "mp4" : inspection.url.pathExtension)
-        defer { try? FileManager.default.removeItem(at: stub) }
-        var bytes = inspection.ftyp ?? Data()
-        bytes.append(moov)
-        do {
-            try bytes.write(to: stub)
-        } catch {
-            throw LatheError.writeFailed(path: stub.lastPathComponent, reason: (error as NSError).localizedDescription)
+        /// Reads `moov` back the way every consumer will — through AVFoundation —
+        /// and refuses the write unless what comes back is what was asked for.
+        ///
+        /// The stub is `ftyp` and the new `moov` and nothing else. AVFoundation
+        /// reads the metadata out of that without ever touching a sample, so this
+        /// costs one small file in the temporary directory and no reads of the
+        /// film. It is also the check that the fields the atoms were built from are
+        /// the ones the reader's table maps: a mismatch here is a disagreement
+        /// between the two ends of this module, and the export path knows nothing
+        /// of it.
+        static func verifyReadBack(of moov: Data, inspection: MP4InPlace.Inspection, metadata: MediaMetadata)
+            async throws
+        {
+            let stub = FileManager.default.temporaryDirectory
+                .appendingPathComponent("lathe-moov-\(UUID().uuidString)")
+                .appendingPathExtension(inspection.url.pathExtension.isEmpty ? "mp4" : inspection.url.pathExtension)
+            defer { try? FileManager.default.removeItem(at: stub) }
+            var bytes = inspection.ftyp ?? Data()
+            bytes.append(moov)
+            do {
+                try bytes.write(to: stub)
+            } catch {
+                throw LatheError.writeFailed(
+                    path: stub.lastPathComponent, reason: (error as NSError).localizedDescription)
+            }
+            let read = try await MetadataReader().read(stub)
+            if let mismatch = InPlaceReadBack.firstDifference(between: metadata, and: read) {
+                throw LatheError.encodingFailed(
+                    stage: "metadata-in-place", code: nil,
+                    reason: "the rewritten tags read back differently: \(mismatch)"
+                )
+            }
         }
-        let read = try await MetadataReader().read(stub)
-        if let mismatch = InPlaceReadBack.firstDifference(between: metadata, and: read) {
-            throw LatheError.encodingFailed(
-                stage: "metadata-in-place", code: nil,
-                reason: "the rewritten tags read back differently: \(mismatch)"
-            )
-        }
-    }
     #else
-    static func verifyReadBack(of moov: Data, inspection: MP4InPlace.Inspection, metadata: MediaMetadata) async throws {}
+        static func verifyReadBack(of moov: Data, inspection: MP4InPlace.Inspection, metadata: MediaMetadata)
+            async throws
+        {}
     #endif
 }
 
@@ -194,18 +202,27 @@ enum InPlaceReadBack {
             return value
         }
         func check<T: Equatable>(_ name: String, _ expected: T, _ actual: T) -> String? {
-            expected == actual ? nil : "\(name): wrote \(String(describing: expected)), read \(String(describing: actual))"
+            expected == actual
+                ? nil : "\(name): wrote \(String(describing: expected)), read \(String(describing: actual))"
         }
 
         if let d = check("title", text(wanted.title), text(read.title)) { return d }
         if let d = check("summary", text(wanted.summary), text(read.summary)) { return d }
         if let d = check("long description", text(wanted.longDescription), text(read.longDescription)) { return d }
         let creators = wanted.creators.isEmpty ? nil : wanted.creators.joined(separator: ", ")
-        if let d = check("creators", text(creators), text(read.creators.isEmpty ? nil : read.creators.joined(separator: ", "))) { return d }
+        if let d = check(
+            "creators", text(creators), text(read.creators.isEmpty ? nil : read.creators.joined(separator: ", ")))
+        {
+            return d
+        }
         if let d = check("genre", text(wanted.genre), text(read.genre)) { return d }
         if let d = check("comment", text(wanted.comment), text(read.comment)) { return d }
         if let d = check("copyright", text(wanted.copyrightNotice), text(read.copyrightNotice)) { return d }
-        if let d = check("date", wanted.date.map { Int($0.timeIntervalSince1970) }, read.date.map { Int($0.timeIntervalSince1970) }) { return d }
+        if let d = check(
+            "date", wanted.date.map { Int($0.timeIntervalSince1970) }, read.date.map { Int($0.timeIntervalSince1970) })
+        {
+            return d
+        }
         if let d = check("kind", wanted.kind, read.kind) { return d }
 
         let show = wanted.show ?? ShowInfo()
@@ -226,7 +243,8 @@ enum InPlaceReadBack {
         if let d = check("compilation", track.isCompilation, readTrack.isCompilation) { return d }
 
         if let d = check("artwork count", wanted.artwork.count, read.artwork.count) { return d }
-        for (index, (expected, actual)) in zip(wanted.artwork, read.artwork).enumerated() where expected.data != actual.data {
+        for (index, (expected, actual)) in zip(wanted.artwork, read.artwork).enumerated()
+        where expected.data != actual.data {
             return "artwork \(index + 1): \(expected.data.count) bytes written, \(actual.data.count) read"
         }
         return nil

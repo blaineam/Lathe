@@ -124,7 +124,7 @@ public enum ChannelPolicy: Sendable, Equatable {
         case .preserve: return source
         // `min` is the whole no-upmix rule, in both remaining cases.
         case .downmixToStereo: return min(source, 2)
-        case let .atMost(count): return min(source, max(1, count))
+        case .atMost(let count): return min(source, max(1, count))
         }
     }
 }
@@ -147,9 +147,9 @@ public enum AppliedChannelPolicy: Sendable, Equatable {
 
     public var outputChannelCount: Int {
         switch self {
-        case let .preserved(channels): channels
-        case let .downmixed(_, to): to
-        case let .downmixedForWantOfALayout(_, to): to
+        case .preserved(let channels): channels
+        case .downmixed(_, let to): to
+        case .downmixedForWantOfALayout(_, let to): to
         }
     }
 }
@@ -256,7 +256,7 @@ public enum AudioTranscodeOutcome: Sendable, Equatable {
     }
 
     public var skipReason: AudioSkipReason? {
-        if case let .skipped(reason) = self { return reason }
+        if case .skipped(let reason) = self { return reason }
         return nil
     }
 }

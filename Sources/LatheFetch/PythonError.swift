@@ -69,22 +69,22 @@ public enum PythonError: Error, Sendable, Equatable {
 extension PythonError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case let .interpreterUnavailable(reason):
+        case .interpreterUnavailable(let reason):
             "No embedded CPython is available: \(reason)"
-        case let .symbolMissing(name, library):
+        case .symbolMissing(let name, let library):
             "\(library) does not export \(name); it is not a CPython 3.9+ runtime library."
-        case let .invalidLayout(reason):
+        case .invalidLayout(let reason):
             "The Python layout is not usable: \(reason)"
-        case let .alreadyBootstrapped(home):
+        case .alreadyBootstrapped(let home):
             "A Python interpreter is already running in this process (PYTHONHOME=\(home)). "
                 + "There is one interpreter per process and it cannot be replaced."
-        case let .bootstrapFailed(reason):
+        case .bootstrapFailed(let reason):
             "The Python interpreter failed to start: \(reason)"
-        case let .raised(exception):
+        case .raised(let exception):
             exception.description
-        case let .driverFailed(reason):
+        case .driverFailed(let reason):
             "The Lathe Python driver failed: \(reason)"
-        case let .notAnExpression(source):
+        case .notAnExpression(let source):
             "Not an expression, so it has no value to read back: \(source)"
         }
     }
@@ -149,7 +149,8 @@ public struct PythonException: Error, Sendable, Equatable, CustomStringConvertib
     public var description: String {
         var text = "\(type): \(message)"
         if isPlatformRestriction {
-            text += "\n\nThis is a platform restriction, not a defect in the Python code. "
+            text +=
+                "\n\nThis is a platform restriction, not a defect in the Python code. "
                 + "iOS does not allow a process to spawn another (PEP 730), so os.fork, "
                 + "os.forkpty and subprocess raise. The call site has to be replaced; "
                 + "retrying it will not help."

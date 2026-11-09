@@ -30,8 +30,9 @@ struct ChapterWriterTests {
     @Test("chapters survive a tag write", arguments: ["mp4", "m4v", "mov", "m4a"])
     func chaptersSurviveTagWrite(ext: String) async throws {
         guard let source = await chaptered(ext) else { return }
-        #expect(await titles(in: source) == Self.chapters.map(\.title),
-                "the chaptered fixture has no chapters")
+        #expect(
+            await titles(in: source) == Self.chapters.map(\.title),
+            "the chaptered fixture has no chapters")
 
         let output = await scratch("tagged-chapters-out.\(ext)")
         var meta = try await MetadataReader().read(source)
@@ -181,7 +182,7 @@ struct ChapterWriterTests {
     @Test("a rich tag write reads back the same with or without chapters", arguments: ["mp4", "m4a", "m4v", "mov"])
     func richTagsWithChapters(ext: String) async throws {
         guard let withChapters = await chaptered(ext),
-              let plain = await chaptered(ext, chapters: [], name: "chapters-fixture-plain-\(ext).\(ext)")
+            let plain = await chaptered(ext, chapters: [], name: "chapters-fixture-plain-\(ext).\(ext)")
         else { return }
         let png = try DocumentFixtures.solidPNG(gray: 0.25)
         let art = try #require(Artwork(sniffing: png))
@@ -195,10 +196,12 @@ struct ChapterWriterTests {
         meta.comment = "A comment"
         meta.copyrightNotice = "© Someone"
         meta.kind = ext == "m4a" ? .audiobook : .tvShow
-        meta.show = ShowInfo(seriesName: "A Series", seasonNumber: 2, episodeNumber: 4, episodeID: "204",
-                             network: "A Network")
-        meta.track = TrackInfo(albumName: "An Album", albumArtist: "Various", trackNumber: 3, trackCount: 9,
-                               discNumber: 1, discCount: 2, composer: "A Composer", isCompilation: false)
+        meta.show = ShowInfo(
+            seriesName: "A Series", seasonNumber: 2, episodeNumber: 4, episodeID: "204",
+            network: "A Network")
+        meta.track = TrackInfo(
+            albumName: "An Album", albumArtist: "Various", trackNumber: 3, trackCount: 9,
+            discNumber: 1, discCount: 2, composer: "A Composer", isCompilation: false)
         meta.artwork = [art]
 
         let withOut = await scratch("rich-with-\(ext).\(ext)")
@@ -245,8 +248,9 @@ struct ChapterWriterTests {
         let replaced = await scratch("chapters-replaced.\(ext)")
         try await writer.write(replacement, into: written, writingTo: replaced)
         expectSame(try await writer.read(from: replaced), replacement)
-        #expect(try await AVURLAsset(url: replaced).loadTracks(withMediaType: .text).count == 1,
-                "the old chapter track was carried beside the new one")
+        #expect(
+            try await AVURLAsset(url: replaced).loadTracks(withMediaType: .text).count == 1,
+            "the old chapter track was carried beside the new one")
 
         let removed = await scratch("chapters-removed.\(ext)")
         let removal = try await writer.write([], into: replaced, writingTo: removed)
@@ -289,7 +293,7 @@ struct ChapterWriterTests {
     @Test("video and audio samples are copied, not re-encoded")
     func mediaIsNotReencoded() async throws {
         guard let movie = await movie("chapters-base-movie.mov"),
-              let sound = await audio("chapters-base-audio.m4a")
+            let sound = await audio("chapters-base-audio.m4a")
         else { return }
 
         let movieOut = await scratch("chapters-lossless.mp4")
@@ -320,13 +324,16 @@ struct ChapterWriterTests {
         let subtitled = await scratch("chapters-subs-in.mp4")
         let cues = [SubtitleCue(startSeconds: 0.5, endSeconds: 1.5, text: "Hello")]
         _ = try await SubtitleMuxer().inject(
-            [SubtitleTrackSource(cues: cues, language: "en"),
-             SubtitleTrackSource(cues: cues, language: "fr", isDefault: true)],
+            [
+                SubtitleTrackSource(cues: cues, language: "en"),
+                SubtitleTrackSource(cues: cues, language: "fr", isDefault: true),
+            ],
             into: source, writingTo: subtitled
         )
         let tagged = await scratch("chapters-subs-tagged.mp4")
-        try await MetadataWriter().write(MediaMetadata(title: "Subtitled", creators: ["Someone"]),
-                                         to: subtitled, writingTo: tagged)
+        try await MetadataWriter().write(
+            MediaMetadata(title: "Subtitled", creators: ["Someone"]),
+            to: subtitled, writingTo: tagged)
 
         let output = await scratch("chapters-subs-out.mp4")
         try await ChapterWriter().write(Self.chapters, into: tagged, writingTo: output)
@@ -341,8 +348,9 @@ struct ChapterWriterTests {
         let options = group?.options.filter { !$0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
         #expect(options?.count == 2, "the subtitles lost their shared menu")
         #expect(group?.defaultOption?.extendedLanguageTag == "fr", "the default subtitle changed")
-        #expect(try await SubtitleMuxer().extractCues(from: output, trackID: listed[0].trackID).map(\.text)
-                    == ["Hello"])
+        #expect(
+            try await SubtitleMuxer().extractCues(from: output, trackID: listed[0].trackID).map(\.text)
+                == ["Hello"])
     }
 
     @Test("overlapping and out-of-order chapters are normalised, and the result says how")
@@ -369,9 +377,11 @@ struct ChapterWriterTests {
         guard let source = await audio("chapters-base-audio.m4a") else { return }
         let writer = ChapterWriter()
 
-        for (name, phrase) in [("book.m4b", "no file type for .m4b"), ("song.mp3", "ID3 CHAP"),
-                               ("film.mkv", "Matroska"), ("still.jpg", "no timeline"),
-                               ("sound.wav", "nowhere to put"), ("noextension", "no extension")] {
+        for (name, phrase) in [
+            ("book.m4b", "no file type for .m4b"), ("song.mp3", "ID3 CHAP"),
+            ("film.mkv", "Matroska"), ("still.jpg", "no timeline"),
+            ("sound.wav", "nowhere to put"), ("noextension", "no extension"),
+        ] {
             let url = await scratch(name)
             let support = ChapterWriter.support(for: url)
             #expect(!support.isSupported)
@@ -380,7 +390,7 @@ struct ChapterWriterTests {
                 try await writer.write(Self.chapters, into: source, writingTo: url)
                 Issue.record("\(name) was written")
             } catch let error as ChapterError {
-                guard case let .unsupportedContainer(_, reason) = error else {
+                guard case .unsupportedContainer(_, let reason) = error else {
                     Issue.record("\(name): \(error)")
                     continue
                 }
@@ -427,12 +437,14 @@ struct ChapterWriterTests {
         #expect(actual.map(\.title) == expected.map(\.title), sourceLocation: sourceLocation)
         guard actual.count == expected.count else { return }
         for (a, e) in zip(actual, expected) {
-            #expect(abs(a.startSeconds - e.startSeconds) < Self.frame,
-                    "\"\(e.title)\" starts at \(a.startSeconds), not \(e.startSeconds)",
-                    sourceLocation: sourceLocation)
-            #expect(abs(a.durationSeconds - e.durationSeconds) < Self.frame,
-                    "\"\(e.title)\" lasts \(a.durationSeconds), not \(e.durationSeconds)",
-                    sourceLocation: sourceLocation)
+            #expect(
+                abs(a.startSeconds - e.startSeconds) < Self.frame,
+                "\"\(e.title)\" starts at \(a.startSeconds), not \(e.startSeconds)",
+                sourceLocation: sourceLocation)
+            #expect(
+                abs(a.durationSeconds - e.durationSeconds) < Self.frame,
+                "\"\(e.title)\" lasts \(a.durationSeconds), not \(e.durationSeconds)",
+                sourceLocation: sourceLocation)
         }
     }
 
@@ -517,15 +529,19 @@ struct ChapterWriterTests {
             input.expectsMediaDataInRealTime = false
             writer.add(input)
             if anchor == nil || track.mediaType == .video { anchor = input }
-            pumps.append(MetaWriterPump(input: input, label: "fixture \(track.trackID)") {
-                guard let sample = output.copyNextSampleBuffer() else { return false }
-                return input.append(sample)
-            })
+            pumps.append(
+                MetaWriterPump(input: input, label: "fixture \(track.trackID)") {
+                    guard let sample = output.copyNextSampleBuffer() else { return false }
+                    return input.append(sample)
+                })
         }
         let media = try #require(anchor)
-        let chapterInput = chapters.isEmpty ? nil : try #require(
-            ChapterTrack.makeInput(for: chapters, writer: writer, associatedWith: media).input
-        )
+        let chapterInput =
+            chapters.isEmpty
+            ? nil
+            : try #require(
+                ChapterTrack.makeInput(for: chapters, writer: writer, associatedWith: media).input
+            )
 
         reader.startReading()
         writer.startWriting()

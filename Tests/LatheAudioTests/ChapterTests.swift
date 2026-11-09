@@ -87,9 +87,13 @@ struct ChapterTests {
     /// **The headline: a chaptered file survives a transcode with its chapters.**
     @Test("chapters survive a transcode, with their titles and their times")
     func chaptersSurviveATranscode() async throws {
-        guard let source = await fixture("chapters-source.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "chapters-source.m4a", seconds: 6)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "chapters-source.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "chapters-source.m4a", seconds: 6)
+                })
+        else { return }
 
         let chaptered = await scratch("chapters-in.m4a")
         let expected: [Chapter] = [
@@ -121,20 +125,24 @@ struct ChapterTests {
             source: chaptered, to: destination, codec: .aac, quality: .quality(0.5),
             lossySources: .allow, keepLargerOutput: true
         )
-        #expect(result.outcome.wasTranscoded,
-                "nothing was transcoded (\(result.outcome)), so the rest proves nothing")
+        #expect(
+            result.outcome.wasTranscoded,
+            "nothing was transcoded (\(result.outcome)), so the rest proves nothing")
 
         let why = result.chapterLossReason ?? "no reason given"
-        #expect(result.preservedChapterCount == 3,
-                "preserved \(result.preservedChapterCount) of 3 chapters — \(why)")
+        #expect(
+            result.preservedChapterCount == 3,
+            "preserved \(result.preservedChapterCount) of 3 chapters — \(why)")
         #expect(result.droppedChapterCount == 0)
 
         let after = await ChapterTrack.read(from: AVURLAsset(url: destination))
-        #expect(after.map(\.title) == ["Opening", "Café Scene", "Closing"],
-                "titles came back as \(after.map(\.title))")
+        #expect(
+            after.map(\.title) == ["Opening", "Café Scene", "Closing"],
+            "titles came back as \(after.map(\.title))")
         for (got, want) in zip(after, expected) {
-            #expect(abs(got.startSeconds - want.startSeconds) < 0.2,
-                    "\"\(want.title)\" starts at \(got.startSeconds), expected \(want.startSeconds)")
+            #expect(
+                abs(got.startSeconds - want.startSeconds) < 0.2,
+                "\"\(want.title)\" starts at \(got.startSeconds), expected \(want.startSeconds)")
         }
     }
 
@@ -142,9 +150,13 @@ struct ChapterTests {
     /// not report having preserved anything.
     @Test("a file with no chapters gains none")
     func unchapteredFilesAreUnaffected() async throws {
-        guard let source = await fixture("chapters-none.m4a", {
-            try await FixtureLibrary.shared.aacFile(named: "chapters-none.m4a", seconds: 2)
-        }) else { return }
+        guard
+            let source = await fixture(
+                "chapters-none.m4a",
+                {
+                    try await FixtureLibrary.shared.aacFile(named: "chapters-none.m4a", seconds: 2)
+                })
+        else { return }
         let destination = await scratch("chapters-none-out.m4a")
 
         let result = try await transcoder.transcode(

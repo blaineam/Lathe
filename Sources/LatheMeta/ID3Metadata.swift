@@ -155,9 +155,10 @@ enum ID3Metadata {
             text("TDRC", MetadataDates.format(date))
         }
         if let comment = metadata.comment, !comment.isEmpty {
-            frames.append(ID3Tag.Frame(
-                id: "COMM", payload: .comment(language: "eng", description: "", text: comment)
-            ))
+            frames.append(
+                ID3Tag.Frame(
+                    id: "COMM", payload: .comment(language: "eng", description: "", text: comment)
+                ))
         }
 
         if let track = metadata.track {
@@ -176,34 +177,40 @@ enum ID3Metadata {
         }
 
         if let long = metadata.longDescription, !long.isEmpty {
-            frames.append(ID3Tag.Frame(
-                id: "TXXX", payload: .userText(description: longDescriptionKey, value: long)
-            ))
+            frames.append(
+                ID3Tag.Frame(
+                    id: "TXXX", payload: .userText(description: longDescriptionKey, value: long)
+                ))
         }
         for (name, value) in metadata.identifiers.sorted(by: { $0.key < $1.key }) {
-            frames.append(ID3Tag.Frame(
-                id: "TXXX",
-                payload: .userText(description: identifierPrefix + name, value: value)
-            ))
+            frames.append(
+                ID3Tag.Frame(
+                    id: "TXXX",
+                    payload: .userText(description: identifierPrefix + name, value: value)
+                ))
         }
         for (key, value) in metadata.custom.sorted(by: { $0.key < $1.key }) {
             if key.hasPrefix("TXXX:") {
-                frames.append(ID3Tag.Frame(
-                    id: "TXXX",
-                    payload: .userText(description: String(key.dropFirst(5)), value: value)
-                ))
+                frames.append(
+                    ID3Tag.Frame(
+                        id: "TXXX",
+                        payload: .userText(description: String(key.dropFirst(5)), value: value)
+                    ))
             } else if key.count == 4, key.hasPrefix("T") {
                 text(key, value)
             }
         }
 
         for art in metadata.artwork {
-            frames.append(ID3Tag.Frame(id: "APIC", payload: .picture(
-                mimeType: art.format == .png ? "image/png" : "image/jpeg",
-                pictureType: pictureType(for: art.role),
-                description: "",
-                data: art.data
-            )))
+            frames.append(
+                ID3Tag.Frame(
+                    id: "APIC",
+                    payload: .picture(
+                        mimeType: art.format == .png ? "image/png" : "image/jpeg",
+                        pictureType: pictureType(for: art.role),
+                        description: "",
+                        data: art.data
+                    )))
         }
 
         // What the format simply cannot say.

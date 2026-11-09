@@ -161,7 +161,8 @@ extension MediaInfo {
         // filename containing one would otherwise come out as `a\/b`. Keys are
         // *not* sorted: the declaration order in `FFProbeReport` is ffprobe's
         // order, and sorting would discard it for no gain.
-        encoder.outputFormatting = prettyPrinted
+        encoder.outputFormatting =
+            prettyPrinted
             ? [.prettyPrinted, .withoutEscapingSlashes]
             : [.withoutEscapingSlashes]
         do {

@@ -15,15 +15,19 @@ import Testing
 /// libavif is not linked here, so what is asserted is the property it checks:
 /// every image-spatial-extent (`ispe`) box in the file — the picture's, and
 /// each grid tile's — is even in both directions.
-@Suite("AVIF is written at even dimensions",
-       .enabled(if: EncodeSupport.shared.canEncode(.avif), "this system cannot encode AVIF"))
+@Suite(
+    "AVIF is written at even dimensions",
+    .enabled(if: EncodeSupport.shared.canEncode(.avif), "this system cannot encode AVIF"))
 struct AVIFEvenDimensionTests {
 
     let encoder = ImageEncoder()
 
-    @Test("an odd-sized picture loses its last column and row",
-          arguments: [PixelSize(width: 601, height: 401), PixelSize(width: 2047, height: 365),
-                      PixelSize(width: 600, height: 401), PixelSize(width: 601, height: 400)])
+    @Test(
+        "an odd-sized picture loses its last column and row",
+        arguments: [
+            PixelSize(width: 601, height: 401), PixelSize(width: 2047, height: 365),
+            PixelSize(width: 600, height: 401), PixelSize(width: 601, height: 400),
+        ])
     func oddIsCropped(size: PixelSize) async throws {
         try await Fixtures.withDirectory { directory in
             let source = try Fixtures.plainImage(in: directory, size: size)
@@ -62,9 +66,11 @@ struct AVIFEvenDimensionTests {
             let made = Fixtures.gradient(PixelSize(width: 63, height: 33))
             let image = try #require(made)
             let source = directory.appendingPathComponent("rotated.png")
-            try Fixtures.write(image, to: source, format: .png, properties: [
-                kCGImagePropertyOrientation: CGImagePropertyOrientation.right.rawValue,
-            ])
+            try Fixtures.write(
+                image, to: source, format: .png,
+                properties: [
+                    kCGImagePropertyOrientation: CGImagePropertyOrientation.right.rawValue
+                ])
             let destination = directory.appendingPathComponent("out.avif")
             let result = try await encoder.encode(
                 source: source, to: destination, format: .avif,
@@ -106,8 +112,9 @@ struct AVIFEvenDimensionTests {
             let source = directory.appendingPathComponent("card.png")
             try Fixtures.write(card, to: source, format: .png, properties: [:])
             let destination = directory.appendingPathComponent("card.avif")
-            let result = try #require(try await encoder.encodeVisuallyLossless(
-                source: source, to: destination, format: .avif))
+            let result = try #require(
+                try await encoder.encodeVisuallyLossless(
+                    source: source, to: destination, format: .avif))
             #expect(result.encode.pixelSize == PixelSize(width: 640, height: 480))
             #expect(result.quality < 0.98, "the crop should not push the search to its ceiling")
         }
@@ -117,9 +124,9 @@ struct AVIFEvenDimensionTests {
 
     static func storedSize(of url: URL) -> PixelSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let width = properties[kCGImagePropertyPixelWidth] as? Int,
+            let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
         return PixelSize(width: width, height: height)
     }

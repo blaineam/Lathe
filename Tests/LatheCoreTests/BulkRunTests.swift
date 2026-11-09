@@ -61,9 +61,10 @@ struct BulkRunTests {
     @Test("a class limit holds even with plenty of total room")
     func respectsPerClassLimits() async {
         let watch = ConcurrencyWatch()
-        let runner = BulkRun(pool: ResourcePool(
-            totalLanes: 12, lanes: [.video: 2, .image: 8]
-        ))
+        let runner = BulkRun(
+            pool: ResourcePool(
+                totalLanes: 12, lanes: [.video: 2, .image: 8]
+            ))
 
         var items: [BulkRun.Item<Int>] = []
         for index in 0..<20 { items.append(.init(index, workload: .video)) }
@@ -107,8 +108,9 @@ struct BulkRunTests {
 
         let peaks = await watch.peakByWorkload
         #expect((peaks[.video] ?? 0) == 1)
-        #expect((peaks[.image] ?? 0) > 1,
-                "images never ran concurrently — they were stuck behind the video queue")
+        #expect(
+            (peaks[.image] ?? 0) > 1,
+            "images never ran concurrently — they were stuck behind the video queue")
         #expect(report.succeeded.count == 16)
     }
 
@@ -192,7 +194,8 @@ struct BulkRunTests {
         let report = await task.value
 
         let elapsed = Date().timeIntervalSince(started)
-        let note = "cancelling took \(elapsed)s — something waited on a lane that was never "
+        let note =
+            "cancelling took \(elapsed)s — something waited on a lane that was never "
             + "going to free"
         #expect(elapsed < 5, "\(note)")
         // Every item is accounted for. A cancelled run that silently returned
@@ -251,12 +254,15 @@ struct BulkRunTests {
         let small = ResourcePool.automatic(cores: 4, thermalState: .nominal, lowPower: false)
         let large = ResourcePool.automatic(cores: 24, thermalState: .nominal, lowPower: false)
 
-        #expect(large.lanes(for: .image) > small.lanes(for: .image),
-                "more cores should mean more image lanes")
-        #expect(large.lanes(for: .video) == small.lanes(for: .video),
-                "video lanes scaled with cores; a 24-core machine has no more encoders")
-        #expect(large.lanes(for: .recognition) == small.lanes(for: .recognition),
-                "there is one Neural Engine however many cores there are")
+        #expect(
+            large.lanes(for: .image) > small.lanes(for: .image),
+            "more cores should mean more image lanes")
+        #expect(
+            large.lanes(for: .video) == small.lanes(for: .video),
+            "video lanes scaled with cores; a 24-core machine has no more encoders")
+        #expect(
+            large.lanes(for: .recognition) == small.lanes(for: .recognition),
+            "there is one Neural Engine however many cores there are")
     }
 
     /// Network is not tied to cores at all: a stalled transfer occupies none.

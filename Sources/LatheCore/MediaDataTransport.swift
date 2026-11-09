@@ -92,12 +92,13 @@ public struct URLSessionMediaTransport: MediaDataTransport {
                     buffer.removeAll(keepingCapacity: true)
 
                     if let progress, declared > 0 {
-                        try progress.checkpoint(LatheProgress(
-                            fraction: min(1, Double(written) / Double(declared)),
-                            stage: "download",
-                            unitIndex: UInt64(written),
-                            unitCount: UInt64(declared)
-                        ))
+                        try progress.checkpoint(
+                            LatheProgress(
+                                fraction: min(1, Double(written) / Double(declared)),
+                                stage: "download",
+                                unitIndex: UInt64(written),
+                                unitCount: UInt64(declared)
+                            ))
                     } else {
                         try progress?.checkCancellation()
                     }
@@ -196,8 +197,9 @@ public struct URLSessionMediaTransport: MediaDataTransport {
         probe.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         let (_, ranged) = try await data(for: probe, url: url)
         if let contentRange = ranged.value(forHTTPHeaderField: "Content-Range"),
-           let total = contentRange.split(separator: "/").last,
-           let value = Int64(total) {
+            let total = contentRange.split(separator: "/").last,
+            let value = Int64(total)
+        {
             return value
         }
         return 0

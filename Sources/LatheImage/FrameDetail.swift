@@ -27,14 +27,16 @@ public enum FrameDetail {
     }
 
     public static func score(of image: CGImage) -> Double? {
-        let width = image.width, height = image.height
+        let width = image.width
+        let height = image.height
         guard width > 0, height > 0 else { return 0 }
         var data = [UInt8](repeating: 0, count: width * height * 4)
         let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
@@ -44,7 +46,8 @@ public enum FrameDetail {
         let pixels = width * height
         for pixel in 0..<pixels {
             let base = pixel * 4
-            let key = Int(data[base] >> 4) << 12 | Int(data[base + 1] >> 4) << 8
+            let key =
+                Int(data[base] >> 4) << 12 | Int(data[base + 1] >> 4) << 8
                 | Int(data[base + 2] >> 4) << 4 | Int(data[base + 3] >> 4)
             counts[key] += 1
         }

@@ -37,7 +37,7 @@ public enum MetadataStore: Sendable, Equatable, CustomStringConvertible {
         }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue
+            !isDirectory.boolValue
         else {
             throw LatheError.readFailed(path: label, reason: "no such file")
         }

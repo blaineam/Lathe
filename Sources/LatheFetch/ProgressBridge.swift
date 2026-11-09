@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields decode JSON keys written by the Python driver.
+
 import Foundation
 import LatheCore
 
@@ -61,7 +64,8 @@ enum ProgressBridge {
         let weights: [Double]
         if !sizes.contains(where: { $0 == nil }) {
             let total = Double(sizes.compactMap { $0 }.reduce(0, +))
-            weights = total > 0
+            weights =
+                total > 0
                 ? sizes.map { Double($0 ?? 0) / total }
                 : Array(repeating: 1 / Double(sizes.count), count: sizes.count)
         } else {

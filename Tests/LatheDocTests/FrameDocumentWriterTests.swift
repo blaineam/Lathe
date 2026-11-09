@@ -5,11 +5,11 @@ import LatheFixtures
 import LatheImage
 import Testing
 
-#if canImport(PDFKit)
-import PDFKit
-#endif
-
 @testable import LatheDoc
+
+#if canImport(PDFKit)
+    import PDFKit
+#endif
 
 /// Assembling stills into a paged document, and the two ways it goes wrong
 /// invisibly: a comic archive whose reader shows the pages in a different order
@@ -52,14 +52,14 @@ struct FrameDocumentWriterTests {
         #expect(try inspector.inspect(output).kind == .pdf)
 
         #if canImport(PDFKit)
-        guard let document = PDFDocument(url: output) else {
-            Issue.record("PDFKit would not open the written PDF")
-            return
-        }
-        #expect(document.pageCount == 5)
-        let box = document.page(at: 0)!.bounds(for: .mediaBox)
-        #expect(abs(box.width - 120) < 0.5)
-        #expect(abs(box.height - 90) < 0.5)
+            guard let document = PDFDocument(url: output) else {
+                Issue.record("PDFKit would not open the written PDF")
+                return
+            }
+            #expect(document.pageCount == 5)
+            let box = document.page(at: 0)!.bounds(for: .mediaBox)
+            #expect(abs(box.width - 120) < 0.5)
+            #expect(abs(box.height - 90) < 0.5)
         #endif
     }
 
@@ -78,22 +78,22 @@ struct FrameDocumentWriterTests {
         let frames = try FrameSequence.contentsOfDirectory(directory)
 
         #if canImport(PDFKit)
-        let atDPI = directory.appendingPathComponent("dpi.pdf")
-        try writer.writePDF(frames, to: atDPI, pageSizing: .dotsPerInch(300))
-        let dpiBox = PDFDocument(url: atDPI)!.page(at: 0)!.bounds(for: .mediaBox)
-        #expect(abs(dpiBox.width - 72) < 0.5, "300 pixels at 300 DPI is one inch")
-        #expect(abs(dpiBox.height - 72) < 0.5)
+            let atDPI = directory.appendingPathComponent("dpi.pdf")
+            try writer.writePDF(frames, to: atDPI, pageSizing: .dotsPerInch(300))
+            let dpiBox = PDFDocument(url: atDPI)!.page(at: 0)!.bounds(for: .mediaBox)
+            #expect(abs(dpiBox.width - 72) < 0.5, "300 pixels at 300 DPI is one inch")
+            #expect(abs(dpiBox.height - 72) < 0.5)
 
-        // 72 DPI is the definition of a point, so it must be identical to
-        // `.imagePixels`. If these two ever disagree the arithmetic is wrong.
-        let atPixels = directory.appendingPathComponent("pixels.pdf")
-        try writer.writePDF(frames, to: atPixels, pageSizing: .imagePixels)
-        let pixelBox = PDFDocument(url: atPixels)!.page(at: 0)!.bounds(for: .mediaBox)
+            // 72 DPI is the definition of a point, so it must be identical to
+            // `.imagePixels`. If these two ever disagree the arithmetic is wrong.
+            let atPixels = directory.appendingPathComponent("pixels.pdf")
+            try writer.writePDF(frames, to: atPixels, pageSizing: .imagePixels)
+            let pixelBox = PDFDocument(url: atPixels)!.page(at: 0)!.bounds(for: .mediaBox)
 
-        let at72 = directory.appendingPathComponent("72.pdf")
-        try writer.writePDF(frames, to: at72, pageSizing: .dotsPerInch(72))
-        #expect(PDFDocument(url: at72)!.page(at: 0)!.bounds(for: .mediaBox) == pixelBox)
-        #expect(abs(pixelBox.width - 300) < 0.5)
+            let at72 = directory.appendingPathComponent("72.pdf")
+            try writer.writePDF(frames, to: at72, pageSizing: .dotsPerInch(72))
+            #expect(PDFDocument(url: at72)!.page(at: 0)!.bounds(for: .mediaBox) == pixelBox)
+            #expect(abs(pixelBox.width - 300) < 0.5)
         #endif
     }
 
@@ -104,11 +104,13 @@ struct FrameDocumentWriterTests {
         let directory = try temporaryDirectory("letter")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 100, height: 400),
-            CGSize(width: 400, height: 100),
-            CGSize(width: 200, height: 200),
-        ])
+        try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 100, height: 400),
+                CGSize(width: 400, height: 100),
+                CGSize(width: 200, height: 200),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
         let output = directory.appendingPathComponent("out.pdf")
 
@@ -117,13 +119,13 @@ struct FrameDocumentWriterTests {
         )
 
         #if canImport(PDFKit)
-        let document = PDFDocument(url: output)!
-        #expect(document.pageCount == 3)
-        for index in 0..<3 {
-            let box = document.page(at: index)!.bounds(for: .mediaBox)
-            #expect(abs(box.width - 612) < 0.5, "page \(index + 1) is \(box.width) wide")
-            #expect(abs(box.height - 792) < 0.5)
-        }
+            let document = PDFDocument(url: output)!
+            #expect(document.pageCount == 3)
+            for index in 0..<3 {
+                let box = document.page(at: index)!.bounds(for: .mediaBox)
+                #expect(abs(box.width - 612) < 0.5, "page \(index + 1) is \(box.width) wide")
+                #expect(abs(box.height - 792) < 0.5)
+            }
         #endif
     }
 
@@ -135,19 +137,21 @@ struct FrameDocumentWriterTests {
         let directory = try temporaryDirectory("mixed")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 2, in: directory, sizes: [
-            CGSize(width: 100, height: 200), CGSize(width: 300, height: 150),
-        ])
+        try FrameFixtures.stills(
+            count: 2, in: directory,
+            sizes: [
+                CGSize(width: 100, height: 200), CGSize(width: 300, height: 150),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
         let output = directory.appendingPathComponent("out.pdf")
         try writer.writePDF(frames, to: output)
 
         #if canImport(PDFKit)
-        let document = PDFDocument(url: output)!
-        let first = document.page(at: 0)!.bounds(for: .mediaBox)
-        let second = document.page(at: 1)!.bounds(for: .mediaBox)
-        #expect(abs(first.width - 100) < 0.5 && abs(first.height - 200) < 0.5)
-        #expect(abs(second.width - 300) < 0.5 && abs(second.height - 150) < 0.5)
+            let document = PDFDocument(url: output)!
+            let first = document.page(at: 0)!.bounds(for: .mediaBox)
+            let second = document.page(at: 1)!.bounds(for: .mediaBox)
+            #expect(abs(first.width - 100) < 0.5 && abs(first.height - 200) < 0.5)
+            #expect(abs(second.width - 300) < 0.5 && abs(second.height - 150) < 0.5)
         #endif
     }
 
@@ -267,9 +271,10 @@ struct FrameDocumentWriterTests {
         for (index, stem) in ["z", "a", "m", "b", "q", "c", "y", "d", "n", "e", "p"].enumerated() {
             let data = try DocumentFixtures.solidPNG(gray: CGFloat(index + 1) / 13)
             originals.append(data)
-            sources.append(try DocumentFixtures.write(
-                data, to: directory.appendingPathComponent("\(stem).png")
-            ))
+            sources.append(
+                try DocumentFixtures.write(
+                    data, to: directory.appendingPathComponent("\(stem).png")
+                ))
         }
 
         let output = directory.appendingPathComponent("out.cbz")
@@ -282,11 +287,13 @@ struct FrameDocumentWriterTests {
         #expect(names.first == "page-01.png")
         #expect(names.last == "page-11.png", "eleven pages need two digits, or 10 sorts before 2")
 
-        let inNameOrder = try entries
+        let inNameOrder =
+            try entries
             .sorted { $0.name < $1.name }
             .map { try ZIPDirectory.extract($0, from: output, name: "out.cbz") }
-        #expect(inNameOrder == originals,
-                "a reader sorting by name must see the sequence that was handed over")
+        #expect(
+            inNameOrder == originals,
+            "a reader sorting by name must see the sequence that was handed over")
     }
 
     /// Each frame keeps its own extension, because the bytes are its own. A run
@@ -382,11 +389,13 @@ struct FrameDocumentWriterTests {
         let directory = try temporaryDirectory("cbz-sizes")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let sources = try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 100, height: 200),
-            CGSize(width: 40, height: 40),
-            CGSize(width: 300, height: 90),
-        ])
+        let sources = try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 100, height: 200),
+                CGSize(width: 40, height: 40),
+                CGSize(width: 300, height: 90),
+            ])
         let output = directory.appendingPathComponent("out.cbz")
         #expect(try writer.writeComicArchive(FrameSequence(sources), to: output).pageCount == 3)
     }

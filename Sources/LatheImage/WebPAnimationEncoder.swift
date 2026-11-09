@@ -1,8 +1,7 @@
+import CWebP
 import CoreGraphics
 import Foundation
 import LatheCore
-
-import CWebP
 
 /// Animated WebP, on top of the vendored libwebp's `WebPAnimEncoder`.
 ///
@@ -132,9 +131,11 @@ enum WebPAnimationEncoder {
         // lossy for a frame of a `.lossless` request.
         options.allow_mixed = 0
 
-        guard let encoder = WebPAnimEncoderNew(
-            Int32(canvas.width), Int32(canvas.height), &options
-        ) else {
+        guard
+            let encoder = WebPAnimEncoderNew(
+                Int32(canvas.width), Int32(canvas.height), &options
+            )
+        else {
             throw LatheError.encodingFailed(
                 stage: "encode", code: nil,
                 reason: "libwebp would not create a \(canvas) animation encoder"
@@ -190,7 +191,8 @@ enum WebPAnimationEncoder {
         WebPDataInit(&assembled)
         defer { WebPDataClear(&assembled) }
         guard WebPAnimEncoderAssemble(encoder, &assembled) != 0,
-              let bytes = assembled.bytes, assembled.size > 0 else {
+            let bytes = assembled.bytes, assembled.size > 0
+        else {
             throw LatheError.encodingFailed(
                 stage: "encode", code: nil,
                 reason: "libwebp could not assemble a \(delays.count)-frame WebP: "
@@ -222,8 +224,9 @@ enum WebPAnimationEncoder {
             defer { WebPMuxDelete(mux) }
 
             var count: Int32 = 0
-            try WebPMux.check(WebPMuxNumChunks(mux, WEBP_CHUNK_ANMF, &count),
-                              doing: "counting frames")
+            try WebPMux.check(
+                WebPMuxNumChunks(mux, WEBP_CHUNK_ANMF, &count),
+                doing: "counting frames")
             guard count > 0 else { return (1, 0) }
 
             var milliseconds = 0
@@ -248,7 +251,7 @@ enum WebPAnimationEncoder {
         // and carries alpha in its own bitstream header already.
         let flags = file.startIndex + 20
         guard file.count > 20,
-              file[(file.startIndex + 12)..<(file.startIndex + 16)].elementsEqual("VP8X".utf8)
+            file[(file.startIndex + 12)..<(file.startIndex + 16)].elementsEqual("VP8X".utf8)
         else { return }
         file[flags] |= alphaFlag
     }

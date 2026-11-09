@@ -140,7 +140,8 @@ extension PythonPackageInstaller {
     @discardableResult
     public func carryOut(_ plan: PythonDependencyPlan, session: URLSession = .shared) async throws -> Installation {
         LatheFetchLog.packages.notice(
-            "Installing \(plan.steps.count, privacy: .public) package(s); \(plan.alreadySatisfied.count, privacy: .public) already satisfied")
+            "Installing \(plan.steps.count, privacy: .public) package(s); \(plan.alreadySatisfied.count, privacy: .public) already satisfied"
+        )
 
         var requested: [InstalledPackage] = []
         var dependencies: [InstalledPackage] = []

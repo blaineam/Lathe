@@ -42,21 +42,23 @@ struct MediaFetchErrorTests {
         }
     }
 
-    @Test("each family of message reaches its own case", arguments: [
-        ("Unsupported URL: https://example.invalid/x", "unsupportedSite"),
-        ("The requested site is protected by DRM", "drmProtected"),
-        ("Sign in to confirm you're not a bot", "botCheckFailed"),
-        ("The page needs to be reloaded.", "botCheckFailed"),
-        ("Private video. Sign in if you've been granted access", "authenticationRequired"),
-        ("Join this channel to get access to members-only content", "authenticationRequired"),
-        ("The uploader has not made this video available in your country", "geoRestricted"),
-        ("This live event will begin in 3 hours", "liveStream"),
-        ("Video unavailable", "unavailable"),
-        ("This video has been removed by the uploader", "unavailable"),
-        ("Requested format is not available", "noUsableFormat"),
-        ("Only images are available for download", "noUsableFormat"),
-        ("Unable to download webpage: connection reset", "transferFailed"),
-    ])
+    @Test(
+        "each family of message reaches its own case",
+        arguments: [
+            ("Unsupported URL: https://example.invalid/x", "unsupportedSite"),
+            ("The requested site is protected by DRM", "drmProtected"),
+            ("Sign in to confirm you're not a bot", "botCheckFailed"),
+            ("The page needs to be reloaded.", "botCheckFailed"),
+            ("Private video. Sign in if you've been granted access", "authenticationRequired"),
+            ("Join this channel to get access to members-only content", "authenticationRequired"),
+            ("The uploader has not made this video available in your country", "geoRestricted"),
+            ("This live event will begin in 3 hours", "liveStream"),
+            ("Video unavailable", "unavailable"),
+            ("This video has been removed by the uploader", "unavailable"),
+            ("Requested format is not available", "noUsableFormat"),
+            ("Only images are available for download", "noUsableFormat"),
+            ("Unable to download webpage: connection reset", "transferFailed"),
+        ])
     func mapsMessageFamilies(message: String, expected: String) {
         let error = MediaFetchError.mapping(exception("ExtractorError", message))
         #expect(caseName(of: error) == expected, "\(message) → \(error)")
@@ -66,7 +68,7 @@ struct MediaFetchErrorTests {
     func fallsBackWithoutLosingAnything() {
         let message = "Some entirely new failure mode nobody has seen before"
         let error = MediaFetchError.mapping(exception("ExtractorError", message))
-        guard case let .extractionFailed(reason) = error else {
+        guard case .extractionFailed(let reason) = error else {
             Issue.record("expected extractionFailed, got \(error)")
             return
         }

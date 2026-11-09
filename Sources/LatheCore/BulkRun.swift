@@ -143,11 +143,12 @@ public struct BulkRun: Sendable {
                 // cancellation, and cancelling here would abandon the outcomes
                 // already collected. The run cancels through the task tree
                 // instead, and still returns a full report.
-                progress.report(LatheProgress(
-                    stage: "bulk",
-                    unitIndex: UInt64(done),
-                    unitCount: UInt64(items.count)
-                ))
+                progress.report(
+                    LatheProgress(
+                        stage: "bulk",
+                        unitIndex: UInt64(done),
+                        unitCount: UInt64(items.count)
+                    ))
             }
         }
 

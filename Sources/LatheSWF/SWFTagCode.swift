@@ -236,7 +236,7 @@ public struct SWFTagCode: RawRepresentable, Sendable, Hashable, CustomStringConv
         case 6, 8, 14, 15, 18, 19, 20, 21, 35, 36, 45, 60, 61, 87, 89, 90:
             .media
         case 2, 4, 5, 7, 10, 11, 13, 17, 22, 23, 26, 28, 32, 33, 34, 37, 39, 46, 48, 62, 70, 73, 74,
-             75, 83, 84, 88, 91:
+            75, 83, 84, 88, 91:
             .vectorOrTimeline
         case 12, 59, 72, 82:
             .script

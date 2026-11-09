@@ -234,7 +234,7 @@ public struct PythonPackageVersion: Sendable, Hashable, Comparable, CustomString
             let l = left[index]
             let r = right[index]
             switch (Int(l), Int(r)) {
-            case let (lNumber?, rNumber?):
+            case (let lNumber?, let rNumber?):
                 if lNumber != rNumber { return lNumber < rNumber ? -1 : 1 }
             case (_?, nil):
                 return 1  // numeric outranks alphabetic
@@ -283,7 +283,9 @@ public struct PythonVersionSpecifier: Sendable, Hashable, CustomStringConvertibl
 
         /// Longest first, so `>=` is never mistaken for `>` and `===` never for
         /// `==`.
-        static let byLengthDescending: [Operator] = [.arbitrary, .compatible, .equal, .notEqual, .lessThanOrEqual, .greaterThanOrEqual, .lessThan, .greaterThan]
+        static let byLengthDescending: [Operator] = [
+            .arbitrary, .compatible, .equal, .notEqual, .lessThanOrEqual, .greaterThanOrEqual, .lessThan, .greaterThan,
+        ]
     }
 
     public let `operator`: Operator
@@ -384,7 +386,10 @@ public struct PythonVersionSpecifier: Sendable, Hashable, CustomStringConvertibl
 extension PythonPackageVersion {
     /// The same version with its local segment dropped.
     var withoutLocal: PythonPackageVersion {
-        guard !local.isEmpty, let stripped = PythonPackageVersion(parsing: original.split(separator: "+").first.map(String.init) ?? original) else {
+        guard !local.isEmpty,
+            let stripped = PythonPackageVersion(
+                parsing: original.split(separator: "+").first.map(String.init) ?? original)
+        else {
             return self
         }
         return stripped

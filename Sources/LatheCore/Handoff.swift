@@ -144,7 +144,9 @@ public struct Handoff: Codable, Sendable, Equatable {
     /// handoffs in quick succession overwrote each other.
     @discardableResult
     public func write(into directory: URL? = nil) throws -> URL {
-        let base = directory ?? FileManager.default.temporaryDirectory
+        let base =
+            directory
+            ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("lathe-handoff-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
 

@@ -76,14 +76,15 @@ public enum DocumentFixtures {
             context.fill(CGRect(origin: .zero, size: size))
 
             let font = CTFontCreateWithName("Helvetica-Bold" as CFString, fontSize, nil)
-            let line = CTLineCreateWithAttributedString(NSAttributedString(
-                string: text,
-                attributes: [
-                    kCTFontAttributeName as NSAttributedString.Key: font,
-                    kCTForegroundColorAttributeName as NSAttributedString.Key:
-                        CGColor(gray: 0, alpha: 1),
-                ]
-            ))
+            let line = CTLineCreateWithAttributedString(
+                NSAttributedString(
+                    string: text,
+                    attributes: [
+                        kCTFontAttributeName as NSAttributedString.Key: font,
+                        kCTForegroundColorAttributeName as NSAttributedString.Key:
+                            CGColor(gray: 0, alpha: 1),
+                    ]
+                ))
             context.setTextDrawingMode(.fill)
             context.textMatrix = .identity
             // Core Graphics is bottom-left; the parameter is top-left, because
@@ -110,20 +111,21 @@ public enum DocumentFixtures {
         var frames: [[CFString: Any]] = []
         var images: [CGImage] = []
         for index in 0..<frameCount {
-            images.append(try bitmap(size: size) { context in
-                context.setFillColor(
-                    gray: CGFloat(index) / CGFloat(max(1, frameCount - 1)), alpha: 1
-                )
-                context.fill(CGRect(origin: .zero, size: size))
-            })
+            images.append(
+                try bitmap(size: size) { context in
+                    context.setFillColor(
+                        gray: CGFloat(index) / CGFloat(max(1, frameCount - 1)), alpha: 1
+                    )
+                    context.fill(CGRect(origin: .zero, size: size))
+                })
             frames.append([
-                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay] as CFDictionary,
+                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: delay] as CFDictionary
             ])
         }
         return try encode(
             images, as: "com.compuserve.gif", frames: frames,
             container: [
-                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0] as CFDictionary,
+                kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: 0] as CFDictionary
             ]
         )
     }
@@ -155,14 +157,15 @@ public enum DocumentFixtures {
             for _ in 0..<pageCount {
                 beginPage(context, box: CGRect(origin: .zero, size: size))
                 let font = CTFontCreateWithName("Helvetica" as CFString, 24, nil)
-                let line = CTLineCreateWithAttributedString(NSAttributedString(
-                    string: text,
-                    attributes: [
-                        kCTFontAttributeName as NSAttributedString.Key: font,
-                        kCTForegroundColorAttributeName as NSAttributedString.Key:
-                            CGColor(gray: 0, alpha: 1),
-                    ]
-                ))
+                let line = CTLineCreateWithAttributedString(
+                    NSAttributedString(
+                        string: text,
+                        attributes: [
+                            kCTFontAttributeName as NSAttributedString.Key: font,
+                            kCTForegroundColorAttributeName as NSAttributedString.Key:
+                                CGColor(gray: 0, alpha: 1),
+                        ]
+                    ))
                 context.setTextDrawingMode(.fill)
                 context.textMatrix = .identity
                 context.textPosition = CGPoint(x: 30, y: size.height - 80)
@@ -189,14 +192,15 @@ public enum DocumentFixtures {
             for label in labels {
                 beginPage(context, box: CGRect(origin: .zero, size: size))
                 let font = CTFontCreateWithName("Helvetica" as CFString, 36, nil)
-                let line = CTLineCreateWithAttributedString(NSAttributedString(
-                    string: label,
-                    attributes: [
-                        kCTFontAttributeName as NSAttributedString.Key: font,
-                        kCTForegroundColorAttributeName as NSAttributedString.Key:
-                            CGColor(gray: 0, alpha: 1),
-                    ]
-                ))
+                let line = CTLineCreateWithAttributedString(
+                    NSAttributedString(
+                        string: label,
+                        attributes: [
+                            kCTFontAttributeName as NSAttributedString.Key: font,
+                            kCTForegroundColorAttributeName as NSAttributedString.Key:
+                                CGColor(gray: 0, alpha: 1),
+                        ]
+                    ))
                 context.setTextDrawingMode(.fill)
                 context.textMatrix = .identity
                 context.textPosition = CGPoint(x: 30, y: size.height - 80)
@@ -236,7 +240,7 @@ public enum DocumentFixtures {
         rotation: Int = 0
     ) throws -> Data {
         guard let source = CGImageSourceCreateWithData(imageData as CFData, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+            let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { throw FixtureError.writeFailed("scan image would not decode") }
 
         let size = pageSize ?? CGSize(width: image.width, height: image.height)
@@ -294,36 +298,38 @@ public enum DocumentFixtures {
             let crc = crc32(entry.data)
             offsets.append(UInt32(output.count))
 
-            output.append(u32(0x0403_4B50))          // local file header
-            output.append(u16(20))                   // version needed
-            output.append(u16(0x0800))               // UTF-8 names
-            output.append(u16(0))                    // stored
-            output.append(u16(0)); output.append(u16(0))   // time, date
+            output.append(u32(0x0403_4B50))  // local file header
+            output.append(u16(20))  // version needed
+            output.append(u16(0x0800))  // UTF-8 names
+            output.append(u16(0))  // stored
+            output.append(u16(0))
+            output.append(u16(0))  // time, date
             output.append(u32(crc))
             output.append(u32(UInt32(entry.data.count)))
             output.append(u32(UInt32(entry.data.count)))
             output.append(u16(UInt16(name.count)))
-            output.append(u16(0))                    // no extra field
+            output.append(u16(0))  // no extra field
             output.append(contentsOf: name)
             output.append(entry.data)
         }
 
         for (index, entry) in entries.enumerated() {
             let name = Array(entry.name.utf8)
-            central.append(u32(0x0201_4B50))         // central file header
-            central.append(u16(20))                  // version made by
-            central.append(u16(20))                  // version needed
+            central.append(u32(0x0201_4B50))  // central file header
+            central.append(u16(20))  // version made by
+            central.append(u16(20))  // version needed
             central.append(u16(0x0800))
             central.append(u16(0))
-            central.append(u16(0)); central.append(u16(0))
+            central.append(u16(0))
+            central.append(u16(0))
             central.append(u32(crc32(entry.data)))
             central.append(u32(UInt32(entry.data.count)))
             central.append(u32(UInt32(entry.data.count)))
             central.append(u16(UInt16(name.count)))
-            central.append(u16(0))                   // extra
-            central.append(u16(0))                   // comment
-            central.append(u16(0))                   // disk start
-            central.append(u16(0))                   // internal attrs
+            central.append(u16(0))  // extra
+            central.append(u16(0))  // comment
+            central.append(u16(0))  // disk start
+            central.append(u16(0))  // internal attrs
             // The MS-DOS directory bit, for folder entries. Real writers set it
             // and a reader that only looks at the trailing slash still gets
             // these right — which is the point of setting it here.
@@ -334,13 +340,14 @@ public enum DocumentFixtures {
 
         let centralOffset = UInt32(output.count)
         output.append(central)
-        output.append(u32(0x0605_4B50))              // end of central directory
-        output.append(u16(0)); output.append(u16(0)) // disk numbers
+        output.append(u32(0x0605_4B50))  // end of central directory
+        output.append(u16(0))
+        output.append(u16(0))  // disk numbers
         output.append(u16(UInt16(entries.count)))
         output.append(u16(UInt16(entries.count)))
         output.append(u32(UInt32(central.count)))
         output.append(u32(centralOffset))
-        output.append(u16(0))                        // no archive comment
+        output.append(u16(0))  // no archive comment
         return output
     }
 
@@ -371,16 +378,18 @@ public enum DocumentFixtures {
     // MARK: - Drawing plumbing
 
     private static func bitmap(size: CGSize, _ body: (CGContext) -> Void) throws -> CGImage {
-        guard let context = CGContext(
-            data: nil,
-            width: Int(size.width.rounded()),
-            height: Int(size.height.rounded()),
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
-                | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else {
+        guard
+            let context = CGContext(
+                data: nil,
+                width: Int(size.width.rounded()),
+                height: Int(size.height.rounded()),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue
+                    | CGBitmapInfo.byteOrder32Little.rawValue
+            )
+        else {
             throw FixtureError.writerUnavailable("no \(size) bitmap context")
         }
         body(context)
@@ -405,9 +414,11 @@ public enum DocumentFixtures {
         container: [CFString: Any] = [:]
     ) throws -> Data {
         let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data as CFMutableData, typeIdentifier as CFString, images.count, nil
-        ) else {
+        guard
+            let destination = CGImageDestinationCreateWithData(
+                data as CFMutableData, typeIdentifier as CFString, images.count, nil
+            )
+        else {
             throw FixtureError.writerUnavailable("ImageIO will not write \(typeIdentifier) here")
         }
         if !container.isEmpty {
@@ -427,7 +438,7 @@ public enum DocumentFixtures {
     private static func pdf(_ body: (CGContext) -> Void) throws -> Data {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData),
-              let context = CGContext(consumer: consumer, mediaBox: nil, nil)
+            let context = CGContext(consumer: consumer, mediaBox: nil, nil)
         else {
             throw FixtureError.writerUnavailable("no Core Graphics PDF context")
         }

@@ -17,38 +17,40 @@ struct SubtitleInstallerTests {
     private static let credentials = ProviderCredentials(apiKey: "SECRET", userAgent: "LatheTests v1")
 
     private static let search = """
-    {"data":[
-      {"id":"1","attributes":{"language":"en","download_count":90000,"machine_translated":true,
-       "release":"Some.Film.2020.1080p","files":[{"file_id":101,"file_name":"auto.en.srt"}]}},
-      {"id":"2","attributes":{"language":"en","download_count":40,"machine_translated":false,
-       "release":"Some.Film.2020.720p.WEB","files":[{"file_id":102,"file_name":"other.en.srt"}]}},
-      {"id":"3","attributes":{"language":"en","download_count":12,"machine_translated":false,
-       "release":"Some.Film.2020.1080p.BluRay","files":[{"file_id":103,"file_name":"match.en.srt"}]}},
-      {"id":"4","attributes":{"language":"pt-BR","download_count":5,"hearing_impaired":true,
-       "files":[{"file_id":201,"file_name":"film.pt.vtt"}]}}
-    ]}
-    """
+        {"data":[
+          {"id":"1","attributes":{"language":"en","download_count":90000,"machine_translated":true,
+           "release":"Some.Film.2020.1080p","files":[{"file_id":101,"file_name":"auto.en.srt"}]}},
+          {"id":"2","attributes":{"language":"en","download_count":40,"machine_translated":false,
+           "release":"Some.Film.2020.720p.WEB","files":[{"file_id":102,"file_name":"other.en.srt"}]}},
+          {"id":"3","attributes":{"language":"en","download_count":12,"machine_translated":false,
+           "release":"Some.Film.2020.1080p.BluRay","files":[{"file_id":103,"file_name":"match.en.srt"}]}},
+          {"id":"4","attributes":{"language":"pt-BR","download_count":5,"hearing_impaired":true,
+           "files":[{"file_id":201,"file_name":"film.pt.vtt"}]}}
+        ]}
+        """
 
     private static let englishSRT = """
-    1
-    00:00:00,500 --> 00:00:01,500
-    Hello.
+        1
+        00:00:00,500 --> 00:00:01,500
+        Hello.
 
-    2
-    00:00:01,000 --> 00:00:00,900
-    This cue runs backwards.
+        2
+        00:00:01,000 --> 00:00:00,900
+        This cue runs backwards.
 
-    3
-    00:00:02,000 --> 00:00:03,000
-    Goodbye.
-    """
+        3
+        00:00:02,000 --> 00:00:03,000
+        Goodbye.
+        """
 
     private static let portugueseVTT = "WEBVTT\n\n00:01.000 --> 00:02.000\nOlá\n"
 
     private static func ticket(_ name: String, remaining: Int) -> ScriptedTransport.Reply {
-        .init(status: 200, body: Data(
-            #"{"link":"https://files.example.com/\#(name)","file_name":"\#(name)","remaining":\#(remaining)}"#.utf8
-        ))
+        .init(
+            status: 200,
+            body: Data(
+                #"{"link":"https://files.example.com/\#(name)","file_name":"\#(name)","remaining":\#(remaining)}"#.utf8
+            ))
     }
 
     @Test("the best subtitle per language is downloaded once and written into the film")
@@ -83,8 +85,9 @@ struct SubtitleInstallerTests {
             #expect(request.value(forHTTPHeaderField: "Api-Key") == nil, "the key went to the file host")
         }
         let searchURL = try #require(requests.first?.url?.absoluteString)
-        #expect(searchURL.contains("query=Some%20Film") || searchURL.contains("query=Some+Film"),
-                "the title came from the filename: \(searchURL)")
+        #expect(
+            searchURL.contains("query=Some%20Film") || searchURL.contains("query=Some+Film"),
+            "the title came from the filename: \(searchURL)")
 
         // The skipped cue is reported, not silently lost.
         #expect(result.skippedCues.map(\.count) == [1, 0])
@@ -106,9 +109,10 @@ struct SubtitleInstallerTests {
         guard let film = await film("unconfigured.mov") else { return }
         let output = await scratch("unconfigured-out.mp4")
         let transport = ScriptedTransport([])
-        let installer = SubtitleInstaller(provider: OpenSubtitlesProvider(
-            credentials: ProviderCredentials(apiKey: "only-a-key"), transport: transport
-        ))
+        let installer = SubtitleInstaller(
+            provider: OpenSubtitlesProvider(
+                credentials: ProviderCredentials(apiKey: "only-a-key"), transport: transport
+            ))
         await #expect(throws: LookupError.self) {
             try await installer.installBest(into: film, writingTo: output)
         }
@@ -124,8 +128,9 @@ struct SubtitleInstallerTests {
             provider: OpenSubtitlesProvider(credentials: Self.credentials, transport: transport)
         )
         await #expect(throws: SubtitleInstallError.nothingFound(languages: ["de"])) {
-            try await installer.installBest(into: film, writingTo: await scratch("nothing-out.mp4"),
-                                            languages: ["de"])
+            try await installer.installBest(
+                into: film, writingTo: await scratch("nothing-out.mp4"),
+                languages: ["de"])
         }
         #expect(await transport.requests.count == 1)
         #expect(SubtitleInstallError.nothingFound(languages: ["de"]).recoverySuggestion != nil)
@@ -154,11 +159,13 @@ struct SubtitleInstallerTests {
     @Test("candidates rank human over machine, then this release, then popularity")
     func ranking() {
         let candidates = [
-            SubtitleCandidate(fileID: 1, fileName: "a.srt", language: "en", downloadCount: 1_000,
-                              isMachineTranslated: true, releaseName: "Film.2020.1080p.BluRay"),
+            SubtitleCandidate(
+                fileID: 1, fileName: "a.srt", language: "en", downloadCount: 1_000,
+                isMachineTranslated: true, releaseName: "Film.2020.1080p.BluRay"),
             SubtitleCandidate(fileID: 2, fileName: "b.srt", language: "en", downloadCount: 500),
-            SubtitleCandidate(fileID: 3, fileName: "c.srt", language: "en", downloadCount: 5,
-                              releaseName: "film 2020 1080p bluray"),
+            SubtitleCandidate(
+                fileID: 3, fileName: "c.srt", language: "en", downloadCount: 5,
+                releaseName: "film 2020 1080p bluray"),
             SubtitleCandidate(fileID: 4, fileName: "d.srt", language: "en", downloadCount: 900),
         ]
         let ranked = SubtitleInstaller.rank(

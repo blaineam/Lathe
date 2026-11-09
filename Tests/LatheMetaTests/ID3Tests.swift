@@ -112,17 +112,17 @@ struct ID3Tests {
         // A payload of 130 bytes: syncsafe that is [0,0,1,2], plain [0,0,0,130].
         // Reading one as the other lands 128 bytes away from the truth.
         let text = String(repeating: "x", count: 129)
-        let payload = Data([0x00]) + Data(text.utf8)   // ISO-8859-1
+        let payload = Data([0x00]) + Data(text.utf8)  // ISO-8859-1
         #expect(payload.count == 130)
 
         var body = Data()
         body.append(Data("TIT2".utf8))
-        body.append(contentsOf: [0x00, 0x00, 0x00, 0x82])   // 130, plain
+        body.append(contentsOf: [0x00, 0x00, 0x00, 0x82])  // 130, plain
         body.append(contentsOf: [0x00, 0x00])
         body.append(payload)
 
         var file = Data("ID3".utf8)
-        file.append(contentsOf: [0x03, 0x00, 0x00])          // v2.3
+        file.append(contentsOf: [0x03, 0x00, 0x00])  // v2.3
         file.append(contentsOf: ID3Tag.syncsafeBytes(body.count))
         file.append(body)
         file.append(contentsOf: [0xFF, 0xFB, 0x90, 0x00])
@@ -220,8 +220,9 @@ struct ID3Tests {
         #expect(read.title == "A Song")
         #expect(read.summary == "A subtitle")
         #expect(read.longDescription == "Something much longer than the subtitle.")
-        #expect(read.creators == ["First Artist", "Second Artist"],
-                "v2.4 stores several values in one frame, separated by a null")
+        #expect(
+            read.creators == ["First Artist", "Second Artist"],
+            "v2.4 stores several values in one frame, separated by a null")
         #expect(read.genre == "Test")
         #expect(read.comment == "A comment")
         #expect(read.copyrightNotice == "© nobody")
@@ -394,7 +395,10 @@ struct ID3Tests {
         #expect(try await reader.read(source).title == "Old Title")
 
         let output = directory.appendingPathComponent("out.mp3")
-        try await writer.update(source, writingTo: output) { $0.title = nil; $0.comment = "kept" }
+        try await writer.update(source, writingTo: output) {
+            $0.title = nil
+            $0.comment = "kept"
+        }
 
         let read = try await reader.read(output)
         #expect(read.title == nil, "the old title survived being cleared")

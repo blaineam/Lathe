@@ -194,7 +194,7 @@ struct RuffleRenderTests {
             )
             Issue.record("expected the chosen renderer's panic to fail the render")
         } catch let error as LatheError {
-            guard case let .invalidInput(reason) = error else {
+            guard case .invalidInput(let reason) = error else {
                 Issue.record("expected invalidInput, got \(error)")
                 return
             }
@@ -273,7 +273,8 @@ struct RuffleRenderTests {
     /// none. Redrawn into a known RGBA layout first, so the answer does not
     /// depend on how the PNG happened to be encoded.
     private static func squareLeftEdge(in image: CGImage) throws -> Int? {
-        let width = image.width, height = image.height
+        let width = image.width
+        let height = image.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         let context = try #require(
             CGContext(

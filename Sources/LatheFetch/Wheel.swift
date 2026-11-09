@@ -136,9 +136,11 @@ public struct WheelInspection: Sendable, Equatable {
                 members: compiledExtensions.isEmpty
                     // Tags say compiled, contents do not: name the tags, since
                     // that is the only evidence there is.
-                    ? ["(no compiled members, but the wheel is tagged "
-                        + "\(name.abiTags.joined(separator: "."))-\(name.platformTags.joined(separator: "."))"
-                        + " rather than none-any)"]
+                    ? [
+                        "(no compiled members, but the wheel is tagged "
+                            + "\(name.abiTags.joined(separator: "."))-\(name.platformTags.joined(separator: "."))"
+                            + " rather than none-any)"
+                    ]
                     : compiledExtensions
             )
         }

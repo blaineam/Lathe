@@ -51,8 +51,9 @@ struct FrameVideoWriterTests {
 
         let asset = AVURLAsset(url: output)
         let duration = CMTimeGetSeconds(try await asset.load(.duration))
-        #expect(abs(duration - 1.0) < 0.02,
-                "got \(duration)s; a movie one frame short is the usual endSession bug")
+        #expect(
+            abs(duration - 1.0) < 0.02,
+            "got \(duration)s; a movie one frame short is the usual endSession bug")
 
         let tracks = try await asset.loadTracks(withMediaType: .video)
         #expect(tracks.count == 1)
@@ -91,16 +92,18 @@ struct FrameVideoWriterTests {
             )
             let mean = Double(data.reduce(0) { $0 + Int($1) }) / Double(data.count) / 255
             let expected = Double(FrameFixtures.gray(index, of: count))
-            #expect(abs(mean - expected) < 0.08,
-                    "frame \(index + 1) reads \(mean), expected \(expected)")
+            #expect(
+                abs(mean - expected) < 0.08,
+                "frame \(index + 1) reads \(mean), expected \(expected)")
         }
     }
 
     /// Every codec in the shared vocabulary writes something playable. The
     /// vocabulary is `VideoTranscoder`'s, reused rather than reinvented, so this
     /// also pins that the two agree.
-    @Test("every codec in the vocabulary writes a real track",
-          arguments: VideoCodec.allCases)
+    @Test(
+        "every codec in the vocabulary writes a real track",
+        arguments: VideoCodec.allCases)
     func everyCodec(_ codec: VideoCodec) async throws {
         let directory = try temporaryDirectory("codec-\(codec.rawValue)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -150,11 +153,13 @@ struct FrameVideoWriterTests {
         let directory = try temporaryDirectory("mismatch")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 3, in: directory, sizes: [
-            CGSize(width: 96, height: 64),
-            CGSize(width: 32, height: 32),
-            CGSize(width: 200, height: 40),
-        ])
+        try FrameFixtures.stills(
+            count: 3, in: directory,
+            sizes: [
+                CGSize(width: 96, height: 64),
+                CGSize(width: 32, height: 32),
+                CGSize(width: 200, height: 40),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
         let output = directory.appendingPathComponent("out.mp4")
 
@@ -170,9 +175,11 @@ struct FrameVideoWriterTests {
         let directory = try temporaryDirectory("uniform")
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        try FrameFixtures.stills(count: 2, in: directory, sizes: [
-            CGSize(width: 96, height: 64), CGSize(width: 64, height: 64),
-        ])
+        try FrameFixtures.stills(
+            count: 2, in: directory,
+            sizes: [
+                CGSize(width: 96, height: 64), CGSize(width: 64, height: 64),
+            ])
         let frames = try FrameSequence.contentsOfDirectory(directory)
 
         await #expect(throws: LatheError.self) {
@@ -248,8 +255,9 @@ struct FrameVideoWriterTests {
         let rate = 24_000.0 / 1_001.0
         let result = try await writer.write(frames, to: output, frameRate: rate)
         let expected = 24 / rate
-        #expect(abs(result.duration - expected) < 0.01,
-                "got \(result.duration)s, expected \(expected)s")
+        #expect(
+            abs(result.duration - expected) < 0.01,
+            "got \(result.duration)s, expected \(expected)s")
     }
 
     /// An extension naming no container is refused before anything is created —
@@ -316,9 +324,10 @@ struct FrameVideoWriterTests {
 
         // The alpha mode is only set for the codec that has one to describe;
         // setting it elsewhere is how a player gets a dark fringe around edges.
-        let alpha = FrameVideoWriter.outputSettings(
-            codec: .hevcWithAlpha, size: size, quality: .quality(0.5), frameRate: 30
-        )[AVVideoCompressionPropertiesKey] as? [String: Any] ?? [:]
+        let alpha =
+            FrameVideoWriter.outputSettings(
+                codec: .hevcWithAlpha, size: size, quality: .quality(0.5), frameRate: 30
+            )[AVVideoCompressionPropertiesKey] as? [String: Any] ?? [:]
         #expect(alpha[VTKey.alphaChannelMode] as? String == "PremultipliedAlpha")
         #expect(compression[VTKey.alphaChannelMode] == nil)
     }

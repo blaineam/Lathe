@@ -35,7 +35,7 @@ public enum QualityTarget: Sendable, Equatable {
 
     /// Clamped `0...1` where the case carries a normalised quality, else `nil`.
     public var normalizedQuality: Double? {
-        if case let .quality(q) = self { return min(max(q, 0), 1) }
+        if case .quality(let q) = self { return min(max(q, 0), 1) }
         return nil
     }
 }

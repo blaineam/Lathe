@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// These fields decode JSON keys written by the Python driver.
+
 import Foundation
 import LatheCore
 

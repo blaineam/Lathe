@@ -136,8 +136,11 @@ public struct MediaFormat: Sendable, Equatable, Codable {
     public var summary: String {
         var parts: [String] = [formatID]
         if let ext { parts.append(ext) }
-        if let height { parts.append("\(height)p" + (frameRate.map { $0 > 30 ? String(Int($0.rounded())) : "" } ?? "")) }
-        else if isAudioOnly { parts.append("audio only") }
+        if let height {
+            parts.append("\(height)p" + (frameRate.map { $0 > 30 ? String(Int($0.rounded())) : "" } ?? ""))
+        } else if isAudioOnly {
+            parts.append("audio only")
+        }
         if let videoCodec { parts.append(videoCodec) }
         if let audioCodec { parts.append(audioCodec) }
         if let bytes = estimatedByteCount {

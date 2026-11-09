@@ -1,3 +1,6 @@
+// swift-format-ignore-file: AlwaysUseLowerCamelCase
+// `iso639_2` is the name of the standard, and public API.
+
 import Foundation
 
 /// A subtitle track's language, in both of the forms a file stores.
@@ -89,7 +92,7 @@ public struct SubtitleLanguage: Sendable, Equatable, Hashable {
     static func isWellFormed(_ tag: String) -> Bool {
         let parts = tag.split(separator: "-", omittingEmptySubsequences: false)
         guard let first = parts.first, (2...8).contains(first.count),
-              first.allSatisfy({ $0.isASCII && $0.isLetter })
+            first.allSatisfy({ $0.isASCII && $0.isLetter })
         else { return false }
         return parts.dropFirst().allSatisfy { part in
             (1...8).contains(part.count) && part.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }

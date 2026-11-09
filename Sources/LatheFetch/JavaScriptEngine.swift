@@ -171,17 +171,23 @@ public enum JavaScriptEngine {
         private var diagnosticLines: [String] = []
 
         func appendOutput(_ line: String) {
-            lock.lock(); outputLines.append(line); lock.unlock()
+            lock.lock()
+            outputLines.append(line)
+            lock.unlock()
         }
         func appendDiagnostic(_ line: String) {
-            lock.lock(); diagnosticLines.append(line); lock.unlock()
+            lock.lock()
+            diagnosticLines.append(line)
+            lock.unlock()
         }
         var output: String {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             return outputLines.joined(separator: "\n")
         }
         var diagnostics: String {
-            lock.lock(); defer { lock.unlock() }
+            lock.lock()
+            defer { lock.unlock() }
             return diagnosticLines.joined(separator: "\n")
         }
     }

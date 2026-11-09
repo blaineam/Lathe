@@ -117,7 +117,7 @@ enum ZIPWriter {
                 )
             }
             guard UInt64(member.payload.count) <= fieldLimit,
-                  member.uncompressedSize <= fieldLimit
+                member.uncompressedSize <= fieldLimit
             else {
                 throw LatheError.invalidInput(
                     reason: "entry \(member.name) is larger than 4 GB; that needs ZIP64, which "
@@ -141,11 +141,12 @@ enum ZIPWriter {
             )
         }
         archive.append(directory)
-        archive.append(endOfCentralDirectory(
-            entryCount: UInt16(members.count),
-            directorySize: UInt32(directory.count),
-            directoryOffset: UInt32(directoryOffset)
-        ))
+        archive.append(
+            endOfCentralDirectory(
+                entryCount: UInt16(members.count),
+                directorySize: UInt32(directory.count),
+                directoryOffset: UInt32(directoryOffset)
+            ))
 
         do {
             try archive.write(to: url, options: .atomic)
@@ -160,8 +161,8 @@ enum ZIPWriter {
         let nameBytes = Data(member.name.utf8)
         var out = Data()
         out.appendLE(localFileHeaderSignature)
-        out.appendLE(UInt16(20))                       // version needed: 2.0, deflate
-        out.appendLE(utf8NameFlag)                     // never bit 3: sizes are known here
+        out.appendLE(UInt16(20))  // version needed: 2.0, deflate
+        out.appendLE(utf8NameFlag)  // never bit 3: sizes are known here
         out.appendLE(member.method)
         out.appendLE(member.modificationTime)
         out.appendLE(member.modificationDate)
@@ -169,7 +170,7 @@ enum ZIPWriter {
         out.appendLE(UInt32(member.payload.count))
         out.appendLE(UInt32(member.uncompressedSize))
         out.appendLE(UInt16(nameBytes.count))
-        out.appendLE(UInt16(0))                        // no extra field
+        out.appendLE(UInt16(0))  // no extra field
         out.append(nameBytes)
         return out
     }
@@ -178,7 +179,7 @@ enum ZIPWriter {
         let nameBytes = Data(member.name.utf8)
         var out = Data()
         out.appendLE(centralFileHeaderSignature)
-        out.appendLE(UInt16(0x031E))                   // made by: Unix, 3.0
+        out.appendLE(UInt16(0x031E))  // made by: Unix, 3.0
         out.appendLE(UInt16(20))
         out.appendLE(utf8NameFlag)
         out.appendLE(member.method)
@@ -188,10 +189,10 @@ enum ZIPWriter {
         out.appendLE(UInt32(member.payload.count))
         out.appendLE(UInt32(member.uncompressedSize))
         out.appendLE(UInt16(nameBytes.count))
-        out.appendLE(UInt16(0))                        // extra
-        out.appendLE(UInt16(0))                        // comment
-        out.appendLE(UInt16(0))                        // disk number
-        out.appendLE(UInt16(0))                        // internal attributes
+        out.appendLE(UInt16(0))  // extra
+        out.appendLE(UInt16(0))  // comment
+        out.appendLE(UInt16(0))  // disk number
+        out.appendLE(UInt16(0))  // internal attributes
         out.appendLE(member.externalAttributes)
         out.appendLE(UInt32(offset))
         out.append(nameBytes)
@@ -203,13 +204,13 @@ enum ZIPWriter {
     ) -> Data {
         var out = Data()
         out.appendLE(endOfCentralDirectorySignature)
-        out.appendLE(UInt16(0))                        // this disk
-        out.appendLE(UInt16(0))                        // disk with the directory
+        out.appendLE(UInt16(0))  // this disk
+        out.appendLE(UInt16(0))  // disk with the directory
         out.appendLE(entryCount)
         out.appendLE(entryCount)
         out.appendLE(directorySize)
         out.appendLE(directoryOffset)
-        out.appendLE(UInt16(0))                        // comment length
+        out.appendLE(UInt16(0))  // comment length
         return out
     }
 
@@ -257,13 +258,13 @@ enum CRC32 {
     }
 }
 
-private extension Data {
-    mutating func appendLE(_ value: UInt16) {
+extension Data {
+    fileprivate mutating func appendLE(_ value: UInt16) {
         append(UInt8(value & 0xFF))
         append(UInt8((value >> 8) & 0xFF))
     }
 
-    mutating func appendLE(_ value: UInt32) {
+    fileprivate mutating func appendLE(_ value: UInt32) {
         append(UInt8(value & 0xFF))
         append(UInt8((value >> 8) & 0xFF))
         append(UInt8((value >> 16) & 0xFF))

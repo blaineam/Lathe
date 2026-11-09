@@ -110,11 +110,13 @@ struct MediaTitleParserTests {
         // and cutting a title at a word that belongs to it loses more than the
         // little noise it would have removed.
         for word in ["extended", "unrated", "director", "final", "special", "complete"] {
-            #expect(!MediaTitleParser.releaseTags.contains(word),
-                    "\"\(word)\" occurs in real titles and must not end one")
+            #expect(
+                !MediaTitleParser.releaseTags.contains(word),
+                "\"\(word)\" occurs in real titles and must not end one")
         }
         // And the consequence, end to end.
-        #expect(parser.parse("Blade.Runner.The.Final.Cut.1982.1080p").title
+        #expect(
+            parser.parse("Blade.Runner.The.Final.Cut.1982.1080p").title
                 == "Blade Runner The Final Cut")
     }
 

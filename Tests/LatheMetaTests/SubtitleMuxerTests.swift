@@ -22,26 +22,26 @@ struct SubtitleMuxerTests {
     private static let frame = 1.0 / 24
 
     private static let english = """
-    1
-    00:00:00,500 --> 00:00:01,250
-    Hello, <i>world</i>.
+        1
+        00:00:00,500 --> 00:00:01,250
+        Hello, <i>world</i>.
 
-    2
-    00:00:02,000 --> 00:00:03,000
-    Second line
-    across two
+        2
+        00:00:02,000 --> 00:00:03,000
+        Second line
+        across two
 
-    """
+        """
 
     private static let french = """
-    WEBVTT
+        WEBVTT
 
-    00:00.250 --> 00:01.000
-    Bonjour à tous
+        00:00.250 --> 00:01.000
+        Bonjour à tous
 
-    00:01.500 --> 00:03.750
-    Deuxième réplique — «ça va»
-    """
+        00:01.500 --> 00:03.750
+        Deuxième réplique — «ça va»
+        """
 
     // MARK: - The headline
 
@@ -56,10 +56,11 @@ struct SubtitleMuxerTests {
 
         let english = try SubtitleParser.parse(Self.english).cues
         let french = try SubtitleParser.parse(Self.french).cues
-        let result = try await muxer.inject([
-            SubtitleTrackSource(cues: english, language: "en", title: "English"),
-            SubtitleTrackSource(cues: french, language: "fr-CA", title: "Français"),
-        ], into: source, writingTo: output)
+        let result = try await muxer.inject(
+            [
+                SubtitleTrackSource(cues: english, language: "en", title: "English"),
+                SubtitleTrackSource(cues: french, language: "fr-CA", title: "Français"),
+            ], into: source, writingTo: output)
 
         #expect(result.cuesWritten == [2, 2])
         #expect(result.cuesOutsideFilm == [0, 0])
@@ -69,16 +70,18 @@ struct SubtitleMuxerTests {
         let asset = AVURLAsset(url: output)
         let tracks = try await asset.loadTracks(withMediaType: .subtitle)
         #expect(tracks.count == 2)
-        let group = try #require(try await asset.loadMediaSelectionGroup(for: .legible),
-                                 "no legible group: a player would show no subtitle menu")
+        let group = try #require(
+            try await asset.loadMediaSelectionGroup(for: .legible),
+            "no legible group: a player would show no subtitle menu")
         // AVFoundation adds a forced-only option beside every full track, so
         // the tracks written are the options that are not forced-only.
         let options = group.options.filter { !$0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
         #expect(options.count == 2)
         // What a viewer reads, including the region from the BCP 47 tag, which
         // the three-letter code cannot carry.
-        #expect(options.map { $0.displayName(with: Locale(identifier: "en")) }
-                    == ["English", "French (Canada)"])
+        #expect(
+            options.map { $0.displayName(with: Locale(identifier: "en")) }
+                == ["English", "French (Canada)"])
         #expect(Set(options.compactMap { $0.locale?.language.languageCode?.identifier }) == ["en", "fr"])
         #expect(group.allowsEmptySelection, "subtitles must be switchable off")
         #expect(group.defaultOption == nil, "subtitles should start off unless asked")
@@ -98,8 +101,9 @@ struct SubtitleMuxerTests {
         let backFrench = try await muxer.extractCues(from: output, trackID: listed[1].trackID)
         expectSame(backEnglish, english)
         expectSame(backFrench, french)
-        #expect(backEnglish[0].styles == [SubtitleStyleRun(range: 7..<12, style: .italic)],
-                "italics were lost in the sample")
+        #expect(
+            backEnglish[0].styles == [SubtitleStyleRun(range: 7..<12, style: .italic)],
+            "italics were lost in the sample")
 
         // And to SubRip text a person could open.
         let srt = try await muxer.extractSubRip(from: output)
@@ -136,8 +140,9 @@ struct SubtitleMuxerTests {
         let cues = try SubtitleParser.parse(Self.english).cues
         for ext in ["m4v", "mov"] {
             let output = await scratch("subs-container.\(ext)")
-            _ = try await muxer.inject([SubtitleTrackSource(cues: cues, language: "en")],
-                                       into: source, writingTo: output)
+            _ = try await muxer.inject(
+                [SubtitleTrackSource(cues: cues, language: "en")],
+                into: source, writingTo: output)
             let options = try await AVURLAsset(url: output).loadMediaSelectionGroup(for: .legible)?.options
                 .filter { !$0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) }
             #expect(options?.count == 1, ".\(ext) output has no selectable subtitle")
@@ -146,8 +151,9 @@ struct SubtitleMuxerTests {
 
         let mkv = await scratch("subs-container.mkv")
         await #expect(throws: SubtitleError.unsupportedContainer(".mkv")) {
-            try await muxer.inject([SubtitleTrackSource(cues: cues, language: "en")],
-                                   into: source, writingTo: mkv)
+            try await muxer.inject(
+                [SubtitleTrackSource(cues: cues, language: "en")],
+                into: source, writingTo: mkv)
         }
         #expect(!FileManager.default.fileExists(atPath: mkv.path))
     }
@@ -160,10 +166,11 @@ struct SubtitleMuxerTests {
         let first = await scratch("subs-existing-1.mp4")
         let english = try SubtitleParser.parse(Self.english).cues
         let french = try SubtitleParser.parse(Self.french).cues
-        _ = try await muxer.inject([
-            SubtitleTrackSource(cues: english, language: "en"),
-            SubtitleTrackSource(cues: french, language: "fr"),
-        ], into: source, writingTo: first)
+        _ = try await muxer.inject(
+            [
+                SubtitleTrackSource(cues: english, language: "en"),
+                SubtitleTrackSource(cues: french, language: "fr"),
+            ], into: source, writingTo: first)
 
         // Keep: a third track joins the other two, in the same menu.
         let kept = await scratch("subs-existing-keep.mp4")
@@ -184,8 +191,11 @@ struct SubtitleMuxerTests {
 
         // Replace: the English track goes, its replacement arrives.
         let replaced = await scratch("subs-existing-replace.mp4")
-        let fixed = english.map { SubtitleCue(startSeconds: $0.startSeconds + 0.5,
-                                              endSeconds: $0.endSeconds + 0.5, text: $0.text) }
+        let fixed = english.map {
+            SubtitleCue(
+                startSeconds: $0.startSeconds + 0.5,
+                endSeconds: $0.endSeconds + 0.5, text: $0.text)
+        }
         let replace = try await muxer.inject(
             [SubtitleTrackSource(cues: fixed, language: "en-GB")],
             into: first, writingTo: replaced, existing: .replaceSameLanguage
@@ -210,20 +220,23 @@ struct SubtitleMuxerTests {
         guard let source = await movie("subs-flags.mov") else { return }
         let output = await scratch("subs-flags-out.mp4")
         let cues = try SubtitleParser.parse(Self.english).cues
-        _ = try await muxer.inject([
-            SubtitleTrackSource(cues: cues, language: "en", isForced: true),
-            SubtitleTrackSource(cues: cues, language: "en", isHearingImpaired: true),
-        ], into: source, writingTo: output)
+        _ = try await muxer.inject(
+            [
+                SubtitleTrackSource(cues: cues, language: "en", isForced: true),
+                SubtitleTrackSource(cues: cues, language: "en", isHearingImpaired: true),
+            ], into: source, writingTo: output)
 
         let listed = try await muxer.subtitleTracks(in: output)
         #expect(listed.map(\.isForced) == [true, false])
         #expect(listed.map(\.isHearingImpaired) == [false, true])
 
         let options = try await AVURLAsset(url: output).loadMediaSelectionGroup(for: .legible)?.options ?? []
-        #expect(options.contains { $0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) },
-                "no option is marked forced")
-        #expect(options.contains { $0.hasMediaCharacteristic(.transcribesSpokenDialogForAccessibility) },
-                "no option is marked SDH")
+        #expect(
+            options.contains { $0.hasMediaCharacteristic(.containsOnlyForcedSubtitles) },
+            "no option is marked forced")
+        #expect(
+            options.contains { $0.hasMediaCharacteristic(.transcribesSpokenDialogForAccessibility) },
+            "no option is marked SDH")
     }
 
     // MARK: - Timing at the edges
@@ -238,8 +251,9 @@ struct SubtitleMuxerTests {
             SubtitleCue(startSeconds: 3.5, endSeconds: 9, text: "Runs long"),
             SubtitleCue(startSeconds: 12, endSeconds: 13, text: "After the end"),
         ]
-        let result = try await muxer.inject([SubtitleTrackSource(cues: cues, language: "en")],
-                                            into: source, writingTo: output)
+        let result = try await muxer.inject(
+            [SubtitleTrackSource(cues: cues, language: "en")],
+            into: source, writingTo: output)
         #expect(result.cuesOutsideFilm == [1])
 
         let back = try await muxer.extractCues(from: output)
@@ -249,13 +263,17 @@ struct SubtitleMuxerTests {
 
         let track = try #require(try await AVURLAsset(url: output).loadTracks(withMediaType: .subtitle).first)
         let range = try await track.load(.timeRange)
-        #expect(abs(range.duration.seconds - Self.seconds) < Self.frame,
-                "the subtitle track should span the film, not stop at its last cue")
+        #expect(
+            abs(range.duration.seconds - Self.seconds) < Self.frame,
+            "the subtitle track should span the film, not stop at its last cue")
 
         await #expect(throws: SubtitleError.cuesOutsideFilm(language: "en")) {
             try await muxer.inject(
-                [SubtitleTrackSource(cues: [SubtitleCue(startSeconds: 60, endSeconds: 61, text: "x")],
-                                     language: "en")],
+                [
+                    SubtitleTrackSource(
+                        cues: [SubtitleCue(startSeconds: 60, endSeconds: 61, text: "x")],
+                        language: "en")
+                ],
                 into: source, writingTo: await scratch("subs-edges-none.mp4")
             )
         }
@@ -270,16 +288,19 @@ struct SubtitleMuxerTests {
         let output = await scratch("subs-refusals-out.mp4")
 
         await #expect(throws: SubtitleError.invalidLanguage("english please")) {
-            try await muxer.inject([SubtitleTrackSource(cues: cues, language: "english please")],
-                                   into: source, writingTo: output)
+            try await muxer.inject(
+                [SubtitleTrackSource(cues: cues, language: "english please")],
+                into: source, writingTo: output)
         }
         await #expect(throws: SubtitleError.destinationIsSource("subs-refusals.mov")) {
-            try await muxer.inject([SubtitleTrackSource(cues: cues, language: "en")],
-                                   into: source, writingTo: source)
+            try await muxer.inject(
+                [SubtitleTrackSource(cues: cues, language: "en")],
+                into: source, writingTo: source)
         }
         await #expect(throws: SubtitleError.noCues) {
-            try await muxer.inject([SubtitleTrackSource(cues: [], language: "en")],
-                                   into: source, writingTo: output)
+            try await muxer.inject(
+                [SubtitleTrackSource(cues: [], language: "en")],
+                into: source, writingTo: output)
         }
         await #expect(throws: LatheError.self) {
             try await muxer.inject([], into: source, writingTo: output)
@@ -288,18 +309,19 @@ struct SubtitleMuxerTests {
 
         let audioOnly = try await FixtureLibrary.shared.aacFile(named: "subs-audio-only.m4a", seconds: 1)
         await #expect(throws: SubtitleError.noVideoTrack("subs-audio-only.m4a")) {
-            try await muxer.inject([SubtitleTrackSource(cues: cues, language: "en")],
-                                   into: audioOnly, writingTo: await scratch("subs-audio-out.mp4"))
+            try await muxer.inject(
+                [SubtitleTrackSource(cues: cues, language: "en")],
+                into: audioOnly, writingTo: await scratch("subs-audio-out.mp4"))
         }
 
         await #expect(throws: SubtitleError.trackNotFound(trackID: 99)) {
             try await muxer.extractCues(from: source, trackID: 99)
         }
         await #expect(throws: SubtitleError.trackNotFound(trackID: 1)) {
-            try await muxer.extractCues(from: source, trackID: 1)   // the video track
+            try await muxer.extractCues(from: source, trackID: 1)  // the video track
         }
         await #expect(throws: SubtitleError.trackNotFound(trackID: 0)) {
-            try await muxer.extractCues(from: source)   // no subtitles at all
+            try await muxer.extractCues(from: source)  // no subtitles at all
         }
     }
 
@@ -310,8 +332,11 @@ struct SubtitleMuxerTests {
         let progress = ProgressHandle(sink: ClosureProgressSink { _ in false }, throttle: .unthrottled)
         await #expect(throws: LatheError.self) {
             try await muxer.inject(
-                [SubtitleTrackSource(cues: [SubtitleCue(startSeconds: 0, endSeconds: 1, text: "x")],
-                                     language: "en")],
+                [
+                    SubtitleTrackSource(
+                        cues: [SubtitleCue(startSeconds: 0, endSeconds: 1, text: "x")],
+                        language: "en")
+                ],
                 into: source, writingTo: output, progress: progress
             )
         }
@@ -332,8 +357,9 @@ struct SubtitleMuxerTests {
             Chapter(startSeconds: 2, durationSeconds: 2, title: "Two"),
         ]
         try await writeChapters(chapters, from: source, to: chaptered)
-        #expect(await ChapterTrack.read(from: AVURLAsset(url: chaptered)).count == 2,
-                "the chaptered fixture has no chapters")
+        #expect(
+            await ChapterTrack.read(from: AVURLAsset(url: chaptered)).count == 2,
+            "the chaptered fixture has no chapters")
 
         let output = await scratch("subs-chapters-out.mp4")
         let result = try await muxer.inject(
@@ -342,8 +368,9 @@ struct SubtitleMuxerTests {
         )
         #expect(result.preservedChapterCount == 2)
         #expect(await ChapterTrack.read(from: AVURLAsset(url: output)).map(\.title) == ["One", "Two"])
-        #expect(try await muxer.subtitleTracks(in: output).count == 1,
-                "the chapter track must not be mistaken for a subtitle track")
+        #expect(
+            try await muxer.subtitleTracks(in: output).count == 1,
+            "the chapter track must not be mistaken for a subtitle track")
     }
 
     // MARK: - Helpers
@@ -354,12 +381,14 @@ struct SubtitleMuxerTests {
         #expect(actual.map(\.text) == expected.map(\.text), sourceLocation: sourceLocation)
         guard actual.count == expected.count else { return }
         for (a, e) in zip(actual, expected) {
-            #expect(abs(a.startSeconds - e.startSeconds) < Self.frame,
-                    "\"\(e.text)\" starts at \(a.startSeconds), not \(e.startSeconds)",
-                    sourceLocation: sourceLocation)
-            #expect(abs(a.endSeconds - e.endSeconds) < Self.frame,
-                    "\"\(e.text)\" ends at \(a.endSeconds), not \(e.endSeconds)",
-                    sourceLocation: sourceLocation)
+            #expect(
+                abs(a.startSeconds - e.startSeconds) < Self.frame,
+                "\"\(e.text)\" starts at \(a.startSeconds), not \(e.startSeconds)",
+                sourceLocation: sourceLocation)
+            #expect(
+                abs(a.endSeconds - e.endSeconds) < Self.frame,
+                "\"\(e.text)\" ends at \(a.endSeconds), not \(e.endSeconds)",
+                sourceLocation: sourceLocation)
         }
     }
 

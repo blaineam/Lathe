@@ -139,7 +139,7 @@ struct PythonRuntimeTests {
                 outer()
                 """)
         }
-        guard case let .raised(exception) = error else {
+        guard case .raised(let exception) = error else {
             Issue.record("expected .raised, got \(String(describing: error))")
             return
         }
@@ -166,7 +166,7 @@ struct PythonRuntimeTests {
         let error = #expect(throws: PythonError.self) {
             try runtime.execute("print('got this far'); raise ValueError('and then not')")
         }
-        guard case let .raised(exception) = error else { return }
+        guard case .raised(let exception) = error else { return }
         #expect(exception.standardOutput == "got this far\n")
         #expect(exception.message == "and then not")
     }
@@ -177,7 +177,7 @@ struct PythonRuntimeTests {
         let error = #expect(throws: PythonError.self) {
             try runtime.importModule("a_module_that_is_not_installed_anywhere")
         }
-        guard case let .raised(exception) = error else {
+        guard case .raised(let exception) = error else {
             Issue.record("expected .raised, got \(String(describing: error))")
             return
         }
@@ -283,7 +283,7 @@ struct PythonRuntimeTests {
         let error = #expect(throws: PythonError.self) {
             try PythonRuntime.bootstrap(PythonRuntime.Configuration(layout: layout))
         }
-        guard case let .alreadyBootstrapped(existingHome) = error else {
+        guard case .alreadyBootstrapped(let existingHome) = error else {
             Issue.record("expected alreadyBootstrapped, got \(String(describing: error))")
             return
         }
@@ -346,7 +346,7 @@ struct PythonRuntimeTests {
             let error = #expect(throws: PythonError.self) {
                 try runtime.execute("import subprocess; subprocess.run(['/bin/echo', 'hi'])")
             }
-            if case let .raised(exception) = error {
+            if case .raised(let exception) = error {
                 #expect(exception.isPlatformRestriction)
                 #expect(error?.localizedDescription.contains("PEP 730") == true)
             }

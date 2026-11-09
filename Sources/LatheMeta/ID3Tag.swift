@@ -68,7 +68,7 @@ struct ID3Tag: Equatable {
     static func parse(_ data: Data, name: String) throws -> ID3Tag? {
         let bytes = [UInt8](data)
         guard bytes.count >= 10,
-              bytes[0] == 0x49, bytes[1] == 0x44, bytes[2] == 0x33   // "ID3"
+            bytes[0] == 0x49, bytes[1] == 0x44, bytes[2] == 0x33  // "ID3"
         else { return nil }
 
         let major = bytes[3]
@@ -218,13 +218,13 @@ struct ID3Tag: Equatable {
 
             body.append(idBytes)
             body.append(contentsOf: Self.syncsafeBytes(payload.count))
-            body.append(contentsOf: [0x00, 0x00])   // frame flags
+            body.append(contentsOf: [0x00, 0x00])  // frame flags
             body.append(payload)
         }
 
         var out = Data("ID3".utf8)
-        out.append(contentsOf: [0x04, 0x00])        // v2.4.0
-        out.append(0x00)                            // no unsynchronisation, no extended header
+        out.append(contentsOf: [0x04, 0x00])  // v2.4.0
+        out.append(0x00)  // no unsynchronisation, no extended header
         out.append(contentsOf: Self.syncsafeBytes(body.count))
         out.append(body)
         return out
@@ -234,7 +234,7 @@ struct ID3Tag: Equatable {
         switch frame.payload {
         case .text(let values):
             guard !values.isEmpty else { return nil }
-            var out = Data([0x03])                  // UTF-8
+            var out = Data([0x03])  // UTF-8
             // v2.4 separates multiple values with a null; earlier versions had
             // no way to express them at all, which is why a genre list arrives
             // from older files as one run-on string.

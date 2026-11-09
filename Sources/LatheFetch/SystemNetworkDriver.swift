@@ -27,9 +27,9 @@ enum SystemNetworkDriver {
     /// iOS on, macOS off: see ``MediaFetcher/Configuration/usesSystemNetworking``.
     static var defaultEnabled: Bool {
         #if os(iOS)
-        return true
+            return true
         #else
-        return false
+            return false
         #endif
     }
 
@@ -39,8 +39,9 @@ enum SystemNetworkDriver {
         if (try? await runtime.evaluateDetached(installExpression)) == nil {
             guard (try? await runtime.executeDetached(source)) != nil else { return false }
         }
-        guard (try? await runtime.evaluateDetached(
-            "\(bindFunction)()", arguments: SystemNetworkBridge.addresses)) != nil
+        guard
+            (try? await runtime.evaluateDetached(
+                "\(bindFunction)()", arguments: SystemNetworkBridge.addresses)) != nil
         else { return false }
         guard let reply = try? await runtime.evaluateDetached("\(function)()"),
             let text = reply.value.string, text.contains("\"ok\": true")

@@ -186,18 +186,18 @@ final class LAMEFlags {
     }
 }
 
-private extension Int {
+extension Int {
     /// LAME's VBR quality is 0…9 and nothing else.
-    var clampedToVBR: Int { Swift.min(Swift.max(self, 0), 9) }
+    fileprivate var clampedToVBR: Int { Swift.min(Swift.max(self, 0), 9) }
 }
 
-private extension MP3Mode {
+extension MP3Mode {
     /// The `MPEG_mode` LAME wants.
     ///
     /// A mono source is coded as mono whatever was asked for: telling LAME to
     /// produce joint stereo from one channel makes it duplicate the channel and
     /// spend roughly twice the bits saying the same thing twice.
-    func lameMode(channels: Int) -> MPEG_mode {
+    fileprivate func lameMode(channels: Int) -> MPEG_mode {
         guard channels > 1 else { return MONO }
         switch self {
         case .stereo: return STEREO

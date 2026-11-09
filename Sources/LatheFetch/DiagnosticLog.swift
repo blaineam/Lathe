@@ -13,7 +13,7 @@ import Foundation
 public enum DiagnosticLog {
     private static let destination: URL? = {
         guard let path = ProcessInfo.processInfo.environment["LATHE_DIAGNOSTIC_LOG"],
-              !path.isEmpty
+            !path.isEmpty
         else { return nil }
         return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }()

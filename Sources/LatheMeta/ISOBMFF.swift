@@ -95,10 +95,11 @@ enum ISOBMFF {
                     reason: "a \(header.type) box inside \(parent) runs past the end of \(parent)"
                 )
             }
-            boxes.append(ISOBox(
-                type: header.type, offset: base + UInt64(cursor),
-                headerSize: header.headerSize, size: header.size, extendsToEnd: header.extendsToEnd
-            ))
+            boxes.append(
+                ISOBox(
+                    type: header.type, offset: base + UInt64(cursor),
+                    headerSize: header.headerSize, size: header.size, extendsToEnd: header.extendsToEnd
+                ))
             cursor += Int(header.size)
         }
         return boxes
@@ -128,10 +129,11 @@ enum ISOBMFF {
             guard cursor + header.size <= length else {
                 return (boxes, cursor)
             }
-            boxes.append(ISOBox(
-                type: header.type, offset: cursor,
-                headerSize: header.headerSize, size: header.size, extendsToEnd: header.extendsToEnd
-            ))
+            boxes.append(
+                ISOBox(
+                    type: header.type, offset: cursor,
+                    headerSize: header.headerSize, size: header.size, extendsToEnd: header.extendsToEnd
+                ))
             cursor += header.size
         }
         return (boxes, nil)

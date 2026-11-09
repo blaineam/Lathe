@@ -79,37 +79,37 @@ public enum SubtitleError: Error, Sendable, Equatable, CustomStringConvertible, 
         switch self {
         case .notText:
             return "the subtitle file is not text"
-        case let .tooLarge(count, limit):
+        case .tooLarge(let count, let limit):
             return "the subtitle file is \(count) bytes, over the \(limit)-byte limit"
-        case let .unsupportedFormat(format):
+        case .unsupportedFormat(let format):
             return "\(Self.name(of: format)) subtitles are not supported"
         case .missingWebVTTHeader:
             return "the WebVTT file does not start with a WEBVTT line"
-        case let .malformedTiming(line, text):
+        case .malformedTiming(let line, let text):
             return "line \(line) is not a valid timing line: \"\(Self.clip(text))\""
-        case let .cueEndsBeforeItStarts(line):
+        case .cueEndsBeforeItStarts(let line):
             return "the cue timed on line \(line) ends before it starts"
-        case let .unexpectedText(line, text):
+        case .unexpectedText(let line, let text):
             return "line \(line) is outside any cue: \"\(Self.clip(text))\""
-        case let .cueTooLong(line, count):
+        case .cueTooLong(let line, let count):
             return "the cue timed on line \(line) is \(count) bytes long"
         case .noCues:
             return "the subtitle file contains no cues"
-        case let .invalidLanguage(code):
+        case .invalidLanguage(let code):
             return "\"\(code)\" is not a language code"
-        case let .unsupportedContainer(name):
+        case .unsupportedContainer(let name):
             return "\(name) cannot carry a subtitle track"
-        case let .noVideoTrack(name):
+        case .noVideoTrack(let name):
             return "\(name) has no video track"
-        case let .cuesOutsideFilm(language):
+        case .cuesOutsideFilm(let language):
             return "every \(language) cue starts after the film ends"
-        case let .destinationIsSource(name):
+        case .destinationIsSource(let name):
             return "\(name) is both the source and the destination"
-        case let .muxFailed(stage, reason):
+        case .muxFailed(let stage, let reason):
             return "adding subtitles failed while \(stage): \(reason)"
-        case let .trackNotFound(id):
+        case .trackNotFound(let id):
             return "there is no subtitle track \(id)"
-        case let .unreadableTrack(id, format):
+        case .unreadableTrack(let id, let format):
             return "subtitle track \(id) is \(format), which cannot be read as text"
         }
     }

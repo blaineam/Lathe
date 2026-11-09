@@ -77,7 +77,8 @@ struct Options: Equatable {
         func number(for flag: String, in range: ClosedRange<Double>) throws -> Double {
             let raw = try value(for: flag)
             guard let parsed = Double(raw), range.contains(parsed) else {
-                throw UsageError(description: "\(flag) \(raw): expected a number in \(range.lowerBound)...\(range.upperBound)")
+                throw UsageError(
+                    description: "\(flag) \(raw): expected a number in \(range.lowerBound)...\(range.upperBound)")
             }
             return parsed
         }
@@ -89,7 +90,9 @@ struct Options: Equatable {
             case "--format":
                 let raw = try value(for: argument)
                 guard let format = Self.formats[raw.lowercased()] else {
-                    throw UsageError(description: "--format \(raw): expected one of \(Self.formats.keys.sorted().joined(separator: ", "))")
+                    throw UsageError(
+                        description:
+                            "--format \(raw): expected one of \(Self.formats.keys.sorted().joined(separator: ", "))")
                 }
                 options.format = format
             case "--quality":
@@ -119,7 +122,8 @@ struct Options: Equatable {
                 case "keep": options.metadata = .preserveAll
                 case "strip-location": options.metadata = .stripLocation
                 case "strip": options.metadata = .stripAll
-                case let other: throw UsageError(description: "--metadata \(other): expected keep, strip-location or strip")
+                case let other:
+                    throw UsageError(description: "--metadata \(other): expected keep, strip-location or strip")
                 }
             case "--output-dir":
                 options.outputDirectory = URL(fileURLWithPath: try value(for: argument), isDirectory: true)
@@ -146,7 +150,10 @@ struct Options: Equatable {
 
         if let fixed {
             guard !searchFlagSeen else {
-                throw UsageError(description: "--quality fixes the setting; --min-ssim, --min-region-ssim and --range only apply to the search")
+                throw UsageError(
+                    description:
+                        "--quality fixes the setting; --min-ssim, --min-region-ssim and --range only apply to the search"
+                )
             }
             options.quality = .fixed(fixed)
         } else {

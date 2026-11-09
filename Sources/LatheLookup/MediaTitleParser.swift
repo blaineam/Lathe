@@ -37,7 +37,8 @@ public struct MediaTitleParser: Sendable {
     public func parse(_ rawName: String) -> LookupQuery {
         // Separators first: release names use dots or underscores where a title
         // has spaces, and every later pattern is written in terms of spaces.
-        var name = rawName
+        var name =
+            rawName
             .replacingOccurrences(of: "_", with: " ")
         let dotsAreSeparators = !name.contains(" ")
         if dotsAreSeparators {
@@ -100,9 +101,9 @@ public struct MediaTitleParser: Sendable {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
             let full = NSRange(name.startIndex..<name.endIndex, in: name)
             guard let match = regex.firstMatch(in: name, range: full),
-                  let range = Range(match.range, in: name),
-                  let seasonRange = Range(match.range(at: 1), in: name),
-                  let episodeRange = Range(match.range(at: 2), in: name)
+                let range = Range(match.range, in: name),
+                let seasonRange = Range(match.range(at: 1), in: name),
+                let episodeRange = Range(match.range(at: 2), in: name)
             else { continue }
             return EpisodeMarker(
                 season: Int(name[seasonRange]),
@@ -140,7 +141,7 @@ public struct MediaTitleParser: Sendable {
         var best: YearMatch?
         regex.enumerateMatches(in: name, range: full) { match, _, _ in
             guard let match, let range = Range(match.range, in: name),
-                  let value = Int(name[range])
+                let value = Int(name[range])
             else { return }
             // A year at the very start is the title.
             guard range.lowerBound != name.startIndex else { return }

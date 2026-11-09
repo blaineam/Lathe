@@ -120,8 +120,8 @@ public enum SWFThumbnailOutcome: Sendable {
 
     public var source: URL {
         switch self {
-        case let .made(thumbnail): thumbnail.source
-        case let .failed(source, _): source
+        case .made(let thumbnail): thumbnail.source
+        case .failed(let source, _): source
         }
     }
 }
@@ -182,7 +182,7 @@ public final class SWFThumbnailer {
         let seconds: Double
         switch options.position {
         case .start: seconds = 0
-        case let .seconds(position): seconds = Self.clamp(position, 0, 120)
+        case .seconds(let position): seconds = Self.clamp(position, 0, 120)
         }
         let searching = options.minimumDetail > 0
         let window = searching ? Self.clamp(options.searchSeconds, 0, 60) : 0
@@ -219,7 +219,10 @@ public final class SWFThumbnailer {
                 try Task.checkCancellation()
                 let detail = Self.detail(of: frames[index])
                 if detail > best.detail { best = (index, detail) }
-                if detail >= options.minimumDetail { found = index; break }
+                if detail >= options.minimumDetail {
+                    found = index
+                    break
+                }
             }
             chosen = found ?? best.index
             blank = found == nil && best.detail < 0.001
@@ -349,9 +352,9 @@ public final class SWFThumbnailer {
     nonisolated static func reason(_ error: Error) -> String {
         if let lathe = error as? LatheError {
             switch lathe {
-            case let .invalidInput(reason), let .invalidConfiguration(reason):
+            case .invalidInput(let reason), .invalidConfiguration(let reason):
                 return reason
-            case let .unsupportedOnThisPlatform(feature):
+            case .unsupportedOnThisPlatform(let feature):
                 return feature
             default:
                 break
@@ -363,14 +366,16 @@ public final class SWFThumbnailer {
     /// Whether every pixel is the same: a stage that has drawn nothing.
     nonisolated static func isFlat(_ url: URL) -> Bool {
         guard let image = decode(url) else { return false }
-        let width = image.width, height = image.height
+        let width = image.width
+        let height = image.height
         guard width > 0, height > 0 else { return true }
         var data = [UInt8](repeating: 0, count: width * height * 4)
         let drawn = data.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(
-                data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard
+                let context = CGContext(
+                    data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                    bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
             else { return false }
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
             return true
@@ -404,10 +409,11 @@ public final class SWFThumbnailer {
         }
         var output = image
         if let color {
-            guard let context = CGContext(
-                data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
-                bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+            guard
+                let context = CGContext(
+                    data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                    bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                    bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
             else {
                 throw LatheError.invalidInput(reason: "a captured frame could not be flattened")
             }
@@ -420,8 +426,9 @@ public final class SWFThumbnailer {
             }
             output = flat
         }
-        guard let sink = CGImageDestinationCreateWithURL(
-            destination as CFURL, "public.png" as CFString, 1, nil)
+        guard
+            let sink = CGImageDestinationCreateWithURL(
+                destination as CFURL, "public.png" as CFString, 1, nil)
         else {
             throw LatheError.invalidInput(reason: "a captured frame could not be written")
         }

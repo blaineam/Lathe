@@ -176,7 +176,9 @@ enum MP4InPlace {
     ///   slot that is bigger than the atom by less than a `free` atom's header.
     ///   They go on the end of the `hdlr` name, which is a string of any length
     ///   that nothing displays.
-    static func buildMoov(_ inspection: Inspection, metadata: MediaMetadata, padding: Int = 0, now: Date = Date()) throws -> Data {
+    static func buildMoov(_ inspection: Inspection, metadata: MediaMetadata, padding: Int = 0, now: Date = Date())
+        throws -> Data
+    {
         var out = Data()
         var udtaDone = false
         for child in inspection.moovChildren {
@@ -201,7 +203,9 @@ enum MP4InPlace {
 
     /// `udta` with a new `meta`, every other child it had, and none of the
     /// atoms that would compete with the tags just written.
-    private static func rebuildUserData(_ raw: Data?, box: ISOBox?, metadata: MediaMetadata, padding: Int) throws -> Data {
+    private static func rebuildUserData(_ raw: Data?, box: ISOBox?, metadata: MediaMetadata, padding: Int) throws
+        -> Data
+    {
         var kept: [Data] = []
         var oldMeta: (bytes: Data, box: ISOBox)?
         var metaPosition: Int?
@@ -240,7 +244,9 @@ enum MP4InPlace {
     ]
 
     /// `udta/meta`: a full box holding an `mdir` handler and the `ilst`.
-    private static func rebuildTagMeta(_ old: (bytes: Data, box: ISOBox)?, metadata: MediaMetadata, padding: Int) throws -> Data {
+    private static func rebuildTagMeta(_ old: (bytes: Data, box: ISOBox)?, metadata: MediaMetadata, padding: Int) throws
+        -> Data
+    {
         var preserved: [Data] = []
         var otherChildren: [Data] = []
         if let old {
@@ -263,7 +269,8 @@ enum MP4InPlace {
                     throw LatheError.invalidInput(reason: "udta/meta uses key/value metadata rather than iTunes atoms")
                 case "ilst":
                     let items = try ISOBMFF.children(
-                        of: bytes.subdata(in: Int(child.headerSize)..<bytes.count), base: child.payloadOffset, in: "ilst"
+                        of: bytes.subdata(in: Int(child.headerSize)..<bytes.count), base: child.payloadOffset,
+                        in: "ilst"
                     )
                     for item in items where !managedItemTypes.contains(item.type) {
                         let itemStart = Int(item.offset - child.offset)
@@ -290,10 +297,10 @@ enum MP4InPlace {
 
     /// The `mdir`/`appl` handler every iTunes-tagged file carries.
     private static func handler(padding: Int) -> Data {
-        var payload = Data(repeating: 0, count: 8)       // version/flags, pre_defined
+        var payload = Data(repeating: 0, count: 8)  // version/flags, pre_defined
         payload.append(ISOBMFF.fourCC("mdir"))
         payload.append(ISOBMFF.fourCC("appl"))
-        payload.append(Data(repeating: 0, count: 8))     // reserved
+        payload.append(Data(repeating: 0, count: 8))  // reserved
         payload.append(Data(repeating: 0, count: 1 + max(0, padding)))  // name, NUL-terminated
         return ISOBMFF.box("hdlr", payload)
     }
@@ -301,7 +308,9 @@ enum MP4InPlace {
     /// The children of a `meta` atom, which is a full box in an MP4 and a
     /// plain box in a QuickTime file. The first child tells which: it begins
     /// either four bytes in or eight.
-    private static func metaChildren(_ bytes: Data, box: ISOBox) throws -> (children: [ISOBox], payload: Data, base: UInt64) {
+    private static func metaChildren(_ bytes: Data, box: ISOBox) throws -> (
+        children: [ISOBox], payload: Data, base: UInt64
+    ) {
         let header = Int(box.headerSize)
         guard bytes.count >= header + 12 else {
             throw LatheError.invalidInput(reason: "a meta atom is too short to hold anything")
@@ -366,9 +375,10 @@ enum MP4InPlace {
             cursor += size
         }
 
-        let competing = Set(entries.indices.filter {
-            entries[$0].namespace == "mdta" && competingQuickTimeKeys.contains(entries[$0].name)
-        })
+        let competing = Set(
+            entries.indices.filter {
+                entries[$0].namespace == "mdta" && competingQuickTimeKeys.contains(entries[$0].name)
+            })
         guard !competing.isEmpty else { return raw }
 
         // Renumber: old 1-based index → new 1-based index, for the survivors.
@@ -394,7 +404,8 @@ enum MP4InPlace {
                 out.append(ISOBMFF.box("keys", newKeys))
             case "ilst":
                 let items = try ISOBMFF.children(
-                    of: bytes.subdata(in: Int(child.headerSize)..<bytes.count), base: child.payloadOffset, in: "meta/ilst"
+                    of: bytes.subdata(in: Int(child.headerSize)..<bytes.count), base: child.payloadOffset,
+                    in: "meta/ilst"
                 )
                 var list = Data()
                 for item in items {
@@ -513,7 +524,8 @@ enum MP4InPlace {
 
         // 2. Retire the old one. Eight bytes: the size stays, the label changes.
         let old = inspection.moov
-        let retired = old.headerSize == 16
+        let retired =
+            old.headerSize == 16
             ? Data(ISOBMFF.bytes(UInt32(1))) + ISOBMFF.fourCC("free")
             : Data(ISOBMFF.bytes(UInt32(old.size))) + ISOBMFF.fourCC("free")
         try file.write(retired, at: old.offset)
@@ -526,7 +538,8 @@ enum MP4InPlace {
         let need = UInt64(moov.count)
         var runs = freeRuns(in: boxes)
         if !runs.contains(where: { $0.size >= need }),
-           let last = runs.last, last.offset + last.size == end {
+            let last = runs.last, last.offset + last.size == end
+        {
             // The old moov was at the end and the new one is bigger. The
             // trailing copy sits right after the old slot, so the slot cannot
             // grow over it — unless a further copy takes over first.
@@ -676,9 +689,12 @@ enum ILSTItems {
         if !metadata.artwork.isEmpty {
             // One covr atom with one data child per image, which is how iTunes
             // stores several and how AVFoundation reads them back as items.
-            items.append(item("covr", metadata.artwork.map {
-                data($0.format == .png ? .png : .jpeg, $0.data)
-            }))
+            items.append(
+                item(
+                    "covr",
+                    metadata.artwork.map {
+                        data($0.format == .png ? .png : .jpeg, $0.data)
+                    }))
         }
 
         return items

@@ -60,7 +60,7 @@ enum HTTPStatus {
     /// a JSON body on failure, and it is far more useful than the status.
     private static func detail(_ body: Data) -> String? {
         guard !body.isEmpty,
-              let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+            let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
         else { return nil }
         for key in ["status_message", "message", "error", "errors"] {
             if let text = object[key] as? String { return text }

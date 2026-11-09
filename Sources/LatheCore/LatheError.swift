@@ -77,30 +77,30 @@ public enum LatheError: Error, Sendable, Equatable {
 extension LatheError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case let .cancelled(unit):
+        case .cancelled(let unit):
             unit.map { "Cancelled after unit \($0)." } ?? "Cancelled."
-        case let .encodeUnavailable(format):
+        case .encodeUnavailable(let format):
             "This system cannot encode \(format). (Runtime-probed, not version-gated.)"
-        case let .decodeUnavailable(format):
+        case .decodeUnavailable(let format):
             "This system cannot decode \(format)."
-        case let .unsupportedOnThisPlatform(feature):
+        case .unsupportedOnThisPlatform(let feature):
             "\(feature) is not available on this platform."
-        case let .invalidInput(reason):
+        case .invalidInput(let reason):
             "Invalid input: \(reason)"
-        case let .readFailed(path, reason):
+        case .readFailed(let path, let reason):
             "Could not read \(path): \(reason)"
-        case let .writeFailed(path, reason):
+        case .writeFailed(let path, let reason):
             "Could not write \(path): \(reason)"
-        case let .invalidConfiguration(reason):
+        case .invalidConfiguration(let reason):
             "Invalid configuration: \(reason)"
-        case let .encodingFailed(stage, code, reason):
+        case .encodingFailed(let stage, let code, let reason):
             code.map { "Encoding failed during \(stage) (code \($0)): \(reason)" }
                 ?? "Encoding failed during \(stage): \(reason)"
-        case let .insufficientMemory(required, available):
+        case .insufficientMemory(let required, let available):
             "Not enough memory headroom to start"
                 + (required.map { " (needs ~\($0) bytes" } ?? " (needs unknown")
                 + (available.map { ", \($0) available)." } ?? ", available unknown).")
-        case let .underlying(message):
+        case .underlying(let message):
             message
         }
     }
