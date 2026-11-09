@@ -72,7 +72,7 @@ public struct SWFRenderOptions: Sendable {
     /// Ruffle's rendering backend: `"wgpu-webgl"`, `"webgl"` or `"canvas"`.
     ///
     /// `nil` leaves the choice to Ruffle, and also allows one retry with
-    /// `"canvas"` if the chosen GPU renderer panics before the first frame —
+    /// `"canvas"` if the chosen GPU renderer panics at any point in the capture —
     /// see ``SWFRenderResult/renderer``. Naming one here means that renderer or
     /// a failure, with no substitute.
     public var preferredRenderer: String?
@@ -234,8 +234,7 @@ public struct SWFRenderResult: Sendable {
     /// `"webgl"`, `"canvas"` and so on — or `nil` if it did not say.
     ///
     /// Worth logging. When no renderer was requested and Ruffle's GPU renderer
-    /// panics before the first frame, the render is retried with `"canvas"`,
-    /// which is slower and draws some effects less faithfully; this is how a
+    /// panics, the render starts over with `"canvas"`, which is slower and draws some effects less faithfully; this is how a
     /// caller finds out that happened. The iOS Simulator is one place it does.
     public let renderer: String?
 

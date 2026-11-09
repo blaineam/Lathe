@@ -154,10 +154,13 @@ handled in `RenderHost/shim.html` or `RenderSchemeHandler.swift`:
   advances and a WebGL canvas without `preserveDrawingBuffer` is empty between
   draws. The page creates WebGL contexts with it.
 - **A GPU renderer can create its context and still panic.** In the iOS
-  Simulator both of Ruffle's WebGL renderers do, before the first frame, with
-  nothing but a console error to show for it. The page watches the console for
-  Rust panics, and when no renderer was requested it starts a fresh player with
-  Ruffle's canvas renderer; `SWFRenderResult.renderer` reports which one drew.
+  Simulator both of Ruffle's WebGL renderers do, intermittently, at any point in
+  a capture, with nothing but a console error to show for it. The page watches
+  the console for Rust panics, and when no renderer was requested the capture
+  starts over with Ruffle's canvas renderer; `SWFRenderResult.renderer` reports
+  which one drew. It has to be a new WebView: after a real panic, every player
+  from that page's WebAssembly instance refuses to load with "Ruffle is
+  panicking!", whatever renderer it asks for.
 - **The canvas is in device pixels** — 2× on a Retina display — so frames are
   scaled back to the movie's size.
 - **A resource directory named `Resources` breaks iOS codesigning**, which is why

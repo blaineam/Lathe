@@ -176,9 +176,45 @@ public final class SWFRenderer {
     /// `pageTestHooks` is merged into the page's configuration, for the suite
     /// only: it is how a test makes the page behave as if a renderer had
     /// panicked, which no real system does on demand.
+    ///
+    /// When Ruffle panics and the caller did not choose a renderer, the whole
+    /// capture starts over with `"canvas"`, in a new WebView: a panic leaves the
+    /// page's WebAssembly instance refusing every later player. See `shim.html`.
     func capture(
         mode: String, movie: URL?, runtime: RuffleRuntime, stage: SWFRenderStage, to directory: URL,
         options: SWFRenderOptions, pageTestHooks: [String: Bool] = [:]
+    ) async throws -> SWFRenderResult {
+        func attempt(_ options: SWFRenderOptions) async throws -> SWFRenderResult {
+            try await captureOnce(
+                mode: mode, movie: movie, runtime: runtime, stage: stage, to: directory,
+                options: options, pageTestHooks: pageTestHooks
+            )
+        }
+        do {
+            return try await attempt(options)
+        } catch let panic as PlayerPanic {
+            guard options.preferredRenderer == nil else { throw panic.asLatheError }
+            var fallback = options
+            fallback.preferredRenderer = "canvas"
+            do {
+                return try await attempt(fallback)
+            } catch let second as PlayerPanic {
+                throw second.asLatheError
+            }
+        }
+    }
+
+    /// A panic the page reported, kept apart from other failures so that
+    /// ``capture(mode:movie:runtime:stage:to:options:pageTestHooks:)`` can retry
+    /// it. Never leaves this type.
+    private struct PlayerPanic: Error {
+        let detail: String
+        var asLatheError: LatheError { .invalidInput(reason: "the player failed: \(detail)") }
+    }
+
+    private func captureOnce(
+        mode: String, movie: URL?, runtime: RuffleRuntime, stage: SWFRenderStage, to directory: URL,
+        options: SWFRenderOptions, pageTestHooks: [String: Bool]
     ) async throws -> SWFRenderResult {
         let plan = try options.resolved(againstStageOf: stage)
 
@@ -260,9 +296,18 @@ public final class SWFRenderer {
             try Task.checkCancellation()
             try await failIfPageReportedAnError(webView)
 
-            let (data, viaFrameCallback) = try await captureOneFrame(
-                webView, frameCallbackTimeout: options.frameCallbackTimeout
-            )
+            let data: Data
+            let viaFrameCallback: Bool
+            do {
+                (data, viaFrameCallback) = try await captureOneFrame(
+                    webView, frameCallbackTimeout: options.frameCallbackTimeout
+                )
+            } catch {
+                // A panic replaces the stage, so a capture that lands just after
+                // one fails with "no canvas". Report the cause if the page has it.
+                try await failIfPageReportedAnError(webView)
+                throw error
+            }
             if viaFrameCallback { readInFrameCallback += 1 }
 
             let url = directory.appendingPathComponent(String(format: "frame-%05d.png", index + 1))
@@ -275,6 +320,9 @@ public final class SWFRenderer {
             }
             frames.append(url)
         }
+
+        // A panic during the last frames would otherwise pass unnoticed.
+        try await failIfPageReportedAnError(webView)
 
         let renderer = try? await webView.callAsyncJavaScript(
             "return window.latheState.renderer;", contentWorld: .page
@@ -317,6 +365,9 @@ public final class SWFRenderer {
             if status == "ready" { return }
             try await Task.sleep(for: .milliseconds(50))
         }
+        // A starved page can panic in the last moments of the wait, and a panic
+        // can still be retried where a timeout cannot.
+        try await failIfPageReportedAnError(webView)
         // What the page was doing when time ran out is the only evidence there
         // is — nobody has an inspector on this WebView — so it goes in the error.
         let pageState = (try? await webView.callAsyncJavaScript(
@@ -335,11 +386,21 @@ public final class SWFRenderer {
 
     private func failIfPageReportedAnError(_ webView: WKWebView) async throws {
         let state = try await webView.callAsyncJavaScript(
-            "return { status: window.latheState.status, detail: window.latheState.detail };",
+            // `lathePanic` directly, not only the status the page's watch sets
+            // from it: that watch is a timer, and a hidden page's timers can run
+            // once a second, which is longer than a short capture.
+            """
+            return { status: window.latheState.status, detail: window.latheState.detail,
+                     panicked: window.latheState.panicked === true, panic: window.lathePanic };
+            """,
             contentWorld: .page
         ) as? [String: Any]
+        if let panic = state?["panic"] as? String {
+            throw PlayerPanic(detail: "Ruffle panicked: \(panic)")
+        }
         guard (state?["status"] as? String) == "error" else { return }
         let detail = (state?["detail"] as? String) ?? "no detail"
+        if (state?["panicked"] as? Bool) == true { throw PlayerPanic(detail: detail) }
         throw LatheError.invalidInput(reason: "the player failed: \(detail)")
     }
 

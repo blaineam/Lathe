@@ -103,7 +103,8 @@ public struct SWFThumbnail: Sendable, Equatable {
     public let output: URL
     public let pixelSize: CGSize
     public let byteCount: Int
-    /// Seconds into the movie that the picture was taken at.
+    /// Seconds into the capture that the picture was taken at. The movie starts
+    /// a moment before the capture does, so it is at least this far along.
     public let capturedAtSeconds: Double
     /// Every sampled frame was a single flat colour, so the picture is what
     /// the movie showed, which is nothing. Worth telling the person.

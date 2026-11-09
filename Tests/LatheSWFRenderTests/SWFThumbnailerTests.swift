@@ -135,15 +135,20 @@ struct SWFThumbnailerTests {
         }
     }
 
-    /// The search, against a movie that opens on three seconds of
+    /// The search, against a movie that opens on six seconds of
     /// bare stage. Taken from the first frame, the picture is empty; with
     /// the search on, the thumbnail is a later frame with the square in it.
+    ///
+    /// Not asserted: that `capturedAtSeconds` went up. It counts from the start
+    /// of the capture, and the movie is already playing by then, so a slow start
+    /// (a cold iOS Simulator) can put the first captured frame past the bare
+    /// stage. The six seconds are that same margin for the blank assertion.
     @Test("skipping plain frames finds the first frame with something on it")
     func searchFindsALaterFrame() async throws {
         let directory = try scratch("search")
         defer { try? FileManager.default.removeItem(at: directory) }
         let movie = directory.appendingPathComponent("slow.swf")
-        try AnimatedSWF.movie(frameCount: 32, side: 60, step: 10, emptyFrames: 24).write(to: movie)
+        try AnimatedSWF.movie(frameCount: 56, side: 60, step: 10, emptyFrames: 48).write(to: movie)
 
         let plain = try await SWFThumbnailer().thumbnail(
             of: movie, to: directory.appendingPathComponent("plain.webp"),
@@ -155,9 +160,8 @@ struct SWFThumbnailerTests {
             of: movie, to: directory.appendingPathComponent("found.webp"),
             options: SWFThumbnailOptions(
                 longestSide: 80, position: .start, minimumDetail: 0.05,
-                searchSeconds: 6, startupTimeout: Self.startup))
+                searchSeconds: 10, startupTimeout: Self.startup))
         #expect(!found.isBlank)
-        #expect(found.capturedAtSeconds > plain.capturedAtSeconds)
         #expect(found.byteCount > 0)
     }
 

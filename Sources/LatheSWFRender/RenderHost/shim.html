@@ -166,8 +166,9 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error("unhandled rejection: " + event.reason);
 });
 
-function fail(detail) {
+function fail(detail, panicked = false) {
   window.latheState.status = "error";
+  window.latheState.panicked = panicked;
   const said = window.latheLog.length ? " [console: " + window.latheLog.join(" | ") + "]" : "";
   window.latheState.detail = String(detail) + said;
 }
@@ -208,6 +209,10 @@ function scratchContext(width, height) {
 // at this size, whatever size the player's canvas turns out to be.
 let outputSize = null;
 
+// For the suite: how many reads should come back empty, which no real system
+// does on demand.
+let emptyReads = 0;
+
 function readCanvas(canvas) {
   const sourceWidth = canvas.width, sourceHeight = canvas.height;
   if (!sourceWidth || !sourceHeight) {
@@ -219,16 +224,31 @@ function readCanvas(canvas) {
   // which is what makes "the frames are the movie's size" true on every screen.
   const width = outputSize ? outputSize.width : sourceWidth;
   const height = outputSize ? outputSize.height : sourceHeight;
-  const context = scratchContext(width, height);
-  context.clearRect(0, 0, width, height);
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  // Copy through a 2D canvas rather than calling toDataURL on the source: the
-  // scaling above needs the blit anyway, and it reads every backend the same
-  // way. What makes a WebGL source readable here at all is
-  // `preserveWebGLDrawingBuffers`, below.
-  context.drawImage(canvas, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
-  return scratch.toDataURL("image/png");
+  // "data:," is how toDataURL says the canvas has no pixels to give, without
+  // throwing: its buffer could not be allocated, which the iOS Simulator does
+  // when GPU memory is short. A canvas in that state stays that way, and this
+  // one is reused for every frame, so the second try is on a new one.
+  let url = "";
+  for (let attempt = 0; attempt < 2 && url.length < 32; attempt += 1) {
+    if (attempt > 0) scratch = null;
+    const context = scratchContext(width, height);
+    context.clearRect(0, 0, width, height);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    // Copy through a 2D canvas rather than calling toDataURL on the source: the
+    // scaling above needs the blit anyway, and it reads every backend the same
+    // way. What makes a WebGL source readable here at all is
+    // `preserveWebGLDrawingBuffers`, below.
+    context.drawImage(canvas, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height);
+    url = scratch.toDataURL("image/png");
+    if (emptyReads > 0) { emptyReads -= 1; url = "data:,"; }
+  }
+  if (url.length < 32) {
+    throw new Error("the page read " + JSON.stringify(url) + " from a " + width + "x" + height
+      + " copy of a " + sourceWidth + "x" + sourceHeight + " stage (renderer "
+      + window.latheState.renderer + ", frame " + window.latheState.frameCount + ")");
+  }
+  return url;
 }
 
 // Captures one frame, as a `data:image/png;base64,...` URL.
@@ -403,11 +423,15 @@ function preserveWebGLDrawingBuffers() {
 // the same as "its shaders compile". In the iOS Simulator both of Ruffle's
 // WebGL renderers create a context and then panic — one compiling its shaders,
 // the other on a missing capability — and a device or WebKit version could do
-// the same. So when the caller has not chosen a renderer and the player panics
-// before its first frame, it is torn down and started again with Ruffle's
-// canvas renderer, which needs nothing from the GPU. `latheState.renderer`
-// says which one drew the frames. A caller that did choose one gets its
-// choice's failure, not a quiet substitute.
+// the same. So a panic is reported as a panic (`latheState.panicked`), and when
+// the caller has not chosen a renderer, SWFRenderer starts over in a NEW WebView
+// with Ruffle's canvas renderer, which needs nothing from the GPU.
+// `latheState.renderer` says which one drew the frames. A caller that did choose
+// one gets its choice's failure, not a quiet substitute.
+//
+// The retry cannot happen on this page. A real panic marks the WebAssembly
+// instance as dead, and every player created from it afterwards refuses to load
+// with "Ruffle is panicking!", whatever renderer it was asked for.
 async function startRuffle(config) {
   preserveWebGLDrawingBuffers();
 
@@ -427,17 +451,8 @@ async function startRuffle(config) {
     return;
   }
 
-  const renderers = config.preferredRenderer ? [config.preferredRenderer] : [null, "canvas"];
-  for (let index = 0; index < renderers.length; index += 1) {
-    const outcome = await playWith(config, renderers[index]);
-    if (outcome.ready) return;
-    if (!outcome.panicked || index === renderers.length - 1) {
-      fail(outcome.detail);
-      return;
-    }
-    console.warn("Ruffle panicked starting its " + (window.latheState.renderer || "default")
-      + " renderer; starting again with " + renderers[index + 1]);
-  }
+  const outcome = await playWith(config, config.preferredRenderer || null);
+  if (!outcome.ready) fail(outcome.detail, outcome.panicked);
 }
 
 // One attempt: a fresh player, the movie, and a watch that settles once — ready,
@@ -491,7 +506,7 @@ function playWith(config, renderer) {
     player.addEventListener("error", (event) => {
       const detail = "Ruffle error: "
         + ((event && event.error) || (event && event.message) || "unknown");
-      if (settled) fail(detail);
+      if (settled) fail(panicDetail() || detail, panicDetail() !== null);
       else finish({ ready: false, panicked: panicDetail() !== null, detail: panicDetail() || detail });
     });
     player.addEventListener("loadeddata", () => { movieLoaded = true; });
@@ -527,7 +542,7 @@ function playWith(config, renderer) {
       if (window.latheState.status === "error") { clearInterval(poll); return; }
       const panic = panicDetail();
       if (panic) {
-        if (settled) { fail(panic); clearInterval(poll); }
+        if (settled) { fail(panic, true); clearInterval(poll); }
         else finish({ ready: false, panicked: true, detail: panic });
         return;
       }
@@ -539,6 +554,9 @@ function playWith(config, renderer) {
       if (frames < drawnAfter) return;
       window.latheState.status = "ready";
       finish({ ready: true });
+      if (hooks.panicAfterReady && renderer === null) {
+        console.error("panicked at lathe-test: simulated renderer panic");
+      }
     }, 20);
   });
 }
@@ -551,6 +569,8 @@ window.latheInit = function (config) {
     window.latheState.status = "loading";
     sizeStage(config.width, config.height);
     outputSize = { width: config.width, height: config.height };
+    const hooks = config.testHooks || {};
+    emptyReads = hooks.emptyRead ? 1 : hooks.emptyReads ? 2 : 0;
     if (config.mode === "selftest") {
       startSelfTest(config);
     } else {

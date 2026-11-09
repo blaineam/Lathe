@@ -98,8 +98,14 @@ struct RuffleRenderTests {
     /// The retry itself. The iOS Simulator's renderer panic is intermittent, so
     /// it cannot be relied on to exercise this; the page is told to report a
     /// panic on its first attempt instead, in the same words a real one uses.
-    @Test("a renderer that panics before the first frame is retried with canvas")
-    func panickingRendererFallsBackToCanvas() async throws {
+    /// A simulated panic does not poison the WebAssembly instance as a real one
+    /// does, so only the simulator's real panics prove the retry needs a new
+    /// page; the thumbnail suite is what fails there if it stops getting one.
+    @Test(
+        "a renderer that panics, starting up or mid-capture, is retried with canvas",
+        arguments: ["panicFirstRenderer", "panicAfterReady"]
+    )
+    func panickingRendererFallsBackToCanvas(hook: String) async throws {
         let directory = temporaryDirectory("retry")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -116,7 +122,7 @@ struct RuffleRenderTests {
             mode: "ruffle", movie: movie, runtime: runtime, stage: stage,
             to: directory.appendingPathComponent("frames"),
             options: SWFRenderOptions(framesPerSecond: 16, limit: .frames(8), startupTimeout: Self.startup),
-            pageTestHooks: ["panicFirstRenderer": true]
+            pageTestHooks: [hook: true]
         )
 
         #expect(result.renderer == "canvas")
@@ -125,6 +131,42 @@ struct RuffleRenderTests {
             if let x = try Self.squareLeftEdge(in: try Self.decode(url)) { positions.append(x) }
         }
         #expect(positions.count == result.frames.count, "positions \(positions)")
+    }
+
+    /// A canvas with no buffer stays that way, so one empty read must not cost
+    /// the capture; two in a row, from two different canvases, say so plainly.
+    @Test("an empty read gets a new canvas, and a second one is reported")
+    func emptyReadRetriesOnANewCanvas() async throws {
+        let directory = temporaryDirectory("empty-read")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let movie = directory.appendingPathComponent("square.swf")
+        try AnimatedSWF.movie().write(to: movie)
+
+        let runtime = try #require(RuffleRuntime.bundled)
+        let stage = SWFRenderStage(
+            pixelSize: CGSize(width: 160, height: 120), framesPerSecond: 8, declaredFrameCount: 4
+        )
+        func capture(hook: String) async throws -> SWFRenderResult {
+            try await SWFRenderer(runtime: runtime).capture(
+                mode: "ruffle", movie: movie, runtime: runtime, stage: stage,
+                to: directory.appendingPathComponent(hook),
+                options: SWFRenderOptions(limit: .frames(2), startupTimeout: Self.startup),
+                pageTestHooks: [hook: true]
+            )
+        }
+
+        let result = try await capture(hook: "emptyRead")
+        #expect(result.frames.count == 2)
+        for url in result.frames.frames {
+            #expect(try Self.squareLeftEdge(in: try Self.decode(url)) != nil)
+        }
+        do {
+            _ = try await capture(hook: "emptyReads")
+            Issue.record("expected a canvas that never gives pixels to fail the render")
+        } catch {
+            #expect("\(error)".contains("data:,"), "\(error)")
+        }
     }
 
     /// And a caller who named a renderer gets that renderer's failure, not a
