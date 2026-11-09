@@ -131,7 +131,7 @@ struct SWFThumbnailerTests {
             return
         }
         guard case .made = outcomes[2] else {
-            Issue.record("the failure should not have stopped the batch")
+            Issue.record("the failure should not have stopped the batch: \(outcomes[2])")
             return
         }
     }
